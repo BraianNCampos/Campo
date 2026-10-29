@@ -220,9 +220,14 @@ describe('Autorización por planta (e2e)', () => {
         .send({ email: u.email, password: 'engineer-password-123' })
         .expect(401);
 
-      // reactivar devuelve el acceso con el mismo token
+      // reactivar NO resucita el token anterior (desactivar sube token_version, §9.1): hay que volver a entrar
       await api.patch(`/api/users/${u.id}`, admin).send({ active: true }).expect(200);
-      await api.get('/api/alarm-rules', u.token).expect(200);
+      await api.get('/api/alarm-rules', u.token).expect(401);
+      const relogin = await request(http)
+        .post('/api/auth/login')
+        .send({ email: u.email, password: 'engineer-password-123' })
+        .expect(200);
+      await api.get('/api/alarm-rules', (relogin.body as LoginResponse).accessToken).expect(200);
     });
 
     it('el rol efectivo es el de la base, no el del token', async () => {
@@ -581,11 +586,19 @@ describe('Autorización por planta (e2e)', () => {
         expect(solo.users.users[0]).toMatchObject({ role: 'admin', active: true });
         // cambios que no lo dejan sin admin siguen permitidos
         await patch(seed.id, tok, { role: 'admin', password: 'nueva-clave-larga-1' }).expect(200);
+        // cambiar la contraseña revoca el token (§9.1): se vuelve a entrar con la nueva
+        await request(h).get('/api/me').set(bearer(tok)).expect(401);
+        const tokNew = (
+          await request(h)
+            .post('/api/auth/login')
+            .send({ email: seed.email, password: 'nueva-clave-larga-1' })
+            .expect(200)
+        ).body.accessToken as string;
 
         // segundo admin
         const second = await request(h)
           .post('/api/users')
-          .set(bearer(tok))
+          .set(bearer(tokNew))
           .send({ email: 'admin2@campo.test', password: 'clave-admin-larga-2', role: 'admin' })
           .expect(201);
         const tok2 = (

@@ -1,10 +1,12 @@
 import { randomUUID } from 'node:crypto';
-import { redisKeys, type AlarmEvent } from '@campo/shared';
+import { redisKeys, type AlarmEvent, type AuditEntry, type Plant } from '@campo/shared';
 import type Redis from 'ioredis';
 import type { AlarmRecord, AlarmRule, AlarmRuleInput } from '../../src/alarms/alarm.types';
 import { AlarmRulesRepository } from '../../src/alarms/alarm-rules.repository';
 import { AlarmsRepository, ListAlarmsFilter } from '../../src/alarms/alarms.repository';
-import { Asset, AssetsRepository } from '../../src/plants/assets.repository';
+import { AuditRepository, AuditQuery, NewAuditEntry } from '../../src/audit/audit.repository';
+import { Asset, AssetPatch, AssetsRepository } from '../../src/plants/assets.repository';
+import { PlantsRepository, RemoveResult } from '../../src/plants/plants.repository';
 import { UpdateResult, User, UserPatch, UsersRepository } from '../../src/auth/users.repository';
 import { PlantCatalog } from '../../src/auth/plant-catalog';
 import { HistoryPlan } from '../../src/history/history.planner';
@@ -34,7 +36,13 @@ export class MemoryUsersRepository extends UsersRepository {
     if (this.users.some((u) => u.email.toLowerCase() === input.email.toLowerCase())) {
       return Promise.resolve(null);
     }
-    const user: User = { id: randomUUID(), active: true, plants: [], ...input };
+    const user: User = {
+      id: randomUUID(),
+      active: true,
+      tokenVersion: 0,
+      plants: [],
+      ...input,
+    };
     this.users.push(user);
     return Promise.resolve(user);
   }
@@ -48,7 +56,12 @@ export class MemoryUsersRepository extends UsersRepository {
       const others = this.users.filter((u) => u.id !== id && u.role === 'admin' && u.active);
       if (others.length === 0) return Promise.resolve({ status: 'last_admin' });
     }
-    Object.assign(cur, { role, active, passwordHash: patch.passwordHash ?? cur.passwordHash });
+    Object.assign(cur, {
+      role,
+      active,
+      passwordHash: patch.passwordHash ?? cur.passwordHash,
+      tokenVersion: cur.tokenVersion + (patch.revokeTokens ? 1 : 0),
+    });
     return Promise.resolve({ status: 'ok', user: cur });
   }
 
@@ -60,10 +73,95 @@ export class MemoryUsersRepository extends UsersRepository {
   }
 }
 
-/** Una planta existe si tiene activos (catálogo) o estado vivo en Redis. */
+export class MemoryAssetsRepository extends AssetsRepository {
+  constructor(readonly assets: Asset[] = []) {
+    super();
+  }
+
+  listByPlant(plant: string): Promise<Asset[]> {
+    return Promise.resolve(this.assets.filter((a) => a.plant === plant));
+  }
+
+  get(plant: string, id: string): Promise<Asset | null> {
+    return Promise.resolve(this.assets.find((a) => a.plant === plant && a.id === id) ?? null);
+  }
+
+  async create(asset: Asset): Promise<Asset | null> {
+    if (await this.get(asset.plant, asset.id)) return null;
+    this.assets.push({ ...asset });
+    return { ...asset };
+  }
+
+  async update(plant: string, id: string, patch: AssetPatch): Promise<Asset | null> {
+    const cur = this.assets.find((a) => a.plant === plant && a.id === id);
+    if (!cur) return null;
+    const defined = Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined));
+    Object.assign(cur, defined);
+    return Promise.resolve({ ...cur });
+  }
+
+  delete(plant: string, id: string): Promise<boolean> {
+    const i = this.assets.findIndex((a) => a.plant === plant && a.id === id);
+    if (i >= 0) this.assets.splice(i, 1);
+    return Promise.resolve(i >= 0);
+  }
+}
+
+/** Tabla `plants` en memoria; las plantas con activos cuentan como registradas (como en SQL). */
+export class MemoryPlantsRepository extends PlantsRepository {
+  readonly names = new Map<string, string>();
+
+  constructor(
+    private readonly assets: MemoryAssetsRepository,
+    private readonly users: MemoryUsersRepository,
+  ) {
+    super();
+  }
+
+  private count(id: string): number {
+    return this.assets.assets.filter((a) => a.plant === id).length;
+  }
+
+  list(ids?: string[]): Promise<Plant[]> {
+    const all = new Set([...this.names.keys(), ...this.assets.assets.map((a) => a.plant)]);
+    return Promise.resolve(
+      [...all]
+        .filter((id) => !ids || ids.includes(id))
+        .sort()
+        .map((id) => ({ id, name: this.names.get(id) ?? id, assets: this.count(id) })),
+    );
+  }
+
+  isRegistered(id: string): Promise<boolean> {
+    return Promise.resolve(this.names.has(id) || this.count(id) > 0);
+  }
+
+  async create(id: string, name: string): Promise<boolean> {
+    if (await this.isRegistered(id)) return false;
+    this.names.set(id, name);
+    return true;
+  }
+
+  rename(id: string, name: string): Promise<Plant> {
+    this.names.set(id, name);
+    return Promise.resolve({ id, name, assets: this.count(id) });
+  }
+
+  remove(id: string): Promise<RemoveResult> {
+    if (this.count(id) > 0) return Promise.resolve({ status: 'has_assets' });
+    const unassigned = this.users.users.filter((u) => u.plants.includes(id));
+    if (!this.names.delete(id) && unassigned.length === 0) {
+      return Promise.resolve({ status: 'not_found' });
+    }
+    for (const u of unassigned) u.plants = u.plants.filter((p) => p !== id);
+    return Promise.resolve({ status: 'ok', unassignedUserIds: unassigned.map((u) => u.id) });
+  }
+}
+
+/** Existe si está registrada (plants/activos) o tiene estado vivo en Redis. */
 export class MemoryPlantCatalog extends PlantCatalog {
   constructor(
-    private readonly assets: Asset[],
+    private readonly plants: PlantsRepository,
     private readonly redis: Redis,
   ) {
     super();
@@ -71,19 +169,39 @@ export class MemoryPlantCatalog extends PlantCatalog {
 
   async exists(plant: string): Promise<boolean> {
     return (
-      this.assets.some((a) => a.plant === plant) ||
+      (await this.plants.isRegistered(plant)) ||
       (await this.redis.exists(redisKeys.state(plant))) > 0
     );
   }
 }
 
-export class MemoryAssetsRepository extends AssetsRepository {
-  constructor(private readonly assets: Asset[] = []) {
-    super();
+export class MemoryAuditRepository extends AuditRepository {
+  readonly entries: AuditEntry[] = [];
+  /** Para simular un fallo de la tabla de auditoría. */
+  failWith?: Error;
+  private seq = 0;
+
+  insert(e: NewAuditEntry): Promise<void> {
+    if (this.failWith) return Promise.reject(this.failWith);
+    this.entries.push({ ...e, id: String(++this.seq), ts: Date.now() });
+    return Promise.resolve();
   }
 
-  listByPlant(plant: string): Promise<Asset[]> {
-    return Promise.resolve(this.assets.filter((a) => a.plant === plant));
+  list(q: AuditQuery): Promise<AuditEntry[]> {
+    const actor = q.actor?.toLowerCase();
+    return Promise.resolve(
+      this.entries
+        .filter(
+          (e) =>
+            (!q.before || Number(e.id) < Number(q.before)) &&
+            (!actor ||
+              e.actorId?.toLowerCase() === actor ||
+              e.actorEmail?.toLowerCase() === actor) &&
+            (!q.action || e.action === q.action),
+        )
+        .sort((a, b) => Number(b.id) - Number(a.id))
+        .slice(0, q.limit),
+    );
   }
 }
 

@@ -6,6 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import type { ManagedUser } from '@campo/shared';
+import { AuditService } from '../audit/audit.service';
 import { AccessService } from '../auth/access.service';
 import { AuthService } from '../auth/auth.service';
 import type { AuthUser } from '../auth/auth.types';
@@ -29,6 +30,7 @@ export class UsersService {
     private readonly users: UsersRepository,
     private readonly auth: AuthService,
     private readonly access: AccessService,
+    private readonly audit: AuditService,
   ) {}
 
   async list(): Promise<ManagedUser[]> {
@@ -47,6 +49,11 @@ export class UsersService {
         ? ((await this.users.setPlants(created.id, dto.plants)) ?? created)
         : created;
     this.log.log({ msg: 'usuario creado', actorId: actor.id, userId: created.id, role: dto.role });
+    await this.audit.record(actor, 'user.create', `user:${created.id}`, {
+      email: created.email,
+      role: created.role,
+      plants: withPlants.plants,
+    });
     return toManagedUser(withPlants);
   }
 
@@ -54,10 +61,15 @@ export class UsersService {
     if (dto.role === undefined && dto.active === undefined && dto.password === undefined) {
       throw new BadRequestException('Nada que modificar (role, active o password)');
     }
+    const changed = Object.keys(dto).filter(
+      (k) => (dto as Record<string, unknown>)[k] !== undefined,
+    );
     const res = await this.users.update(id, {
       role: dto.role,
       active: dto.active,
       passwordHash: dto.password ? await this.auth.hashPassword(dto.password) : undefined,
+      // Cambiar la contraseña o desactivar cierra las sesiones existentes (token_version + 1).
+      revokeTokens: dto.password !== undefined || dto.active === false,
     });
     if (res.status === 'not_found') throw new NotFoundException('Usuario no encontrado');
     if (res.status === 'last_admin') {
@@ -68,8 +80,25 @@ export class UsersService {
       msg: 'usuario modificado',
       actorId: actor.id,
       userId: id,
-      changed: Object.keys(dto),
+      changed,
     });
+    await this.audit.record(actor, 'user.update', `user:${id}`, {
+      changed, // nombres de campo; el valor de `password` nunca se registra
+      role: dto.role,
+      active: dto.active,
+    });
+    return toManagedUser(res.user);
+  }
+
+  /** Cierra todas las sesiones del usuario (JWT y WebSockets abiertos) sin tocar su cuenta. */
+  async revoke(id: string, actor: AuthUser): Promise<ManagedUser> {
+    const res = await this.users.update(id, { revokeTokens: true });
+    if (res.status === 'not_found' || res.status === 'last_admin') {
+      throw new NotFoundException('Usuario no encontrado');
+    }
+    await this.access.invalidate(id);
+    this.log.log({ msg: 'sesiones de usuario revocadas', actorId: actor.id, userId: id });
+    await this.audit.record(actor, 'user.revoke', `user:${id}`);
     return toManagedUser(res.user);
   }
 
@@ -78,6 +107,7 @@ export class UsersService {
     if (!user) throw new NotFoundException('Usuario no encontrado');
     await this.access.invalidate(id);
     this.log.log({ msg: 'plantas de usuario actualizadas', actorId: actor.id, userId: id, plants });
+    await this.audit.record(actor, 'user.plants', `user:${id}`, { plants: user.plants });
     return toManagedUser(user);
   }
 }

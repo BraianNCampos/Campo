@@ -163,6 +163,35 @@ describe('AccessService', () => {
     });
   });
 
+  describe('versión de sesión (tv)', () => {
+    it('un token con tv distinto del vigente se trata como sesión no válida (null)', async () => {
+      const svc = make();
+      await expect(svc.getAccess(id, { tv: 0 })).resolves.toMatchObject({ id });
+      await users.update(id, { revokeTokens: true });
+      await svc.invalidate(id);
+      await expect(svc.getAccess(id, { tv: 0 })).resolves.toBeNull();
+      await expect(svc.getAccess(id, { tv: 1 })).resolves.toMatchObject({ id });
+      // sin `tv` (llamadas internas) no se comprueba
+      await expect(svc.getAccess(id)).resolves.toMatchObject({ id });
+    });
+
+    it('la comprobación también funciona desde la caché y sin caché', async () => {
+      for (const ttl of [30_000, 0]) {
+        const svc = make(ttl);
+        const before = users.reads;
+        await svc.getAccess(id, { tv: users.users[0].tokenVersion });
+        await expect(svc.getAccess(id, { tv: 99 })).resolves.toBeNull();
+        expect(users.reads - before).toBe(ttl > 0 ? 1 : 2);
+      }
+    });
+
+    it('un usuario inactivo es null aunque el tv coincida', async () => {
+      const svc = make(0);
+      await users.update(id, { active: false });
+      await expect(svc.getAccess(id, { tv: 0 })).resolves.toBeNull();
+    });
+  });
+
   it('onModuleDestroy da de baja la suscripción al bus', async () => {
     const svc = make();
     await svc.getAccess(id);

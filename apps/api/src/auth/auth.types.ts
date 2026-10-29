@@ -9,12 +9,15 @@ export interface TokenClaims {
   id: string;
   email: string;
   role: Role;
+  /** Versión de sesión del token (`tv`). Los emitidos antes de existir la revocación no la llevan: 0. */
+  tv: number;
 }
 
 export interface JwtPayload {
   sub: string;
   email: string;
   role: Role;
+  tv?: number;
 }
 
 export type AuthenticatedRequest = Request & { user?: AuthUser };

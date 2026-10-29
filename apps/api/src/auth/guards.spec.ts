@@ -26,7 +26,7 @@ function ctx(
 
 describe('JwtAuthGuard', () => {
   // El token afirma "admin", pero manda lo que diga la base.
-  const claims = { id: 'u1', email: 'a@b.c', role: 'admin' as const };
+  const claims = { id: 'u1', email: 'a@b.c', role: 'admin' as const, tv: 0 };
   const fromDb: AuthUser = { id: 'u1', email: 'a@b.c', role: 'viewer', plants: ['demo'] };
   const verify = jest.fn((t: string) => Promise.resolve(t === 'good' ? claims : null));
   const getAccess = jest.fn((id: string) => Promise.resolve(id === 'u1' ? fromDb : null));
@@ -77,6 +77,20 @@ describe('JwtAuthGuard', () => {
       .catch((e: unknown) => e);
     expect(err).toBeInstanceOf(SessionInvalid);
     expect((err as SessionInvalid).userId).toBe('borrado');
+  });
+
+  it('comprueba la versión de sesión del token: se la pasa a getAccess y su rechazo es un 401', async () => {
+    verify.mockResolvedValueOnce({ ...claims, tv: 2 });
+    await expect(
+      guard.canActivate(ctx({ headers: { authorization: 'Bearer good' } })),
+    ).resolves.toBe(true);
+    expect(getAccess).toHaveBeenCalledWith('u1', { tv: 2 });
+
+    verify.mockResolvedValueOnce({ ...claims, tv: 1 });
+    getAccess.mockResolvedValueOnce(null); // tv != vigente -> AccessService devuelve null
+    await expect(
+      guard.canActivate(ctx({ headers: { authorization: 'Bearer good' } })),
+    ).rejects.toBeInstanceOf(SessionInvalid);
   });
 
   it('no interfiere con contextos no HTTP', async () => {

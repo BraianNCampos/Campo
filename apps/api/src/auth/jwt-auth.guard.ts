@@ -13,7 +13,8 @@ export class SessionInvalid extends UnauthorizedException {
 }
 
 /**
- * Autenticación: firma del JWT y, en CADA petición, usuario vigente en la base (vía caché de 30 s).
+ * Autenticación: firma del JWT y, en CADA petición, usuario vigente en la base (vía caché de 30 s) y
+ * versión de sesión `tv` del token igual a la actual (si no: 401, token revocado).
  * El rol y las plantas del request salen de la base, no del token.
  */
 @Injectable()
@@ -38,7 +39,7 @@ export class JwtAuthGuard implements CanActivate {
     if (!match) throw new UnauthorizedException('Falta el token Bearer');
     const claims = await this.auth.verifyToken(match[1]);
     if (!claims) throw new UnauthorizedException('Token inválido o expirado');
-    const user = await this.access.getAccess(claims.id);
+    const user = await this.access.getAccess(claims.id, { tv: claims.tv });
     if (!user) throw new SessionInvalid(claims.id);
     req.user = user;
     return true;

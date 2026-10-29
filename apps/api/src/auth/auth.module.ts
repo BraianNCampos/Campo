@@ -4,6 +4,7 @@ import { JwtModule } from '@nestjs/jwt';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { APP_CONFIG, AppConfig } from '../config/app-config';
 import { AccessService } from './access.service';
+import { AccountService } from './account.service';
 import { AdminSeeder } from './admin-seeder';
 import { AuthInvalidationBus, RedisInvalidationBus } from './auth-invalidation';
 import { AuthController } from './auth.controller';
@@ -38,6 +39,7 @@ import { PgUsersRepository, UsersRepository } from './users.repository';
   providers: [
     AuthService,
     AccessService,
+    AccountService,
     AdminSeeder,
     PlantAccessGuard,
     { provide: UsersRepository, useClass: PgUsersRepository },

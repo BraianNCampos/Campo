@@ -9,6 +9,8 @@ export interface User {
   passwordHash: string;
   role: Role;
   active: boolean;
+  /** Versión de sesión: el JWT lleva `tv` y sólo vale mientras coincida (revocación de tokens). */
+  tokenVersion: number;
   /** Plantas asignadas (tabla user_plants), ordenadas. Sin asignaciones = []. */
   plants: string[];
 }
@@ -17,6 +19,8 @@ export interface UserPatch {
   role?: Role;
   active?: boolean;
   passwordHash?: string;
+  /** Incrementa `token_version`: invalida todos los tokens emitidos hasta ahora. */
+  revokeTokens?: boolean;
 }
 
 export type UpdateResult =
@@ -43,6 +47,7 @@ interface UserRow {
   password_hash: string;
   role: Role;
   active: boolean;
+  token_version: number;
   plants: string[];
 }
 
@@ -52,10 +57,11 @@ const toUser = (r: UserRow): User => ({
   passwordHash: r.password_hash,
   role: r.role,
   active: r.active,
+  tokenVersion: r.token_version,
   plants: r.plants ?? [],
 });
 
-const SELECT_USER = `SELECT u.id, u.email, u.password_hash, u.role, u.active,
+const SELECT_USER = `SELECT u.id, u.email, u.password_hash, u.role, u.active, u.token_version,
   ARRAY(SELECT up.plant FROM user_plants up WHERE up.user_id = u.id ORDER BY up.plant) AS plants
   FROM users u`;
 
@@ -93,7 +99,7 @@ export class PgUsersRepository extends UsersRepository {
     const { rows } = await this.pool.query<UserRow>(
       `INSERT INTO users (email, password_hash, role) VALUES ($1, $2, $3)
        ON CONFLICT DO NOTHING
-       RETURNING id, email, password_hash, role, active, ARRAY[]::text[] AS plants`,
+       RETURNING id, email, password_hash, role, active, token_version, ARRAY[]::text[] AS plants`,
       [input.email, input.passwordHash, input.role],
     );
     return rows[0] ? toUser(rows[0]) : null;
@@ -124,12 +130,13 @@ export class PgUsersRepository extends UsersRepository {
           return { status: 'last_admin' };
         }
       }
+      const tokenVersion = before.token_version + (patch.revokeTokens ? 1 : 0);
       await client.query(
-        'UPDATE users SET role = $2, active = $3, password_hash = $4 WHERE id = $1',
-        [id, role, active, patch.passwordHash ?? before.password_hash],
+        'UPDATE users SET role = $2, active = $3, password_hash = $4, token_version = $5 WHERE id = $1',
+        [id, role, active, patch.passwordHash ?? before.password_hash, tokenVersion],
       );
       await client.query('COMMIT');
-      return { status: 'ok', user: { ...toUser(before), role, active } };
+      return { status: 'ok', user: { ...toUser(before), role, active, tokenVersion } };
     } catch (err) {
       await client.query('ROLLBACK').catch(() => undefined);
       throw err;

@@ -16,5 +16,6 @@ import { AlarmsService } from './alarms.service';
     { provide: AlarmRulesRepository, useClass: PgAlarmRulesRepository },
     { provide: AlarmsRepository, useClass: PgAlarmsRepository },
   ],
+  exports: [AlarmRulesRepository],
 })
 export class AlarmsModule {}

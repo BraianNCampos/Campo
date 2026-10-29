@@ -30,6 +30,13 @@ export class UsersController {
     return this.users.update(p.id, dto, actor);
   }
 
+  /** Cierra todas las sesiones del usuario (invalida sus JWT y cierra sus WebSockets). */
+  @Post(':id/revoke')
+  @HttpCode(200)
+  revoke(@Param() p: UserIdParam, @CurrentUser() actor: AuthUser): Promise<ManagedUser> {
+    return this.users.revoke(p.id, actor);
+  }
+
   @Put(':id/plants')
   @HttpCode(200)
   setPlants(

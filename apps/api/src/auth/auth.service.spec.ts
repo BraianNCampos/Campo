@@ -55,6 +55,41 @@ describe('AuthService', () => {
     ).toBeNull();
   });
 
+  describe('versión de sesión (tv)', () => {
+    it('el login emite el token con la token_version vigente', async () => {
+      const first = await svc.login('ana@campo.test', 'secreto-123');
+      expect(jwt.decode(first.accessToken)).toMatchObject({ tv: 0 });
+      expect(await svc.verifyToken(first.accessToken)).toMatchObject({ tv: 0 });
+
+      users.users[0].tokenVersion = 3;
+      const next = await svc.login('ana@campo.test', 'secreto-123');
+      expect(jwt.decode(next.accessToken)).toMatchObject({ tv: 3 });
+      expect(await svc.verifyToken(next.accessToken)).toMatchObject({ tv: 3 });
+    });
+
+    it('un token sin `tv` (anterior al despliegue) cuenta como versión 0', async () => {
+      const legacy = await jwt.signAsync({ sub: 'u', email: 'e', role: 'viewer' });
+      expect(await svc.verifyToken(legacy)).toEqual({
+        id: 'u',
+        email: 'e',
+        role: 'viewer',
+        tv: 0,
+      });
+    });
+
+    it('un `tv` que no es un entero >= 0 invalida el token', async () => {
+      for (const tv of [-1, 1.5, '1', null, {}]) {
+        const token = await jwt.signAsync({ sub: 'u', email: 'e', role: 'viewer', tv });
+        expect(await svc.verifyToken(token)).toBeNull();
+      }
+    });
+
+    it('signToken firma con la versión del usuario dado', async () => {
+      const token = await svc.signToken({ ...users.users[0], tokenVersion: 7 });
+      expect(jwt.decode(token)).toMatchObject({ sub: users.users[0].id, tv: 7 });
+    });
+  });
+
   it('rechaza tokens expirados', async () => {
     const expired = await jwt.signAsync(
       { sub: 'u', email: 'e', role: 'admin' },

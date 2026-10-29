@@ -15,6 +15,8 @@ import { TelemetryCoalescer } from './telemetry-coalescer';
 interface Client {
   socket: WebSocket;
   userId: string;
+  /** Versión de sesión del token con el que conectó: si cambia (revocación) se cierra con 4401. */
+  tv: number;
   plant: string;
   alive: boolean;
   /** true cuando ya se envió el snapshot inicial. */
@@ -91,14 +93,21 @@ export class LiveGateway
       const claims = token ? await this.auth.verifyToken(token) : null;
       if (!claims) return this.deny(socket, WS_CLOSE.unauthorized, 'unauthorized', plant);
       // Rol, estado activo y plantas vigentes de la base (no los del token).
-      const user = await this.access.getAccess(claims.id);
+      const user = await this.access.getAccess(claims.id, { tv: claims.tv });
       if (!user) return this.deny(socket, WS_CLOSE.unauthorized, 'unauthorized', plant, claims.id);
       if (!canAccessPlant(user, plant)) {
         return this.deny(socket, WS_CLOSE.forbidden, 'forbidden', plant, user.id);
       }
       if (socket.readyState !== WebSocket.OPEN) return;
 
-      const client: Client = { socket, userId: user.id, plant, alive: true, ready: false };
+      const client: Client = {
+        socket,
+        userId: user.id,
+        tv: claims.tv,
+        plant,
+        alive: true,
+        ready: false,
+      };
       this.clients.set(socket, client);
       let set = this.byPlant.get(plant);
       if (!set) this.byPlant.set(plant, (set = new Set()));
@@ -130,16 +139,19 @@ export class LiveGateway
 
   /**
    * Comprueba contra la base (usuario activo y acceso a la planta) los sockets abiertos de `userIds`
-   * (o de todos) y cierra los que ya no corresponden: 4401 (inactivo/inexistente) o 4403 (sin acceso).
-   * `fresh` salta la caché para acotar la revocación al intervalo de revalidación. Visible para tests.
+   * (o de todos) y cierra los que ya no corresponden: 4401 (inactivo/inexistente o token revocado: su
+   * `tv` ya no es el vigente) o 4403 (sin acceso). `fresh` salta la caché para acotar la revocación al
+   * intervalo de revalidación (sólo en la primera lectura de cada usuario). Visible para tests.
    */
   async revalidate(userIds?: string[], fresh = false): Promise<void> {
     const ids = new Set(userIds ?? [...this.clients.values()].map((c) => c.userId));
     for (const userId of ids) {
       try {
-        const user = await this.access.getAccess(userId, { fresh });
+        let refresh = fresh;
         for (const client of [...this.clients.values()]) {
           if (client.userId !== userId) continue;
+          const user = await this.access.getAccess(userId, { fresh: refresh, tv: client.tv });
+          refresh = false; // las lecturas siguientes del mismo usuario salen de la caché recién refrescada
           if (!user) this.revoke(client, WS_CLOSE.unauthorized, 'unauthorized');
           else if (!canAccessPlant(user, client.plant)) {
             this.revoke(client, WS_CLOSE.forbidden, 'forbidden');

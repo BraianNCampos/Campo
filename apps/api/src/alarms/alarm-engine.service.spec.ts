@@ -2,17 +2,20 @@ import type { AlarmEvent, TelemetryEvent } from '@campo/shared';
 import { redisKeys } from '@campo/shared';
 import type Redis from 'ioredis';
 import { Subject } from 'rxjs';
+import { AuditService } from '../audit/audit.service';
 import { parseEnv } from '../config/app-config';
 import type { BusMessage, RealtimeBus } from '../redis/realtime-bus';
 import {
   MemoryAlarmRulesRepository,
   MemoryAlarmsRepository,
+  MemoryAuditRepository,
 } from '../../test/support/memory-repos';
 import { createRedisMocks } from '../../test/support/redis-mock';
 import { AlarmEngine } from './alarm-engine.service';
 import { AlarmsService } from './alarms.service';
 
 const cfg = parseEnv({ JWT_SECRET: 'x'.repeat(32), NODE_ENV: 'test' });
+const audit = new AuditService(new MemoryAuditRepository());
 
 const tel = (value: number, asset = 'tk-01'): TelemetryEvent => ({
   type: 'telemetry',
@@ -138,7 +141,7 @@ describe('AlarmEngine', () => {
     await flush();
     const id = published[0].id;
 
-    const svc = new AlarmsService(alarms, engine, redis);
+    const svc = new AlarmsService(alarms, engine, redis, audit);
     const rec = await svc.ack(
       id,
       { id: 'user-1', email: 'a@b.c', role: 'operator', plants: ['demo'] },
@@ -170,7 +173,7 @@ describe('AlarmEngine', () => {
   });
 
   it('ack de una alarma inexistente -> NotFound', async () => {
-    const svc = new AlarmsService(alarms, engine, redis);
+    const svc = new AlarmsService(alarms, engine, redis, audit);
     await expect(
       svc.ack('00000000-0000-4000-8000-0000000000ff', {
         id: 'u',

@@ -8,6 +8,7 @@ import { UsersRepository } from './users.repository';
 
 interface Entry {
   user: AuthUser | null;
+  tokenVersion: number;
   expires: number;
 }
 
@@ -47,24 +48,41 @@ export class AccessService implements OnModuleInit, OnModuleDestroy {
     this.changed.complete();
   }
 
-  /** `fresh` ignora la caché (y la refresca): lo usa la revalidación periódica de los WebSocket. */
-  async getAccess(userId: string, opts: { fresh?: boolean } = {}): Promise<AuthUser | null> {
+  /**
+   * `fresh` ignora la caché (y la refresca): lo usa la revalidación periódica de los WebSocket.
+   * `tv` es la versión de sesión del token: si se indica y no coincide con la vigente (contraseña
+   * cambiada, usuario desactivado, revocación) devuelve null, igual que un usuario inactivo.
+   */
+  async getAccess(
+    userId: string,
+    opts: { fresh?: boolean; tv?: number } = {},
+  ): Promise<AuthUser | null> {
+    const entry = await this.load(userId, opts.fresh === true);
+    if (opts.tv !== undefined && opts.tv !== entry.tokenVersion) return null;
+    return entry.user;
+  }
+
+  private async load(userId: string, fresh: boolean): Promise<Entry> {
     const ttl = this.cfg.authCacheTtlMs;
-    if (ttl > 0 && !opts.fresh) {
+    if (ttl > 0 && !fresh) {
       const hit = this.cache.get(userId);
-      if (hit && hit.expires > Date.now()) return hit.user;
+      if (hit && hit.expires > Date.now()) return hit;
     }
     const generation = this.generation;
     const found = await this.users.findById(userId);
-    const user = found && found.active ? toAuthUser(found) : null;
+    const entry: Entry = {
+      user: found && found.active ? toAuthUser(found) : null,
+      tokenVersion: found?.tokenVersion ?? 0,
+      expires: Date.now() + ttl,
+    };
     if (ttl > 0 && generation === this.generation) {
       if (this.cache.size >= MAX_ENTRIES) this.cache.clear();
-      this.cache.set(userId, { user, expires: Date.now() + ttl });
+      this.cache.set(userId, entry);
     }
-    return user;
+    return entry;
   }
 
-  /** Llamar tras modificar al usuario (rol, activo, contraseña, plantas). */
+  /** Llamar tras modificar al usuario (rol, activo, contraseña, plantas, revocación). */
   async invalidate(userId: string): Promise<void> {
     this.drop(userId);
     try {

@@ -390,6 +390,31 @@ describe('LiveGateway', () => {
         expect(s.closedWith).toBeUndefined();
         expect(gw.clientCount()).toBe(1);
       });
+
+      it('token revocado: al subir token_version se cierra con 4401 y el tv viejo ya no conecta', async () => {
+        let current = 0; // versión vigente en la "base"
+        const internals = gw as unknown as { access: AccessService; auth: AuthService };
+        internals.auth.verifyToken = jest.fn(() =>
+          Promise.resolve({ id: 'u1', email: 'e', role: 'admin' as const, tv: 0 }),
+        );
+        internals.access.getAccess = jest.fn((id: string, o?: { tv?: number }) =>
+          Promise.resolve(o?.tv !== undefined && o.tv !== current ? null : (db[id] ?? null)),
+        );
+
+        const s = await connect();
+        const other = await connect('/ws?plant=otra&token=good'); // otro socket del mismo usuario
+        expect(gw.clientCount()).toBe(2);
+
+        current = 1; // cambio de contraseña / revocación
+        invalidations.next('u1');
+        await flush();
+        expect(s.closedWith?.[0]).toBe(WS_CLOSE.unauthorized);
+        expect(other.closedWith?.[0]).toBe(WS_CLOSE.unauthorized);
+        expect(gw.clientCount()).toBe(0);
+
+        const late = await connect(); // mismo token (tv 0) tras la revocación
+        expect(late.closedWith?.[0]).toBe(WS_CLOSE.unauthorized);
+      });
     });
   });
 });

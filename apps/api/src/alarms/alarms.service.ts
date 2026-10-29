@@ -1,6 +1,7 @@
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { redisKeys } from '@campo/shared';
 import type Redis from 'ioredis';
+import { AuditService } from '../audit/audit.service';
 import type { AuthUser } from '../auth/auth.types';
 import { assertPlantAccess, plantFilter } from '../auth/plant-access';
 import { REDIS } from '../redis/tokens';
@@ -15,6 +16,7 @@ export class AlarmsService {
     private readonly repo: AlarmsRepository,
     private readonly engine: AlarmEngine,
     @Inject(REDIS) private readonly redis: Redis,
+    private readonly audit: AuditService,
   ) {}
 
   /** Sólo alarmas de las plantas del usuario; `?plant=` pedido y no permitido -> 403. */
@@ -47,6 +49,13 @@ export class AlarmsService {
         );
       }
       await this.redis.publish(redisKeys.alarms(res.record.plant), json);
+      // Sólo el primer ack (el idempotente que no cambia nada no se audita).
+      await this.audit.record(user, 'alarm.ack', `alarm:${id}`, {
+        plant: res.record.plant,
+        asset: res.record.asset,
+        metric: res.record.metric,
+        severity: res.record.severity,
+      });
     }
     return res.record;
   }

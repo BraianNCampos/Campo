@@ -90,7 +90,7 @@ WebSocket nativo (librería `ws`), mensajes JSON, un tipo discriminado `ServerMe
 ### 8.1 Autorización por planta (API)
 
 - Tabla `user_plants(user_id, plant)`. El rol `admin` accede a **todas** las plantas; `engineer`, `operator` y `viewer` solo a las asignadas. Sin asignaciones = sin acceso.
-- El JWT lleva `sub` y `role`, **no** las plantas ni el estado activo: en cada petición el guard consulta al usuario (activo, rol, plantas) a través de una caché en memoria de ≤30 s, que se invalida al instante cuando el propio proceso modifica al usuario. Un usuario desactivado o con plantas revocadas pierde acceso en ≤30 s (no hasta que expire el token).
+- El JWT lleva `sub`, `role` y `tv` (versión de token, ver §9.1), **no** las plantas ni el estado activo: en cada petición el guard consulta al usuario (activo, rol, plantas) a través de una caché en memoria de ≤30 s, que se invalida al instante cuando el propio proceso modifica al usuario. Un usuario desactivado o con plantas revocadas pierde acceso en ≤30 s (no hasta que expire el token).
 - Toda ruta con `:plant` (state, assets, history), `GET /api/alarms` (se filtra por plantas permitidas; `?plant=` opcional), `POST /api/alarms/:id/ack` (según la planta de la alarma) y `/api/alarm-rules` (CRUD limitado a plantas permitidas) responde **403** si el usuario no tiene la planta (404 si la planta no existe para un admin). WebSocket: `/ws?plant=` cierra con **4403** si no tiene acceso (4401 token inválido o usuario inactivo, 4400 planta inválida).
 - `GET /api/me` → `{id,email,role,plants}` (`plants` = `["*"]` para admin). `POST /api/auth/login` añade `user` con la misma forma. El token de acceso dura 1 h por defecto (`JWT_EXPIRES_IN`).
 - Administración (solo `admin`): `GET/POST /api/users`, `PATCH /api/users/:id` (rol, activo, contraseña), `PUT /api/users/:id/plants` (`{plants:[...]}`). Nunca se devuelve el hash. No se puede desactivar ni degradar al último admin activo.
@@ -119,14 +119,16 @@ Pantallas de administración en la web (`/admin`) sobre la API. Los endpoints ya
 | `GET /api/plants` | todos | `Plant[]` visibles para el usuario (admin: todas; resto: las asignadas). `assets` = nº de activos |
 | `POST /api/plants` | admin | `{id,name}` crea una planta (id con `ID_PATTERN`; 409 si existe) |
 | `PATCH /api/plants/:plant` | admin | `{name}` |
-| `DELETE /api/plants/:plant` | admin | 409 si tiene activos; limpia asignaciones |
+| `DELETE /api/plants/:plant` | admin | 409 si tiene activos; limpia asignaciones; responde `200 {deleted:true}` |
 | `POST /api/plants/:plant/assets` | admin, engineer (con acceso a la planta) | `{id,name,type,model3dRef?,metadata?}` → `AssetDef` (409 si existe) |
 | `PATCH /api/plants/:plant/assets/:asset` | ídem | `{name?,type?,model3dRef?,metadata?}` (el `id` no se cambia) |
 | `DELETE /api/plants/:plant/assets/:asset` | ídem | borra el activo (las reglas de alarma que lo nombran siguen existiendo; se informa en la respuesta con `affectedRules: n`) |
+| `POST /api/users/:id/revoke` | admin | cierra las sesiones del usuario (sube su `token_version`); responde `200 ManagedUser` |
 | `POST /api/me/password` | todos | `{currentPassword,newPassword}` (≥12 chars, distinta); 400 si la actual no coincide |
 | `GET /api/audit?limit&before&actor&action` | admin | `AuditEntry[]` más recientes primero (paginado por `before` = id) |
 
 - **Tabla `plants(id, name, created_at)`**: se siembra con las plantas ya presentes en `assets` y `user_plants` (nombre = id). Crear un activo en una planta inexistente da 404; para el admin `GET /api/plants` incluye también las plantas conocidas solo por `assets`/Redis.
+- **Esquema** (`040_admin.sql`, propiedad de `api`): tablas `plants` y `audit_log`, y `users.token_version`. Los tokens sin `tv` previos al despliegue cuentan como versión 0. Desactivar y reactivar a un usuario obliga a iniciar sesión de nuevo.
 - **Revocación de tokens**: `users.token_version`; el JWT lleva `tv`; el guard rechaza (401) si `tv` ≠ versión actual. Se incrementa al cambiar la contraseña (propia o por un admin), al desactivar y con `POST /api/users/:id/revoke` (admin, cierra sesiones). Cambiar la propia contraseña devuelve un token nuevo `{accessToken}` para no echar al usuario.
 - **Auditoría (`audit_log`)**: se registra quién, cuándo, qué y sobre qué para: alta/baja/edición de usuarios y asignación de plantas, cambios de contraseña (sin valores), revocaciones, alta/edición/baja de plantas, activos y reglas de alarma, ack de alarmas, y logins fallidos repetidos NO (eso va al log). Nunca se guardan contraseñas ni tokens. Solo lectura por API; sin edición ni borrado.
 - Las altas/ediciones de activos publican en Redis `campo:catalog:changed` para que los clientes refresquen el catálogo.

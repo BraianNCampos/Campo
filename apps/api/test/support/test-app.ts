@@ -12,14 +12,18 @@ import { UsersRepository } from '../../src/auth/users.repository';
 import { APP_CONFIG, AppConfig, parseEnv } from '../../src/config/app-config';
 import { PG_POOL } from '../../src/database/tokens';
 import { HistoryRepository } from '../../src/history/history.repository';
+import { AuditRepository } from '../../src/audit/audit.repository';
 import { Asset, AssetsRepository } from '../../src/plants/assets.repository';
+import { PlantsRepository } from '../../src/plants/plants.repository';
 import { REDIS, REDIS_SUB } from '../../src/redis/tokens';
 import {
   MemoryAlarmRulesRepository,
   MemoryAlarmsRepository,
   MemoryAssetsRepository,
+  MemoryAuditRepository,
   MemoryHistoryRepository,
   MemoryPlantCatalog,
+  MemoryPlantsRepository,
   MemoryUsersRepository,
 } from './memory-repos';
 import { createRedisMocks } from './redis-mock';
@@ -37,6 +41,9 @@ export interface TestApp {
   rules: MemoryAlarmRulesRepository;
   alarms: MemoryAlarmsRepository;
   history: MemoryHistoryRepository;
+  assets: MemoryAssetsRepository;
+  plants: MemoryPlantsRepository;
+  audit: MemoryAuditRepository;
   pool: { query: jest.Mock; end: jest.Mock; on: jest.Mock };
   /**
    * Crea (una vez por rol) un usuario `<rol>@campo.test` y devuelve su JWT.
@@ -60,6 +67,9 @@ export async function createTestApp(overrides: Partial<AppConfig> = {}): Promise
   const rules = new MemoryAlarmRulesRepository();
   const alarms = new MemoryAlarmsRepository();
   const history = new MemoryHistoryRepository();
+  const assets = new MemoryAssetsRepository(DEMO_ASSETS.map((a) => ({ ...a })));
+  const plants = new MemoryPlantsRepository(assets, users);
+  const audit = new MemoryAuditRepository();
   const pool = {
     query: jest.fn().mockResolvedValue({ rows: [{ '?column?': 1 }] }),
     end: jest.fn().mockResolvedValue(undefined),
@@ -78,9 +88,13 @@ export async function createTestApp(overrides: Partial<AppConfig> = {}): Promise
     .overrideProvider(UsersRepository)
     .useValue(users)
     .overrideProvider(AssetsRepository)
-    .useValue(new MemoryAssetsRepository(DEMO_ASSETS))
+    .useValue(assets)
+    .overrideProvider(PlantsRepository)
+    .useValue(plants)
+    .overrideProvider(AuditRepository)
+    .useValue(audit)
     .overrideProvider(PlantCatalog)
-    .useValue(new MemoryPlantCatalog(DEMO_ASSETS, redis))
+    .useValue(new MemoryPlantCatalog(plants, redis))
     .overrideProvider(AlarmRulesRepository)
     .useValue(rules)
     .overrideProvider(AlarmsRepository)
@@ -118,5 +132,19 @@ export async function createTestApp(overrides: Partial<AppConfig> = {}): Promise
     return token;
   };
 
-  return { app, cfg, redis, users, rules, alarms, history, pool, tokenFor, makeUser };
+  return {
+    app,
+    cfg,
+    redis,
+    users,
+    rules,
+    alarms,
+    history,
+    assets,
+    plants,
+    audit,
+    pool,
+    tokenFor,
+    makeUser,
+  };
 }

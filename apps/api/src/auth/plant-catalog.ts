@@ -10,7 +10,7 @@ export abstract class PlantCatalog {
   abstract exists(plant: string): Promise<boolean>;
 }
 
-/** Existe si tiene estado vivo en Redis o activos en el catálogo. */
+/** Existe si tiene estado vivo en Redis, está registrada en `plants` o tiene activos en el catálogo. */
 @Injectable()
 export class PgPlantCatalog extends PlantCatalog {
   constructor(
@@ -22,9 +22,10 @@ export class PgPlantCatalog extends PlantCatalog {
 
   async exists(plant: string): Promise<boolean> {
     if ((await this.redis.exists(redisKeys.state(plant))) > 0) return true;
-    const { rowCount } = await this.pool.query('SELECT 1 FROM assets WHERE plant = $1 LIMIT 1', [
-      plant,
-    ]);
+    const { rowCount } = await this.pool.query(
+      'SELECT 1 FROM plants WHERE id = $1 UNION ALL SELECT 1 FROM assets WHERE plant = $1 LIMIT 1',
+      [plant],
+    );
     return (rowCount ?? 0) > 0;
   }
 }
