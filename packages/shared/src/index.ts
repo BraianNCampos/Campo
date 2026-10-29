@@ -86,3 +86,32 @@ export interface LoginResponse {
 export interface ManagedUser extends Me {
   active: boolean;
 }
+
+// ---- Administración (docs/architecture.md §9) ----
+export type AssetType = 'tank' | 'pump' | 'valve' | 'sensor';
+
+export interface Plant {
+  id: string;
+  name: string;
+  assets: number;
+}
+
+/** Definición de un activo del catálogo (administración). */
+export interface AssetDef {
+  plant: string;
+  id: string;
+  name: string;
+  type: AssetType;
+  model3dRef: string | null;
+  metadata: Record<string, unknown>;
+}
+
+export interface AuditEntry {
+  id: string; // ordenable (bigint como string)
+  ts: number; // epoch ms
+  actorId: string | null;
+  actorEmail: string | null;
+  action: string; // p.ej. "user.create", "asset.delete", "rule.update"
+  target: string; // p.ej. "user:<id>", "asset:demo/tk-01"
+  detail: Record<string, unknown>; // sin secretos
+}

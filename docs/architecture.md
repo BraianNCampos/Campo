@@ -107,3 +107,33 @@ WebSocket nativo (librería `ws`), mensajes JSON, un tipo discriminado `ServerMe
 - Mosquitto con la configuración segura de 8.2; Redis con `requirepass`; TimescaleDB y Redis **sin puertos publicados** al host; contraseñas obligatorias (`:?`) sin valores por defecto.
 - Proxy inverso con TLS (Caddy) como única entrada HTTP(S): `/` → web, `/api/*` y `/ws` → api. La web se construye same-origin (sin URLs absolutas). Cabeceras de seguridad (HSTS, CSP razonable, etc.).
 - `scripts/bootstrap-secure.sh` genera secretos, CA y certificados del broker, el `passwd` de Mosquitto y un `.env.prod` (permisos 600, nunca versionado).
+
+## 9. Administración (Fase 4)
+
+Pantallas de administración en la web (`/admin`) sobre la API. Los endpoints ya existentes (`/api/users*`, `/api/alarm-rules*`, `GET /api/plants/:plant/assets`, `/api/me`) **no cambian de forma**; esto añade lo que falta.
+
+### 9.1 API nueva (`apps/api`)
+
+| Método y ruta | Roles | Descripción |
+|---|---|---|
+| `GET /api/plants` | todos | `Plant[]` visibles para el usuario (admin: todas; resto: las asignadas). `assets` = nº de activos |
+| `POST /api/plants` | admin | `{id,name}` crea una planta (id con `ID_PATTERN`; 409 si existe) |
+| `PATCH /api/plants/:plant` | admin | `{name}` |
+| `DELETE /api/plants/:plant` | admin | 409 si tiene activos; limpia asignaciones |
+| `POST /api/plants/:plant/assets` | admin, engineer (con acceso a la planta) | `{id,name,type,model3dRef?,metadata?}` → `AssetDef` (409 si existe) |
+| `PATCH /api/plants/:plant/assets/:asset` | ídem | `{name?,type?,model3dRef?,metadata?}` (el `id` no se cambia) |
+| `DELETE /api/plants/:plant/assets/:asset` | ídem | borra el activo (las reglas de alarma que lo nombran siguen existiendo; se informa en la respuesta con `affectedRules: n`) |
+| `POST /api/me/password` | todos | `{currentPassword,newPassword}` (≥12 chars, distinta); 400 si la actual no coincide |
+| `GET /api/audit?limit&before&actor&action` | admin | `AuditEntry[]` más recientes primero (paginado por `before` = id) |
+
+- **Tabla `plants(id, name, created_at)`**: se siembra con las plantas ya presentes en `assets` y `user_plants` (nombre = id). Crear un activo en una planta inexistente da 404; para el admin `GET /api/plants` incluye también las plantas conocidas solo por `assets`/Redis.
+- **Revocación de tokens**: `users.token_version`; el JWT lleva `tv`; el guard rechaza (401) si `tv` ≠ versión actual. Se incrementa al cambiar la contraseña (propia o por un admin), al desactivar y con `POST /api/users/:id/revoke` (admin, cierra sesiones). Cambiar la propia contraseña devuelve un token nuevo `{accessToken}` para no echar al usuario.
+- **Auditoría (`audit_log`)**: se registra quién, cuándo, qué y sobre qué para: alta/baja/edición de usuarios y asignación de plantas, cambios de contraseña (sin valores), revocaciones, alta/edición/baja de plantas, activos y reglas de alarma, ack de alarmas, y logins fallidos repetidos NO (eso va al log). Nunca se guardan contraseñas ni tokens. Solo lectura por API; sin edición ni borrado.
+- Las altas/ediciones de activos publican en Redis `campo:catalog:changed` para que los clientes refresquen el catálogo.
+
+### 9.2 Web (`apps/web`)
+
+- Selector de planta en la cabecera (de `GET /api/plants`; se recuerda la última; si solo hay una, no se muestra). Cambiar de planta reconecta el WebSocket.
+- `/admin` con navegación por rol: **Usuarios** (admin), **Plantas y activos** (admin y engineer), **Reglas de alarma** (admin y engineer), **Auditoría** (admin) y **Mi cuenta** (todos; cambio de contraseña). operator/viewer solo ven Mi cuenta.
+- Cliente tipado `AdminApi` con dos implementaciones: HTTP y un mock en memoria (modo demo), de modo que todo se pueda probar sin backend.
+- Todas las acciones destructivas piden confirmación; los errores de la API (400/403/409) se muestran en español junto al formulario; usable en móvil (tablas → tarjetas).
