@@ -99,6 +99,7 @@ describe('env', () => {
   it('buildWsUrl añade plant y token', () => {
     const loc = { protocol: 'https:', host: 'app.test' };
     expect(buildWsUrl('wss://api.test/ws', 'demo', 'abc.def', loc)).toBe('wss://api.test/ws?plant=demo&token=abc.def');
+    expect(buildWsUrl('ws://api.test:3001', 'demo', null, loc)).toBe('ws://api.test:3001/ws?plant=demo');
     expect(buildWsUrl(null, 'demo', null, loc)).toBe('wss://app.test/ws?plant=demo');
     expect(buildWsUrl(null, 'p', 't', { protocol: 'http:', host: 'localhost:3000' })).toBe('ws://localhost:3000/ws?plant=p&token=t');
   });

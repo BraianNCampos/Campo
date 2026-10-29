@@ -94,6 +94,9 @@ button:not(:disabled) {
   .scene-label b {
     font-size: 10.5px;
   }
+  .scene-label[data-minor] {
+    display: none; /* bombas y válvulas: sus valores están en las tarjetas y en el panel */
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -51,6 +51,7 @@ export function buildWsUrl(
 ): string {
   const fallback = `${loc.protocol === 'https:' ? 'wss:' : 'ws:'}//${loc.host}/ws`;
   const url = new URL(base ?? fallback, `${loc.protocol}//${loc.host}`);
+  if (url.pathname === '/') url.pathname = '/ws'; // el endpoint del servidor es siempre /ws
   url.searchParams.set('plant', plant);
   if (token) url.searchParams.set('token', token);
   return url.toString();
