@@ -1,0 +1,71 @@
+# Campo 2.0 — infraestructura local (Fase 1)
+# Uso: cp .env.example .env && docker compose up -d
+name: campo
+
+services:
+  timescaledb:
+    image: timescale/timescaledb:latest-pg16
+    container_name: campo-timescaledb
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-campo}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-campo_dev}
+      POSTGRES_DB: ${POSTGRES_DB:-campo}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - timescaledb_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-campo} -d ${POSTGRES_DB:-campo}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - campo-net
+
+  redis:
+    image: redis:7-alpine
+    container_name: campo-redis
+    restart: unless-stopped
+    # AOF activado: el estado actual de los equipos sobrevive a un reinicio.
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - campo-net
+
+  mosquitto:
+    image: eclipse-mosquitto:2
+    container_name: campo-mosquitto
+    restart: unless-stopped
+    ports:
+      - "${MQTT_PORT:-1883}:1883"   # MQTT (sensores / servicio de ingesta)
+      - "${MQTT_WS_PORT:-9001}:9001" # MQTT sobre WebSockets (depuración)
+    volumes:
+      - ./infra/mosquitto/config/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - mosquitto_data:/mosquitto/data
+      - mosquitto_log:/mosquitto/log
+    healthcheck:
+      test: ["CMD-SHELL", "mosquitto_sub -h localhost -t '$$SYS/broker/uptime' -C 1 -W 3 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    networks:
+      - campo-net
+
+volumes:
+  timescaledb_data:
+  redis_data:
+  mosquitto_data:
+  mosquitto_log:
+
+networks:
+  campo-net:
+    driver: bridge
