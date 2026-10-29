@@ -2,6 +2,13 @@ import { LogLevel as NestLogLevel, LoggerService } from '@nestjs/common';
 import type { LogLevel } from '../config/app-config';
 
 const ORDER: Record<LogLevel, number> = { debug: 10, info: 20, warn: 30, error: 40 };
+/** Contextos internos de Nest (arranque): ruido a nivel debug. */
+const NEST_INTERNALS = new Set([
+  'InstanceLoader',
+  'RoutesResolver',
+  'RouterExplorer',
+  'WebSocketsController',
+]);
 const REDACT = /pass(word)?|secret|token|authorization|hash/i;
 
 function sanitize(value: unknown): unknown {
@@ -43,6 +50,8 @@ export class JsonLogger implements LoggerService {
   }
 
   private emit(level: LogLevel, message: unknown, rest: unknown[]) {
+    const last0 = rest[rest.length - 1];
+    if (level === 'info' && typeof last0 === 'string' && NEST_INTERNALS.has(last0)) level = 'debug';
     if (ORDER[level] < ORDER[this.level]) return;
     const entry: Record<string, unknown> = { time: new Date().toISOString(), level };
     const extras = [...rest];

@@ -39,3 +39,13 @@ describe('JsonLogger', () => {
     expect(lines).toHaveLength(2);
   });
 });
+
+describe('JsonLogger (ruido de arranque de Nest)', () => {
+  it('degrada a debug los logs internos de Nest', () => {
+    const lines: string[] = [];
+    const logger = new JsonLogger('info', (l) => lines.push(l));
+    logger.log('Mapped {/api, GET} route', 'RouterExplorer');
+    logger.log('listo', 'bootstrap');
+    expect(lines).toHaveLength(1);
+  });
+});

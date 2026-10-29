@@ -1,0 +1,11 @@
+# Se aplica al construir con: docker build -f apps/api/Dockerfile .  (contexto = raíz del repo)
+.git
+**/node_modules
+**/dist
+**/coverage
+**/.env
+**/*.log
+apps/web
+apps/ingest
+docs
+infra
