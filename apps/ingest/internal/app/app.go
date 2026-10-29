@@ -56,7 +56,7 @@ func New(ctx context.Context, cfg config.Config, log *slog.Logger, opts ...Optio
 
 	hw := o.history
 	if hw == nil && cfg.DatabaseURL != "" {
-		a.pg, err = tsdb.NewPGWriter(ctx, cfg.DatabaseURL)
+		a.pg, err = tsdb.NewPGWriter(context.WithoutCancel(ctx), cfg.DatabaseURL)
 		if err != nil {
 			return nil, fmt.Errorf("DATABASE_URL: %w", err)
 		}

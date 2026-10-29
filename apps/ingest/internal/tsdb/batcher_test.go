@@ -118,6 +118,11 @@ func TestBatcherFlushBySize(t *testing.T) {
 		!row.Time.Equal(time.UnixMilli(1730213000000)) {
 		t.Errorf("fila inesperada: %+v", row)
 	}
+	// El contador se actualiza justo después de WriteRows: se espera un instante.
+	deadline := time.Now().Add(time.Second)
+	for testutil.ToFloat64(m.RowsWritten) != 6 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
 	if got := testutil.ToFloat64(m.RowsWritten); got != 6 {
 		t.Errorf("rows_written = %v", got)
 	}
