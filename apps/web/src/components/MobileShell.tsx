@@ -74,7 +74,7 @@ export function MobileShell() {
             ) : (
               <div className="relative min-h-0 flex-1 overflow-hidden rounded-2xl border border-line bg-[#0d141d]">
                 <PlantView />
-                {selectedId && <AssetPanel id={selectedId} className="absolute inset-x-3 bottom-3 w-auto" />}
+                {selectedId && <AssetPanel id={selectedId} className="absolute inset-x-3 bottom-3" />}
               </div>
             )}
           </section>

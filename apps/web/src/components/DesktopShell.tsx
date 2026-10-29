@@ -28,8 +28,11 @@ export function DesktopShell() {
       <Header />
       <OfflineBanner />
       <main className="desk-grid min-h-0 flex-1 gap-3 p-3">
-        <div style={{ gridArea: 'assets' }} className="min-h-0">
-          <AssetList />
+        <div style={{ gridArea: 'assets' }} className="flex min-h-0 flex-col gap-3">
+          <div className="min-h-0 flex-1">
+            <AssetList />
+          </div>
+          {selectedId && <AssetPanel id={selectedId} className="shrink-0" />}
         </div>
 
         <section
@@ -38,7 +41,6 @@ export function DesktopShell() {
           className="relative min-h-0 overflow-hidden rounded-2xl border border-line bg-[#0d141d]"
         >
           <PlantView />
-          {selectedId && <AssetPanel id={selectedId} className="absolute top-3 right-3" />}
           <p className="pointer-events-none absolute bottom-3 left-3 rounded-md bg-bg/70 px-2 py-1 text-xs text-muted">
             Arrastra para orbitar · rueda para zoom · clic en un equipo para ver detalle
           </p>

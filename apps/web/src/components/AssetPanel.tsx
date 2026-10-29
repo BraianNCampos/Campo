@@ -22,7 +22,7 @@ export function AssetPanel({ id, className = '' }: { id: string; className?: str
     <section
       aria-label={`Detalle de ${assetLabel(id)}`}
       data-testid="asset-panel"
-      className={`w-72 rounded-2xl border bg-surface/95 p-4 shadow-xl backdrop-blur ${status === 'ok' ? 'border-line' : m.border} ${className}`}
+      className={`rounded-2xl border bg-surface/95 p-4 shadow-xl backdrop-blur ${status === 'ok' ? 'border-line' : m.border} ${className}`}
     >
       <header className="flex items-start justify-between gap-2">
         <div className="min-w-0">

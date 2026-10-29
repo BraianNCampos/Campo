@@ -13,7 +13,7 @@ import { useAssetTarget } from './useAssetTarget';
 
 /** Factor visual: 1450 rpm → ~1 vuelta/s en pantalla (proporcional a rpm). */
 export const VISUAL_RPM_FACTOR = 0.04;
-const steel = { color: '#8fa3b8', metalness: 0.6, roughness: 0.38 } as const;
+const steel = { color: '#8fa3b8', metalness: 0.15, roughness: 0.38 } as const;
 
 export function Pump({ id, position }: { id: string; position: Vec3 }) {
   const target = useAssetTarget(id);
@@ -45,7 +45,7 @@ export function Pump({ id, position }: { id: string; position: Vec3 }) {
   });
 
   return (
-    <Equipment id={id} position={position} ringRadius={1.5} labelPos={[0, 3.3, 0]} valueRef={valueEl}>
+    <Equipment id={id} position={position} ringRadius={1.5} labelPos={[0, 3.6, 0]} valueRef={valueEl}>
       {/* bancada */}
       <mesh position-y={0.07}>
         <boxGeometry args={[2.6, 0.14, 1.3]} />
@@ -77,7 +77,7 @@ export function Pump({ id, position }: { id: string; position: Vec3 }) {
       {/* motor vertical */}
       <mesh position-y={1.75}>
         <cylinderGeometry args={[0.42, 0.42, 1.1, 28]} />
-        <meshStandardMaterial ref={motorMat} color="#1d6f8f" metalness={0.35} roughness={0.5} />
+        <meshStandardMaterial ref={motorMat} color="#1d6f8f" metalness={0.12} roughness={0.5} />
       </mesh>
       {[1.35, 1.55, 1.75, 1.95, 2.15].map((y) => (
         <mesh key={y} position-y={y}>
@@ -93,12 +93,12 @@ export function Pump({ id, position }: { id: string; position: Vec3 }) {
       <group ref={fan} position-y={2.45}>
         <mesh>
           <cylinderGeometry args={[0.1, 0.1, 0.14, 12]} />
-          <meshStandardMaterial color="#e2e8f0" metalness={0.4} roughness={0.4} />
+          <meshStandardMaterial color="#e2e8f0" metalness={0.12} roughness={0.4} />
         </mesh>
         {[0, 1, 2, 3].map((k) => (
           <mesh key={k} rotation-y={(k * Math.PI) / 2} position={[0, 0, 0]}>
             <boxGeometry args={[0.98, 0.04, 0.2]} />
-            <meshStandardMaterial color="#e2e8f0" metalness={0.3} roughness={0.5} />
+            <meshStandardMaterial color="#e2e8f0" metalness={0.12} roughness={0.5} />
           </mesh>
         ))}
       </group>

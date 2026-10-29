@@ -2,9 +2,15 @@ import { config } from '@/lib/env';
 import { getToken } from '@/lib/auth';
 import { useLiveStore } from '@/store/live-store';
 
+class AckError extends Error {
+  constructor(readonly status: number) {
+    super(String(status));
+  }
+}
+
 /**
  * Reconoce una alarma. En modo demo es local; en modo real hace
- * POST /api/alarms/:id/ack y sólo marca localmente si el servidor acepta.
+ * POST /api/alarms/:id/ack con ack optimista; el servidor confirma por WS reenviando la alarma (mismo id, acknowledged:true).
  */
 export async function acknowledgeAlarm(id: string): Promise<void> {
   const { ackLocal, setNotice } = useLiveStore.getState();
@@ -19,11 +25,18 @@ export async function acknowledgeAlarm(id: string): Promise<void> {
       method: 'POST',
       headers: token ? { authorization: `Bearer ${token}` } : {},
     });
-    if (!res.ok) throw new Error(String(res.status));
-  } catch {
+    if (!res.ok) throw new AckError(res.status);
+  } catch (err) {
     // revertir: sigue sin reconocer
     const a = useLiveStore.getState().alarms[id];
     if (a) useLiveStore.setState({ alarms: { ...useLiveStore.getState().alarms, [id]: { ...a, acknowledged: false } } });
-    setNotice('No se pudo reconocer la alarma. Reintenta.');
+    const status = err instanceof AckError ? err.status : 0;
+    setNotice(
+      status === 403
+        ? 'Tu rol no permite reconocer alarmas (requiere admin, engineer u operator).'
+        : status === 401
+          ? 'Sesión caducada. Vuelve a iniciar sesión.'
+          : 'No se pudo reconocer la alarma. Reintenta.',
+    );
   }
 }

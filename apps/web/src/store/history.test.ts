@@ -19,6 +19,13 @@ describe('history', () => {
     pushSample('a', 'm', 1700, 4);
     expect(readSeries('a', 'm').v).toEqual([3, 4]);
   });
+  it('con telemetría rápida (250 ms) sigue creando una muestra por ranura de 500 ms', () => {
+    for (let i = 0; i < 40; i++) pushSample('a', 'm', i * 250, i); // 10 s
+    const s = readSeries('a', 'm');
+    expect(s.v.length).toBeGreaterThanOrEqual(19);
+    expect(s.v.length).toBeLessThanOrEqual(21);
+    expect(s.v[s.v.length - 1]).toBe(39);
+  });
   it('buffer circular: conserva sólo las últimas HISTORY_CAPACITY', () => {
     const n = HISTORY_CAPACITY + 50;
     for (let i = 0; i < n; i++) pushSample('a', 'm', i * 1000, i);

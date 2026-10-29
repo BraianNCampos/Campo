@@ -37,3 +37,14 @@ describe('parseServerMessage', () => {
     expect(t).toMatchObject({ ts: 1234 });
   });
 });
+
+describe('alarmas REST (AlarmEvent + clearedAt/acknowledgedBy/…)', () => {
+  it('acepta los campos extra y conserva acknowledged', () => {
+    const m = parseServerMessage({
+      type: 'alarm', id: 'a1', ruleId: 'r', plant: 'demo', asset: 'tk-01', metric: 'level',
+      severity: 'warning', state: 'active', value: 5, threshold: 10, ts: 1, message: 'm',
+      acknowledged: true, acknowledgedBy: 'u1', acknowledgedAt: 2, clearedAt: null,
+    });
+    expect(m).toMatchObject({ id: 'a1', acknowledged: true });
+  });
+});

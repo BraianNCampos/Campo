@@ -1,14 +1,15 @@
 'use client';
 
-import { useEffect, useLayoutEffect } from 'react';
+import { useEffect, useLayoutEffect, useState } from 'react';
 import * as THREE from 'three';
 import { Canvas, useThree } from '@react-three/fiber';
-import { ContactShadows, Environment, Grid, Lightformer, OrbitControls } from '@react-three/drei';
+import { ContactShadows, OrbitControls, PerformanceMonitor } from '@react-three/drei';
 import { assetKind } from '@/lib/assets';
 import { clamp } from '@/lib/math';
 import { useLiveStore } from '@/store/live-store';
 import { useUiStore } from '@/store/ui-store';
 import { positionFor } from './layout';
+import { detectQuality } from './quality';
 import { Pipes } from './Pipes';
 import { Pump } from './Pump';
 import { Tank } from './Tank';
@@ -43,8 +44,13 @@ function FitCamera() {
   const controls = useThree((s) => s.controls) as OrbitControlsImpl | null;
   const aspect = useThree((s) => Math.round((s.size.width / Math.max(1, s.size.height)) * 4) / 4);
   useLayoutEffect(() => {
-    const dist = clamp(24 / (0.689 * Math.max(aspect, 0.2)), 24, 55);
-    camera.position.copy(new THREE.Vector3(0.5, 0.48, 0.72).normalize().multiplyScalar(dist)).add(TARGET);
+    // apaisado: vista frontal (la planta es ancha en x); retrato: vista lateral para que su eje largo quede vertical
+    const portrait = aspect < 0.9;
+    const dist = portrait
+      ? clamp(15.5 / (0.689 * Math.max(aspect, 0.2)), 22, 55)
+      : clamp(21.5 / (0.689 * Math.max(aspect, 0.2)), 22, 55);
+    const dir = portrait ? new THREE.Vector3(0.84, 0.55, 0.2) : new THREE.Vector3(0.22, 0.5, 0.84);
+    camera.position.copy(dir.normalize().multiplyScalar(dist)).add(TARGET);
     camera.lookAt(TARGET);
     controls?.update();
   }, [aspect, camera, controls]);
@@ -74,61 +80,49 @@ function Equipments({ ids }: { ids: string[] }) {
 function Ground() {
   return (
     <>
-      <mesh rotation-x={-Math.PI / 2} position-y={-0.02} receiveShadow>
-        <circleGeometry args={[60, 64]} />
-        <meshStandardMaterial color="#0f1823" roughness={1} />
+      <mesh rotation-x={-Math.PI / 2} position-y={-0.02}>
+        <circleGeometry args={[90, 48]} />
+        <meshLambertMaterial color="#0f1823" />
       </mesh>
-      <mesh position={[-0.5, -0.0, 0]}>
+      <mesh position={[-0.5, 0, 0]}>
         <boxGeometry args={[21, 0.04, 11]} />
-        <meshStandardMaterial color="#1a2535" roughness={0.9} />
+        <meshLambertMaterial color="#1a2535" />
       </mesh>
-      <Grid
-        position-y={0.03}
-        args={[60, 60]}
-        cellSize={1}
-        cellThickness={0.5}
-        cellColor="#223247"
-        sectionSize={5}
-        sectionThickness={1}
-        sectionColor="#2f4560"
-        fadeDistance={45}
-        fadeStrength={1.5}
-        infiniteGrid
-      />
+      {/* rejilla de líneas (barata); la de drei <Grid> es un shader a pantalla completa */}
+      <gridHelper args={[48, 48, '#26384f', '#172336']} position={[0, 0.03, 0]} />
     </>
   );
 }
 
 export default function Plant3D() {
   const select = useUiStore((s) => s.select);
+  const [quality] = useState(detectQuality);
+  const low = quality === 'low';
+  const [dpr, setDpr] = useState(low ? 1 : 1.5);
   // sólo cambia cuando cambia el conjunto de activos, no con cada mensaje
   const ids = useLiveStore((s) => s.assetIds);
   return (
     <div
       data-testid="scene"
+      data-quality={quality}
       role="img"
       aria-label="Gemelo digital 3D de la planta. Usa la lista de activos para seleccionar equipos con teclado."
-      className="absolute inset-0"
+      className="scene-root absolute inset-0"
     >
       <Canvas
         frameloop="demand"
-        dpr={[1, 1.75]}
+        dpr={dpr}
         camera={{ position: [15, 10.5, 17], fov: 38, near: 0.1, far: 200 }}
-        gl={{ antialias: true, powerPreference: 'high-performance' }}
+        gl={{ antialias: !low, powerPreference: 'high-performance' }}
         onPointerMissed={() => select(null)}
       >
         <color attach="background" args={['#0d141d']} />
-        <fog attach="fog" args={['#0d141d', 32, 75]} />
-        <hemisphereLight args={['#a9c8ff', '#1b2432', 0.7]} />
-        <directionalLight position={[10, 16, 8]} intensity={1.7} />
-        <directionalLight position={[-12, 6, -10]} intensity={0.5} color="#7aa7ff" />
-        <Environment frames={1} resolution={128} background={false}>
-          <Lightformer form="rect" intensity={2.2} position={[0, 9, 0]} rotation-x={Math.PI / 2} scale={[24, 24, 1]} />
-          <Lightformer form="rect" intensity={1.2} position={[-14, 4, 6]} rotation-y={Math.PI / 2} scale={[12, 6, 1]} />
-          <Lightformer form="rect" intensity={1} position={[14, 4, -6]} rotation-y={-Math.PI / 2} scale={[12, 6, 1]} />
-        </Environment>
+        <fog attach="fog" args={['#0d141d', 50, 110]} />
+        <hemisphereLight args={['#bcd4ff', '#243044', 1.15]} />
+        <directionalLight position={[10, 16, 8]} intensity={2.4} />
+        <directionalLight position={[-12, 6, -10]} intensity={0.8} color="#7aa7ff" />
         <Ground />
-        <ContactShadows key={ids.join()} position={[-0.5, 0.05, 0]} opacity={0.55} width={26} height={16} blur={2.4} far={5} frames={1} resolution={512} />
+        {!low && <ContactShadows key={ids.join()} position={[-0.5, 0.05, 0]} opacity={0.55} width={26} height={16} blur={2.4} far={5} frames={1} resolution={512} />}
         <Pipes />
         <Equipments ids={ids} />
         <OrbitControls
@@ -142,6 +136,7 @@ export default function Plant3D() {
           enablePan
           screenSpacePanning={false}
         />
+        <PerformanceMonitor bounds={() => [18, 40]} onDecline={() => setDpr(1)} onIncline={() => setDpr(1.5)} flipflops={3} />
         <FitCamera />
         <FrameLimiter fps={30} />
       </Canvas>

@@ -1,11 +1,13 @@
-import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vitest/config';
+
+const here = (p: string) => fileURLToPath(new URL(p, import.meta.url));
 
 export default defineConfig({
   resolve: {
     alias: {
-      '@': path.resolve(__dirname, 'src'),
-      '@campo/shared': path.resolve(__dirname, '../../packages/shared/src/index.ts'),
+      '@': here('./src'),
+      '@campo/shared': here('../../packages/shared/src/index.ts'),
     },
   },
   test: {

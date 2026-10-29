@@ -10,7 +10,7 @@ import { Equipment } from './Equipment';
 import { PIPE_Y, type Vec3 } from './layout';
 import { useAssetTarget } from './useAssetTarget';
 
-const steel = { color: '#8fa3b8', metalness: 0.6, roughness: 0.38 } as const;
+const steel = { color: '#8fa3b8', metalness: 0.15, roughness: 0.38 } as const;
 
 /** Válvula de bola: la palanca gira de 90° (cerrada, transversal) a 0° (abierta, alineada con la tubería). */
 export function Valve({ id, position }: { id: string; position: Vec3 }) {
@@ -44,14 +44,14 @@ export function Valve({ id, position }: { id: string; position: Vec3 }) {
   });
 
   return (
-    <Equipment id={id} position={position} ringRadius={0.95} labelPos={[0, 0.05, 1.1]} valueRef={valueEl}>
+    <Equipment id={id} position={position} ringRadius={0.95} labelPos={[0, 2.0, 0]} valueRef={valueEl}>
       <mesh position-y={0.35}>
         <boxGeometry args={[0.5, 0.7, 0.5]} />
         <meshStandardMaterial color="#334155" roughness={0.8} />
       </mesh>
       <mesh position-y={PIPE_Y}>
         <sphereGeometry args={[0.36, 24, 18]} />
-        <meshStandardMaterial ref={bodyMat} color="#64748b" metalness={0.5} roughness={0.4} />
+        <meshStandardMaterial ref={bodyMat} color="#64748b" metalness={0.12} roughness={0.4} />
       </mesh>
       {[-1, 1].map((s) => (
         <group key={s}>

@@ -14,7 +14,7 @@ export const TANK_R = 1.4;
 export const TANK_H = 3.4;
 const BASE = 0.15;
 
-const steel = { color: '#8fa3b8', metalness: 0.55, roughness: 0.4 } as const;
+const steel = { color: '#8fa3b8', metalness: 0.15, roughness: 0.4 } as const;
 
 export function Tank({ id, position }: { id: string; position: Vec3 }) {
   const target = useAssetTarget(id);
@@ -57,7 +57,7 @@ export function Tank({ id, position }: { id: string; position: Vec3 }) {
       {/* zócalo */}
       <mesh position-y={BASE / 2}>
         <cylinderGeometry args={[TANK_R + 0.12, TANK_R + 0.18, BASE, 40]} />
-        <meshStandardMaterial color="#475569" metalness={0.3} roughness={0.7} />
+        <meshStandardMaterial color="#475569" metalness={0.12} roughness={0.7} />
       </mesh>
       {/* líquido */}
       <mesh ref={liquid}>

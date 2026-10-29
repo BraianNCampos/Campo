@@ -137,3 +137,26 @@ describe('helpers', () => {
     expect(severityByAsset({ a: alarm({ id: 'a', severity: 'warning' }), b: alarm({ id: 'b', severity: 'critical' }) })).toEqual({ 'tk-01': 'critical' });
   });
 });
+
+describe('alarmas WS como upsert por id (contrato de la API)', () => {
+  it('el ack llega como el mismo id con acknowledged:true aunque repita state:active', () => {
+    const b1 = emptyBatch();
+    b1.alarms = [alarm({ id: 'a1', acknowledged: false })];
+    useLiveStore.getState().applyBatch(b1);
+    const b2 = emptyBatch();
+    b2.alarms = [alarm({ id: 'a1', acknowledged: true })];
+    useLiveStore.getState().applyBatch(b2);
+    const s = useLiveStore.getState();
+    expect(Object.keys(s.alarms)).toEqual(['a1']);
+    expect(s.alarms.a1?.acknowledged).toBe(true);
+  });
+  it('repeticiones idénticas de active no duplican', () => {
+    for (let i = 0; i < 3; i++) {
+      const b = emptyBatch();
+      b.alarms = [alarm({ id: 'a1', value: 91 + i })];
+      useLiveStore.getState().applyBatch(b);
+    }
+    expect(Object.keys(useLiveStore.getState().alarms)).toHaveLength(1);
+    expect(useLiveStore.getState().alarms.a1?.value).toBe(93);
+  });
+});

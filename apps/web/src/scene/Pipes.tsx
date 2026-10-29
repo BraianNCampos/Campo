@@ -66,13 +66,13 @@ export function Pipes() {
           {geo.segments.map((seg, i) => (
             <mesh key={i} position={seg.mid} quaternion={seg.quat}>
               <cylinderGeometry args={[PIPE_R, PIPE_R, seg.length, 16]} />
-              <meshStandardMaterial color="#9fb2c6" metalness={0.5} roughness={0.35} transparent opacity={0.5} depthWrite={false} />
+              <meshStandardMaterial color="#9fb2c6" metalness={0.12} roughness={0.35} transparent opacity={0.5} depthWrite={false} />
             </mesh>
           ))}
           {geo.points.slice(1, -1).map((p, i) => (
             <mesh key={`j${i}`} position={p}>
               <sphereGeometry args={[PIPE_R * 1.02, 14, 12]} />
-              <meshStandardMaterial color="#9fb2c6" metalness={0.5} roughness={0.35} transparent opacity={0.5} depthWrite={false} />
+              <meshStandardMaterial color="#9fb2c6" metalness={0.12} roughness={0.35} transparent opacity={0.5} depthWrite={false} />
             </mesh>
           ))}
         </group>

@@ -12,6 +12,7 @@ class Ring {
   private t: Float64Array;
   private v: Float64Array;
   private head = 0; // posición de escritura
+  private slotStart = -Infinity; // instante en que se abrió la última ranura
   size = 0;
   constructor(readonly capacity: number) {
     this.t = new Float64Array(capacity);
@@ -22,8 +23,8 @@ class Ring {
   }
   push(t: number, v: number, minIntervalMs: number): void {
     const last = this.lastT();
-    if (t - last < minIntervalMs && this.size > 0) {
-      // dentro del intervalo mínimo: sobrescribe la última muestra (conserva el valor más reciente)
+    if (t - this.slotStart < minIntervalMs && this.size > 0) {
+      // dentro de la ranura actual: sobrescribe la última muestra (conserva el valor más reciente)
       if (t >= last) {
         const i = (this.head - 1 + this.capacity) % this.capacity;
         this.t[i] = t;
@@ -31,6 +32,7 @@ class Ring {
       }
       return;
     }
+    this.slotStart = t;
     this.t[this.head] = t;
     this.v[this.head] = v;
     this.head = (this.head + 1) % this.capacity;

@@ -49,10 +49,11 @@ async function pollUntil(fn, timeoutMs, everyMs = 250) {
 }
 
 if (!process.env.SKIP_BUILD) {
-  const b = spawnSync('npx', ['next', 'build'], { cwd: root, stdio: 'inherit', env: { ...process.env, NEXT_PUBLIC_MOCK: '1' } });
+  const b = spawnSync(process.execPath, [path.join(root, 'node_modules/next/dist/bin/next'), 'build'], { cwd: root, stdio: 'inherit', env: { ...process.env, NEXT_PUBLIC_MOCK: '1' } });
   if (b.status !== 0) process.exit(b.status ?? 1);
 }
-const server = spawn('npx', ['next', 'start', '-p', String(PORT), '-H', '127.0.0.1'], {
+const nextBin = path.join(root, 'node_modules/next/dist/bin/next');
+const server = spawn(process.execPath, [nextBin, 'start', '-p', String(PORT), '-H', '127.0.0.1'], {
   cwd: root,
   stdio: ['ignore', 'pipe', 'pipe'],
   env: { ...process.env, NEXT_PUBLIC_MOCK: '1' },
@@ -79,10 +80,12 @@ try {
     page.on('console', (m) => m.type() === 'error' && errors.push(`console: ${m.text()}`));
 
     await page.goto(BASE, { waitUntil: 'load' });
-    const canvas = page.locator('canvas').first();
+    const canvas = page.locator('[data-testid="scene"] canvas').first();
     await canvas.waitFor({ state: 'visible', timeout: 30_000 });
+    await pollUntil(async () => ((await canvas.boundingBox())?.width ?? 0) > 400, 10_000);
     const box = await canvas.boundingBox();
-    check(!!box && box.width > 400 && box.height > 300, `escritorio: canvas 3D presente (${Math.round(box?.width ?? 0)}x${Math.round(box?.height ?? 0)})`);
+    const quality = await page.locator('[data-testid="scene"]').getAttribute('data-quality');
+    check(!!box && box.width > 400 && box.height > 300, `escritorio: canvas 3D presente (${Math.round(box?.width ?? 0)}x${Math.round(box?.height ?? 0)}, calidad ${quality})`);
 
     await page.locator('[data-testid="row-value-tk-01"]').waitFor({ timeout: 10_000 });
     const v1 = await textOf(page, 'row-value-tk-01');
@@ -96,6 +99,25 @@ try {
     check(!!alarm, 'escritorio: aparecen alarmas simuladas (level>90 / <10)');
     const badge = await textOf(page, 'alarm-count');
     check(!!badge && Number(badge) > 0, `escritorio: contador de alarmas = ${badge}`);
+
+    // rendimiento: cadencia de rAF y tareas largas en la página con 3D activo (WebGL por software → cota inferior)
+    const perf = await page.evaluate(
+      () =>
+        new Promise((resolve) => {
+          let frames = 0;
+          let long = 0;
+          const po = new PerformanceObserver((l) => (long += l.getEntries().length));
+          try { po.observe({ entryTypes: ['longtask'] }); } catch {}
+          const t0 = performance.now();
+          const tick = () => {
+            frames++;
+            if (performance.now() - t0 < 3000) requestAnimationFrame(tick);
+            else resolve({ fps: Math.round((frames * 1000) / (performance.now() - t0)), longTasks: long });
+          };
+          requestAnimationFrame(tick);
+        }),
+    );
+    console.log(`INFO  escritorio: rAF ${perf.fps} fps, ${perf.longTasks} tareas largas en 3 s (WebGL por software)`);
 
     // selección por clic en 3D: busca un punto del canvas que seleccione un equipo distinto
     await page.locator('[data-testid="asset-row-pump-02"]').click();
@@ -187,11 +209,19 @@ try {
     check(!!hasAlarm, 'móvil: lista de alarmas con elementos');
     await sleep(300);
     await page.screenshot({ path: path.join(shots, 'mobile-alarms-390x844.png') });
-    const ack = page.getByRole('button', { name: 'Reconocer' }).first();
+    const ack = page.getByRole('button', { name: 'Reconocer', exact: true }).first();
     const ab = await ack.boundingBox();
     check(!!ab && ab.height >= 44, `móvil: botón Reconocer ≥44px (${Math.round(ab?.height ?? 0)}px)`);
+    const before = await page.locator('[data-testid="alarm-item"]').count();
     await ack.tap();
-    const acked = await pollUntil(async () => (await page.getByRole('button', { name: 'Reconocida' }).count()) > 0, 3000);
+    // la alarma reconocida pasa a "Reconocida"; (si justo se limpia por histéresis, el nº de alarmas baja)
+    const acked = await pollUntil(
+      async () =>
+        (await page.getByRole('button', { name: 'Reconocida', exact: true }).count()) > 0 ||
+        (await page.locator('[data-testid="alarm-item"]').count()) < before,
+      3000,
+      50,
+    );
     check(!!acked, 'móvil: ack local marca la alarma como reconocida');
     await page.screenshot({ path: path.join(shots, 'mobile-alarms-acked.png') });
 

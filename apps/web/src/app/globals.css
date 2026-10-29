@@ -82,6 +82,20 @@ button:not(:disabled) {
   font-variant-numeric: tabular-nums;
 }
 
+/* En canvas estrecho (móvil) las etiquetas se compactan para no solaparse */
+.scene-root {
+  container-type: inline-size;
+}
+@container (max-width: 560px) {
+  .scene-label {
+    padding: 1px 4px;
+    font-size: 9.5px;
+  }
+  .scene-label b {
+    font-size: 10.5px;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
