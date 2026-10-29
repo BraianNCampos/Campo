@@ -58,7 +58,14 @@ El CI (`.github/workflows/ci.yml`) ejecuta lo mismo en cada push.
 
 ## Estado y límites conocidos
 
-Verificado de punta a punta (simulador → MQTT → ingesta → Redis/Postgres → API → WebSocket → navegador) con servicios locales. **Aún no se ha probado con Docker ni con TimescaleDB real** (las consultas de histórico se probaron sobre Postgres plano): hazlo con el compose antes de confiar en el histórico.
+Verificado de punta a punta con Docker y TimescaleDB real: simulador → MQTT → ingesta → Redis/TimescaleDB → API → WebSocket → navegador. Eso incluye el histórico con `time_bucket`, el agregado continuo `telemetry_1m` (coincide con la tabla cruda), consultas y escrituras sobre chunks comprimidos, y las tres imágenes construidas con sus Dockerfiles. La prueba es repetible y el CI la ejecuta en cada push:
+
+```bash
+docker compose --profile apps --profile sim up -d --build
+scripts/smoke.sh
+```
+
+Pendiente de verificar con carga real: el rendimiento de la web en una GPU física (solo se midió con render por software) y el comportamiento con muchas más plantas y activos.
 
 - Ingesta: no escala a varias réplicas con el mismo `MQTT_CLIENT_ID` (haría falta suscripción compartida). Un corte de Postgres de más de ~30 s pierde esa porción del histórico.
 - API: el motor de alarmas corre en memoria; con varias réplicas, activarlo en una sola (`ALARM_ENGINE_ENABLED=false` en el resto). No hay autorización por planta. Un usuario desactivado conserva acceso hasta que expira su token.

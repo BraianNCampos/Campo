@@ -69,3 +69,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: cp .env.example .env && docker compose --profile apps config -q
+
+  integration:
+    name: integración (stack completo en Docker)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - run: cp .env.example .env
+      - run: docker compose --profile apps --profile sim up -d --build
+      - run: scripts/smoke.sh
+      - name: Logs si falla
+        if: failure()
+        run: docker compose --profile apps --profile sim logs --tail=100
+      - if: always()
+        run: docker compose --profile apps --profile sim down -v
