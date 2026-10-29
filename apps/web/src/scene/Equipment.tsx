@@ -5,6 +5,7 @@ import { Html } from '@react-three/drei';
 import type * as THREE from 'three';
 import { assetKind, assetLabel } from '@/lib/assets';
 import { useUiStore } from '@/store/ui-store';
+import { labelPortalRef } from './label-portal';
 import type { Vec3 } from './layout';
 
 function SelectionRing({ id, radius }: { id: string; radius: number }) {
@@ -58,7 +59,7 @@ export function Equipment({
     >
       {children}
       <SelectionRing id={id} radius={ringRadius} />
-      <Html position={labelPos} center zIndexRange={[20, 0]} style={{ pointerEvents: 'none' }}>
+      <Html position={labelPos} center zIndexRange={[20, 0]} portal={labelPortalRef} style={{ pointerEvents: 'none' }}>
         <div className="scene-label" data-minor={assetKind(id) === 'tank' ? undefined : ''}>
           {assetLabel(id)}
           <b ref={valueRef as RefObject<HTMLElement>}>—</b>

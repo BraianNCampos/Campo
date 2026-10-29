@@ -7,8 +7,11 @@ import { getToken } from '@/lib/auth';
 import { startLive } from '@/live/start-live';
 import { useLiveStore } from '@/store/live-store';
 
-/** Arranca la fuente de datos (demo o WS) y redirige a /login si falta sesión. */
-export function LiveProvider({ children }: { children: ReactNode }) {
+/**
+ * Arranca la fuente de datos (demo o WS) de la planta activa. Al cambiar `plant` se para la
+ * conexión anterior, se limpia el estado vivo y se reconecta a la nueva. Redirige a /login si falta sesión.
+ */
+export function LiveProvider({ plant, children }: { plant: string; children: ReactNode }) {
   const router = useRouter();
   const connection = useLiveStore((s) => s.connection);
 
@@ -17,8 +20,8 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       router.replace('/login');
       return;
     }
-    return startLive();
-  }, [router]);
+    return startLive(plant);
+  }, [router, plant]);
 
   useEffect(() => {
     if (!config.mock && connection === 'unauthorized') router.replace('/login');

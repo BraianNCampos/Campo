@@ -117,6 +117,94 @@ export const IconLogout = (p: P) => (
   </Svg>
 );
 
+export const IconUsers = (p: P) => (
+  <Svg {...p}>
+    <circle cx="9" cy="8" r="3.2" />
+    <path d="M3 19.5c0-3.3 2.7-5.5 6-5.5s6 2.2 6 5.5M16 5.2a3.2 3.2 0 0 1 0 5.6M18 14.4c1.8.7 3 2.4 3 5.1" />
+  </Svg>
+);
+export const IconUser = (p: P) => (
+  <Svg {...p}>
+    <circle cx="12" cy="8" r="3.6" />
+    <path d="M4.5 20c0-3.6 3.4-6 7.5-6s7.5 2.4 7.5 6" />
+  </Svg>
+);
+export const IconPlant = (p: P) => (
+  <Svg {...p}>
+    <path d="M3 20.5h18M5 20.5V10l5 3V10l5 3V6h4v14.5M8.5 17h.1M12.5 17h.1" />
+  </Svg>
+);
+export const IconRules = (p: P) => (
+  <Svg {...p}>
+    <path d="M4 7h9M17 7h3M4 17h3M11 17h9M15 4.5v5M9 14.5v5" />
+  </Svg>
+);
+export const IconAudit = (p: P) => (
+  <Svg {...p}>
+    <path d="M8 4.5H6a1.5 1.5 0 0 0-1.5 1.5v13A1.5 1.5 0 0 0 6 20.5h12a1.5 1.5 0 0 0 1.5-1.5V6A1.5 1.5 0 0 0 18 4.5h-2" />
+    <rect x="8" y="3" width="8" height="3.5" rx="1" />
+    <path d="M8.5 11.5h7M8.5 15h5" />
+  </Svg>
+);
+export const IconSettings = (p: P) => (
+  <Svg {...p}>
+    <circle cx="12" cy="12" r="3" />
+    <path d="M12 3v2.5M12 18.5V21M3 12h2.5M18.5 12H21M5.6 5.6l1.8 1.8M16.6 16.6l1.8 1.8M5.6 18.4l1.8-1.8M16.6 7.4l1.8-1.8" />
+  </Svg>
+);
+export const IconPlus = (p: P) => (
+  <Svg {...p}>
+    <path d="M12 5v14M5 12h14" />
+  </Svg>
+);
+export const IconEdit = (p: P) => (
+  <Svg {...p}>
+    <path d="M4 20l1-4L16.5 4.5a2 2 0 0 1 3 3L8 19l-4 1ZM14.5 6.5l3 3" />
+  </Svg>
+);
+export const IconTrash = (p: P) => (
+  <Svg {...p}>
+    <path d="M4 7h16M9.5 7V4.5h5V7M6.5 7l1 13h9l1-13M10 11v5.5M14 11v5.5" />
+  </Svg>
+);
+export const IconClose = (p: P) => (
+  <Svg {...p}>
+    <path d="M6 6l12 12M18 6 6 18" />
+  </Svg>
+);
+export const IconChevron = (p: P) => (
+  <Svg {...p}>
+    <path d="m9 6 6 6-6 6" />
+  </Svg>
+);
+export const IconBack = (p: P) => (
+  <Svg {...p}>
+    <path d="M15 5l-7 7 7 7" />
+  </Svg>
+);
+export const IconKey = (p: P) => (
+  <Svg {...p}>
+    <circle cx="8" cy="15" r="3.6" />
+    <path d="M10.6 12.4 19 4M16 7l2.5 2.5M13.5 9.5 15 11" />
+  </Svg>
+);
+export const IconRefresh = (p: P) => (
+  <Svg {...p}>
+    <path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3M19.5 4.5v4h-4" />
+  </Svg>
+);
+export const IconInfo = (p: P) => (
+  <Svg {...p}>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M12 11v5.5M12 7.8v.1" />
+  </Svg>
+);
+export const IconHome = (p: P) => (
+  <Svg {...p}>
+    <path d="M4 11.5 12 4l8 7.5M6 10v10h12V10" />
+  </Svg>
+);
+
 export const STATUS_ICON: Record<AssetStatus, (p: P) => React.JSX.Element> = {
   ok: IconCheck,
   warning: IconWarning,

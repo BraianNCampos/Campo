@@ -1,23 +1,28 @@
 'use client';
 
+import { usePlantStore } from '@/store/plant-store';
 import { DesktopShell } from './DesktopShell';
 import { useIsMobile } from './hooks';
 import { LiveProvider } from './LiveProvider';
 import { MobileShell } from './MobileShell';
+import { NoPlants } from './NoPlants';
+import { SessionGate, Skeleton } from './SessionGate';
 
-function Skeleton() {
+function Dashboard() {
+  const plant = usePlantStore((s) => s.selected);
+  const isMobile = useIsMobile(); // undefined hasta montar: nada de Canvas por error
+  if (!plant) return <NoPlants />;
   return (
-    <div className="flex h-dvh items-center justify-center text-muted" role="status" aria-label="Cargando">
-      <div className="size-8 animate-spin rounded-full border-2 border-line border-t-accent" />
-    </div>
+    <LiveProvider plant={plant}>
+      {isMobile === undefined ? <Skeleton /> : isMobile ? <MobileShell /> : <DesktopShell />}
+    </LiveProvider>
   );
 }
 
 export function AppShell() {
-  const isMobile = useIsMobile(); // undefined hasta montar: nada de Canvas por error
   return (
-    <LiveProvider>
-      {isMobile === undefined ? <Skeleton /> : isMobile ? <MobileShell /> : <DesktopShell />}
-    </LiveProvider>
+    <SessionGate>
+      <Dashboard />
+    </SessionGate>
   );
 }

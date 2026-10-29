@@ -9,7 +9,8 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "e2e": "node e2e/run.mjs"
+    "e2e": "node e2e/run.mjs",
+    "e2e:admin": "node e2e/admin.mjs"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.9",

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useLayoutEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { Canvas, useThree } from '@react-three/fiber';
 import { ContactShadows, OrbitControls, PerformanceMonitor } from '@react-three/drei';
@@ -8,6 +8,7 @@ import { assetKind } from '@/lib/assets';
 import { clamp } from '@/lib/math';
 import { useLiveStore } from '@/store/live-store';
 import { useUiStore } from '@/store/ui-store';
+import { labelPortal } from './label-portal';
 import { positionFor } from './layout';
 import { detectQuality } from './quality';
 import { Pipes } from './Pipes';
@@ -101,8 +102,17 @@ export default function Plant3D() {
   const [dpr, setDpr] = useState(low ? 1 : 1.5);
   // sólo cambia cuando cambia el conjunto de activos, no con cada mensaje
   const ids = useLiveStore((s) => s.assetIds);
+  const rootRef = useRef<HTMLDivElement>(null);
+  // destino estable de las etiquetas HTML (ver label-portal.ts); se fija antes de que R3F renderice la escena
+  useLayoutEffect(() => {
+    labelPortal.current = rootRef.current;
+    return () => {
+      labelPortal.current = null;
+    };
+  }, []);
   return (
     <div
+      ref={rootRef}
       data-testid="scene"
       data-quality={quality}
       role="img"
