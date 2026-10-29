@@ -61,6 +61,65 @@ services:
     networks:
       - campo-net
 
+  # ---- Aplicación (perfil "apps"): docker compose --profile apps up -d --build ----
+  ingest:
+    profiles: ["apps"]
+    build:
+      context: ./apps/ingest
+    container_name: campo-ingest
+    restart: unless-stopped
+    environment:
+      MQTT_BROKER_URL: tcp://mosquitto:1883
+      MQTT_CLIENT_ID: campo-ingest
+      REDIS_URL: redis://redis:6379/0
+      DATABASE_URL: postgres://${POSTGRES_USER:-campo}:${POSTGRES_PASSWORD:-campo_dev}@timescaledb:5432/${POSTGRES_DB:-campo}?sslmode=disable
+    ports:
+      - "${INGEST_HTTP_PORT:-8080}:8080"   # /healthz /readyz /metrics
+    depends_on:
+      mosquitto: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      timescaledb: { condition: service_healthy }
+    networks:
+      - campo-net
+
+  api:
+    profiles: ["apps"]
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: campo-api
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      JWT_SECRET: ${JWT_SECRET:?define JWT_SECRET (>=32 caracteres) en .env}
+      DATABASE_URL: postgres://${POSTGRES_USER:-campo}:${POSTGRES_PASSWORD:-campo_dev}@timescaledb:5432/${POSTGRES_DB:-campo}
+      REDIS_URL: redis://redis:6379
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@campo.local}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?define ADMIN_PASSWORD en .env}
+    ports:
+      - "${API_PORT:-3001}:3001"
+    depends_on:
+      redis: { condition: service_healthy }
+      timescaledb: { condition: service_healthy }
+    networks:
+      - campo-net
+
+  # Simulador de la planta "demo" (perfil "sim"): docker compose --profile apps --profile sim up -d
+  simulator:
+    profiles: ["sim"]
+    build:
+      context: ./apps/ingest
+    container_name: campo-simulator
+    restart: unless-stopped
+    entrypoint: ["/simulator"]
+    command: ["-broker", "tcp://mosquitto:1883"]
+    depends_on:
+      mosquitto: { condition: service_healthy }
+    networks:
+      - campo-net
+
 volumes:
   timescaledb_data:
   redis_data:
