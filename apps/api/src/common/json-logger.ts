@@ -5,7 +5,8 @@ const ORDER: Record<LogLevel, number> = { debug: 10, info: 20, warn: 30, error: 
 const REDACT = /pass(word)?|secret|token|authorization|hash/i;
 
 function sanitize(value: unknown): unknown {
-  if (value instanceof Error) return { name: value.name, message: value.message, stack: value.stack };
+  if (value instanceof Error)
+    return { name: value.name, message: value.message, stack: value.stack };
   return value;
 }
 
@@ -59,7 +60,8 @@ export class JsonLogger implements LoggerService {
     }
     for (const x of extras) {
       if (typeof x === 'string') entry.trace = x;
-      else if (x && typeof x === 'object') Object.assign(entry, redact(x as Record<string, unknown>));
+      else if (x && typeof x === 'object')
+        Object.assign(entry, redact(x as Record<string, unknown>));
     }
     this.write(JSON.stringify(entry), level);
   }

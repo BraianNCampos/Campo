@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0a0e13" />
+  <title>Sin conexión · Campo</title>
+  <style>
+    html,body{margin:0;height:100%;background:#0a0e13;color:#f1f5f9;font-family:ui-sans-serif,system-ui,sans-serif}
+    main{min-height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:24px;text-align:center}
+    h1{margin:0;font-size:22px}p{margin:0;color:#a6b5c7;max-width:32ch}
+    button{margin-top:12px;min-height:48px;padding:0 24px;border:0;border-radius:12px;background:#38bdf8;color:#0a0e13;font-size:16px;font-weight:700;cursor:pointer}
+    button:focus-visible{outline:3px solid #fff;outline-offset:2px}
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Sin conexión</h1>
+    <p>No hay red y aún no hay una copia de la aplicación guardada en este dispositivo.</p>
+    <button type="button" onclick="location.reload()">Reintentar</button>
+  </main>
+</body>
+</html>

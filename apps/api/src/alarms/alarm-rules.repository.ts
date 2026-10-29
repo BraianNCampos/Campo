@@ -83,7 +83,17 @@ export class PgAlarmRulesRepository extends AlarmRulesRepository {
     const { rows } = await this.pool.query<RuleRow>(
       `INSERT INTO alarm_rules (plant, asset, metric, operator, threshold, severity, for_seconds, hysteresis, enabled)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING ${COLUMNS}`,
-      [i.plant, i.asset, i.metric, i.operator, i.threshold, i.severity, i.forSeconds, i.hysteresis, i.enabled],
+      [
+        i.plant,
+        i.asset,
+        i.metric,
+        i.operator,
+        i.threshold,
+        i.severity,
+        i.forSeconds,
+        i.hysteresis,
+        i.enabled,
+      ],
     );
     return toRule(rows[0]);
   }

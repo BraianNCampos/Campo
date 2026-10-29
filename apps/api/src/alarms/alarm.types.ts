@@ -35,3 +35,20 @@ export interface AlarmRecord extends AlarmEvent {
 
 export const activeField = (e: Pick<AlarmEvent, 'asset' | 'metric' | 'ruleId'>): string =>
   `${e.asset}:${e.metric}:${e.ruleId}`;
+
+/** Proyección de un registro persistido al contrato AlarmEvent (pub/sub y hash de activas). */
+export const toEvent = (r: AlarmRecord): AlarmEvent => ({
+  type: 'alarm',
+  id: r.id,
+  ruleId: r.ruleId,
+  plant: r.plant,
+  asset: r.asset,
+  metric: r.metric,
+  severity: r.severity,
+  state: r.state,
+  value: r.value,
+  threshold: r.threshold,
+  ts: r.ts,
+  message: r.message,
+  acknowledged: r.acknowledged,
+});

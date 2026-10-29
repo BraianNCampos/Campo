@@ -11,7 +11,9 @@ export const Public = () => SetMetadata(IS_PUBLIC_KEY, true);
 /** Roles permitidos. `admin` siempre pasa. Sin decorador: cualquier usuario autenticado. */
 export const Roles = (...roles: Role[]) => SetMetadata(ROLES_KEY, roles);
 
-export const CurrentUser = createParamDecorator((_data: unknown, ctx: ExecutionContext): AuthUser => {
-  const req = ctx.switchToHttp().getRequest<AuthenticatedRequest>();
-  return req.user as AuthUser;
-});
+export const CurrentUser = createParamDecorator(
+  (_data: unknown, ctx: ExecutionContext): AuthUser => {
+    const req = ctx.switchToHttp().getRequest<AuthenticatedRequest>();
+    return req.user as AuthUser;
+  },
+);

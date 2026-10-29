@@ -4,6 +4,7 @@ const base = {
   testEnvironment: 'node',
   rootDir: '.',
   moduleFileExtensions: ['js', 'json', 'ts'],
+  setupFiles: ['<rootDir>/test/setup.ts'],
   moduleNameMapper: {
     '^@campo/shared$': '<rootDir>/../../packages/shared/src/index.ts',
   },

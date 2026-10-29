@@ -51,8 +51,9 @@ export function planHistory(
 
   let bucket = input.bucket;
   if (!bucket) {
+    const target = Math.min(AUTO_TARGET_POINTS, limits.maxPoints);
     bucket =
-      BUCKET_NAMES.find((b) => rangeSec / BUCKETS[b] <= AUTO_TARGET_POINTS) ??
+      BUCKET_NAMES.find((b) => rangeSec / BUCKETS[b] <= target) ??
       BUCKET_NAMES[BUCKET_NAMES.length - 1];
   }
   const bucketSeconds = BUCKETS[bucket];

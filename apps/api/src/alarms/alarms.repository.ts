@@ -75,7 +75,18 @@ export class PgAlarmsRepository extends AlarmsRepository {
       `INSERT INTO alarms (id, rule_id, plant, asset, metric, severity, state, value, threshold, message, triggered_at)
        VALUES ($1, $2, $3, $4, $5, $6, 'active', $7, $8, $9, to_timestamp($10::double precision / 1000))
        ON CONFLICT (id) DO NOTHING`,
-      [a.id, a.ruleId, a.plant, a.asset, a.metric, a.severity, a.value, a.threshold, a.message, a.ts],
+      [
+        a.id,
+        a.ruleId,
+        a.plant,
+        a.asset,
+        a.metric,
+        a.severity,
+        a.value,
+        a.threshold,
+        a.message,
+        a.ts,
+      ],
     );
   }
 
@@ -99,7 +110,9 @@ export class PgAlarmsRepository extends AlarmsRepository {
       [id, userId, at],
     );
     if (upd.rows[0]) return { record: toRecord(upd.rows[0]), changed: true };
-    const sel = await this.pool.query<AlarmRow>(`SELECT ${COLUMNS} FROM alarms WHERE id = $1`, [id]);
+    const sel = await this.pool.query<AlarmRow>(`SELECT ${COLUMNS} FROM alarms WHERE id = $1`, [
+      id,
+    ]);
     return sel.rows[0] ? { record: toRecord(sel.rows[0]), changed: false } : null;
   }
 

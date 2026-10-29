@@ -5,7 +5,10 @@ import { RealtimeBus } from './realtime-bus';
 import { REDIS, REDIS_SUB } from './tokens';
 
 function create(cfg: AppConfig, name: string): Redis {
-  const client = new Redis(cfg.redisUrl, { connectionName: `campo-api-${name}`, lazyConnect: false });
+  const client = new Redis(cfg.redisUrl, {
+    connectionName: `campo-api-${name}`,
+    lazyConnect: false,
+  });
   const log = new Logger(`redis:${name}`);
   client.on('error', (err: Error) => log.error({ msg: 'redis error', error: err.message }));
   return client;
@@ -15,7 +18,11 @@ function create(cfg: AppConfig, name: string): Redis {
 @Module({
   providers: [
     { provide: REDIS, inject: [APP_CONFIG], useFactory: (cfg: AppConfig) => create(cfg, 'cmd') },
-    { provide: REDIS_SUB, inject: [APP_CONFIG], useFactory: (cfg: AppConfig) => create(cfg, 'sub') },
+    {
+      provide: REDIS_SUB,
+      inject: [APP_CONFIG],
+      useFactory: (cfg: AppConfig) => create(cfg, 'sub'),
+    },
     RealtimeBus,
   ],
   exports: [REDIS, REDIS_SUB, RealtimeBus],
