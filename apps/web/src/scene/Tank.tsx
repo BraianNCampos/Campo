@@ -53,7 +53,7 @@ export function Tank({ id, position }: { id: string; position: Vec3 }) {
   });
 
   return (
-    <Equipment id={id} position={position} ringRadius={TANK_R + 0.35} labelY={TANK_H + 0.75} valueRef={valueEl}>
+    <Equipment id={id} position={position} ringRadius={TANK_R + 0.35} labelPos={[0, TANK_H + 0.75, 0]} valueRef={valueEl}>
       {/* zócalo */}
       <mesh position-y={BASE / 2}>
         <cylinderGeometry args={[TANK_R + 0.12, TANK_R + 0.18, BASE, 40]} />
@@ -67,7 +67,7 @@ export function Tank({ id, position }: { id: string; position: Vec3 }) {
       {/* casco translúcido */}
       <mesh position-y={BASE + (TANK_H - BASE) / 2}>
         <cylinderGeometry args={[TANK_R, TANK_R, TANK_H - BASE, 40, 1, true]} />
-        <meshStandardMaterial {...steel} transparent opacity={0.22} side={THREE.DoubleSide} depthWrite={false} />
+        <meshStandardMaterial {...steel} transparent opacity={0.3} side={THREE.DoubleSide} depthWrite={false} />
       </mesh>
       {/* aros */}
       {[0.02, 0.34, 0.67, 1].map((f) => (

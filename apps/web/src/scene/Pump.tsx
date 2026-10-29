@@ -45,7 +45,7 @@ export function Pump({ id, position }: { id: string; position: Vec3 }) {
   });
 
   return (
-    <Equipment id={id} position={position} ringRadius={1.5} labelY={3.2} valueRef={valueEl}>
+    <Equipment id={id} position={position} ringRadius={1.5} labelPos={[0, 3.3, 0]} valueRef={valueEl}>
       {/* bancada */}
       <mesh position-y={0.07}>
         <boxGeometry args={[2.6, 0.14, 1.3]} />

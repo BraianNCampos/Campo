@@ -44,7 +44,7 @@ export function Valve({ id, position }: { id: string; position: Vec3 }) {
   });
 
   return (
-    <Equipment id={id} position={position} ringRadius={0.95} labelY={2.4} valueRef={valueEl}>
+    <Equipment id={id} position={position} ringRadius={0.95} labelPos={[0, 0.05, 1.1]} valueRef={valueEl}>
       <mesh position-y={0.35}>
         <boxGeometry args={[0.5, 0.7, 0.5]} />
         <meshStandardMaterial color="#334155" roughness={0.8} />

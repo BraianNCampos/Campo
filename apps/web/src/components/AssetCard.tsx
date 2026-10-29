@@ -14,7 +14,7 @@ function BigValue({ id, metric, value }: { id: string; metric: string; value: nu
   const meta = metricMeta(metric);
   return (
     <p className="flex items-baseline gap-1.5 leading-none">
-      <span data-testid={`value-${id}`} className="font-mono text-[44px] font-bold tabular-nums tracking-tight">
+      <span data-testid={`value-${id}`} className="font-mono text-[40px] font-bold tabular-nums tracking-tight">
         {formatNumber(value, meta.decimals)}
       </span>
       <span className="text-lg font-medium text-muted">{meta.unit}</span>
@@ -36,7 +36,7 @@ export function AssetCard({ id }: { id: string }) {
     <article
       data-testid={`asset-card-${id}`}
       aria-label={`${assetLabel(id)}: ${meta.label}`}
-      className={`rounded-2xl border bg-surface p-4 ${status === 'ok' ? 'border-line' : meta.border} ${
+      className={`rounded-2xl border bg-surface p-3.5 ${status === 'ok' ? 'border-line' : meta.border} ${
         status === 'critical' ? 'shadow-[0_0_0_1px_var(--color-crit)]' : ''
       }`}
     >
@@ -49,20 +49,20 @@ export function AssetCard({ id }: { id: string }) {
         <StatusBadge status={status} size="sm" />
       </header>
 
-      <div className="mt-3 flex items-end justify-between gap-4">
+      <div className="mt-2.5 flex items-end justify-between gap-4">
         <div className="min-w-0">
+          <p className="mb-1 text-sm text-muted">{metricMeta(main).label}</p>
           <BigValue id={id} metric={main} value={v[main]} />
-          <p className="mt-1.5 text-sm text-muted">{metricMeta(main).label}</p>
         </div>
-        <div className="w-32 shrink-0">
+        <div className="w-36 shrink-0 pb-1">
           <Sparkline asset={id} metric={main} height={44} color={color} />
         </div>
       </div>
 
       {kind === 'tank' && (
-        <div className="mt-3">
+        <div className="mt-2.5">
           <LevelBar value={v.level} color={color} thresholds={metricMeta('level').thresholds} label={`Nivel de ${assetLabel(id)}`} height={16} />
-          <p className="mt-2 text-sm text-muted">
+          <p className="mt-1.5 text-sm text-muted">
             Temperatura <span className="font-mono font-semibold text-fg tabular-nums">{formatMetric('temp', v.temp)}</span>
           </p>
         </div>

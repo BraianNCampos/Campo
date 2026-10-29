@@ -29,14 +29,14 @@ export function Equipment({
   id,
   position,
   ringRadius,
-  labelY,
+  labelPos,
   valueRef,
   children,
 }: {
   id: string;
   position: Vec3;
   ringRadius: number;
-  labelY: number;
+  labelPos: Vec3;
   valueRef: RefObject<HTMLElement | null>;
   children: ReactNode;
 }) {
@@ -58,7 +58,7 @@ export function Equipment({
     >
       {children}
       <SelectionRing id={id} radius={ringRadius} />
-      <Html position={[0, labelY, 0]} center zIndexRange={[20, 0]} style={{ pointerEvents: 'none' }}>
+      <Html position={labelPos} center zIndexRange={[20, 0]} style={{ pointerEvents: 'none' }}>
         <div className="scene-label">
           {assetLabel(id)}
           <b ref={valueRef as RefObject<HTMLElement>}>—</b>

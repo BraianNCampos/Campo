@@ -67,7 +67,7 @@ export class PlantSimulator {
   private rnd: () => number;
   private tanks: TankSim[] = [
     { id: 'tk-01', level: 55, role: 'source', phase: 0.3, tempBase: 18, tempAmp: 2.5 },
-    { id: 'tk-02', level: 14, role: 'source', phase: 1.7, tempBase: 20, tempAmp: 3 },
+    { id: 'tk-02', level: 12, role: 'source', phase: 1.7, tempBase: 20, tempAmp: 3 },
     { id: 'tk-03', level: 60, role: 'sink', phase: 2.9, tempBase: 25, tempAmp: 7 },
     { id: 'tk-04', level: 87, role: 'sink', phase: 4.1, tempBase: 21, tempAmp: 4 },
   ];
@@ -77,7 +77,7 @@ export class PlantSimulator {
   ];
   private valves: ValveSim[] = [
     { id: 'valve-01', position: 100, openTo: 100 },
-    { id: 'valve-02', position: 70, openTo: 70 },
+    { id: 'valve-02', position: 85, openTo: 85 },
   ];
   private temps = new Map<string, number>();
   private pumpCurrent = new Map<string, number>();
@@ -147,7 +147,7 @@ export class PlantSimulator {
     for (const tk of this.tanks) {
       const ext =
         tk.role === 'source'
-          ? 0.35 + 0.25 * Math.sin(this.t / 17 + tk.phase) // aporte de proceso
+          ? 0.3 + 0.2 * Math.sin(this.t / 17 + tk.phase) // aporte de proceso
           : -(0.3 + 0.2 * Math.sin(this.t / 23 + tk.phase)); // consumo
       tk.level = clamp(tk.level + (ext + (flow.get(tk.id) ?? 0)) * dt + this.noise(0.01), 0, 100);
       this.temps.set(tk.id, this.tempOf(tk));

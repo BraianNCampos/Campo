@@ -1,9 +1,11 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useLayoutEffect } from 'react';
+import * as THREE from 'three';
 import { Canvas, useThree } from '@react-three/fiber';
 import { ContactShadows, Environment, Grid, Lightformer, OrbitControls } from '@react-three/drei';
 import { assetKind } from '@/lib/assets';
+import { clamp } from '@/lib/math';
 import { useLiveStore } from '@/store/live-store';
 import { useUiStore } from '@/store/ui-store';
 import { positionFor } from './layout';
@@ -29,6 +31,23 @@ function FrameLimiter({ fps }: { fps: number }) {
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
   }, [fps, invalidate]);
+  return null;
+}
+
+type OrbitControlsImpl = { update(): void };
+const TARGET = new THREE.Vector3(-0.5, 1.3, 0);
+
+/** Encuadra toda la planta según la relación de aspecto (retrato en móvil → más lejos). */
+function FitCamera() {
+  const camera = useThree((s) => s.camera);
+  const controls = useThree((s) => s.controls) as OrbitControlsImpl | null;
+  const aspect = useThree((s) => Math.round((s.size.width / Math.max(1, s.size.height)) * 4) / 4);
+  useLayoutEffect(() => {
+    const dist = clamp(24 / (0.689 * Math.max(aspect, 0.2)), 24, 55);
+    camera.position.copy(new THREE.Vector3(0.5, 0.48, 0.72).normalize().multiplyScalar(dist)).add(TARGET);
+    camera.lookAt(TARGET);
+    controls?.update();
+  }, [aspect, camera, controls]);
   return null;
 }
 
@@ -114,15 +133,16 @@ export default function Plant3D() {
         <Equipments ids={ids} />
         <OrbitControls
           makeDefault
-          target={[-0.5, 1.3, 0]}
+          target={TARGET.toArray()}
           enableDamping
           dampingFactor={0.09}
           minDistance={7}
-          maxDistance={42}
+          maxDistance={65}
           maxPolarAngle={Math.PI / 2 - 0.05}
           enablePan
           screenSpacePanning={false}
         />
+        <FitCamera />
         <FrameLimiter fps={30} />
       </Canvas>
     </div>

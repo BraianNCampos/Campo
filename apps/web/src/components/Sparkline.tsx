@@ -36,10 +36,11 @@ export function Sparkline({
       hi = mid + minSpan / 2;
     }
     const W = 100;
-    const pts = v.map((x, i) => `${((i / (points - 1)) * W + (W - ((v.length - 1) / (points - 1)) * W)).toFixed(2)},${(
-      height - 3 - ((x - lo) / (hi - lo)) * (height - 6)
-    ).toFixed(2)}`);
-    return { line: pts.join(' '), last: pts[pts.length - 1] ?? '' };
+    const pts = v.map(
+      (x, i) =>
+        `${((i / (v.length - 1)) * W).toFixed(2)},${(height - 3 - ((x - lo) / (hi - lo)) * (height - 6)).toFixed(2)}`,
+    );
+    return { line: pts.join(' ') };
   }, [version, asset, metric, points, height]);
 
   return (
