@@ -55,6 +55,8 @@ Hypertable `telemetry` (ver `infra/timescaledb/init/010_telemetry.sql`), una fil
 | `GET /api/plants/:plant/assets/:asset/history?metric&from&to&bucket` | histórico agregado (continuous aggregates) |
 | `GET/POST/PATCH/DELETE /api/alarm-rules` | reglas de alarma (rol `admin`/`engineer`) |
 | `GET /api/alarms?state=active` | alarmas; `POST /api/alarms/:id/ack` reconoce |
+| `GET /api/me` | usuario actual `{id,email,role,plants}` |
+| `GET/POST /api/users`, `PATCH /api/users/:id`, `PUT /api/users/:id/plants` | administración de usuarios (solo `admin`, ver §8.1) |
 | `GET /health`, `GET /ready` | sondas |
 
 Roles: `admin`, `engineer`, `operator`, `viewer`.
@@ -66,7 +68,8 @@ WebSocket nativo (librería `ws`), mensajes JSON, un tipo discriminado `ServerMe
 1. Al conectar: `{type:"snapshot", plant, assets:{[asset]:{ts,values,quality}}}`
 2. Luego: `{type:"telemetry", ...}` y `{type:"alarm", ...}` en tiempo real.
 3. El servidor agrupa telemetría en ventanas de ~100 ms por activo (coalescing: solo el último valor) para no saturar al cliente móvil.
-4. Ping/pong cada 25 s. El cliente reconecta con backoff exponencial y vuelve a recibir `snapshot`.
+4. Cierres: `4400` planta inválida, `4401` token inválido o usuario inactivo, `4403` sin acceso a la planta (ver §8.1); el cliente no reintenta ante 4401/4403.
+5. Ping/pong cada 25 s. El cliente reconecta con backoff exponencial y vuelve a recibir `snapshot`.
 
 ## 6. Frontend
 

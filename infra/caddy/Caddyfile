@@ -9,6 +9,8 @@
 {
 	# API de administración de Caddy sólo en loopback del contenedor (la usa el healthcheck).
 	admin localhost:2019
+	# En el contenedor no hay almacén de confianza que modificar (read_only): el cliente importa la CA a mano.
+	skip_install_trust
 	servers {
 		timeouts {
 			read_header 10s
@@ -56,8 +58,16 @@
 		reverse_proxy web:3000
 	}
 
+	# Log de acceso a stdout. El WebSocket pasa el JWT en la query (/ws?plant=..&token=..): se oculta del log.
 	log {
 		output stdout
-		format console
+		format filter {
+			wrap console
+			fields {
+				request>uri query {
+					replace token REDACTED
+				}
+			}
+		}
 	}
 }

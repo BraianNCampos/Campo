@@ -84,3 +84,24 @@ jobs:
         run: docker compose --profile apps --profile sim logs --tail=100
       - if: always()
         run: docker compose --profile apps --profile sim down -v
+
+  integration-secure:
+    name: integración endurecida (TLS, autenticación, Caddy)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - run: scripts/bootstrap-secure.sh
+      - run: >
+          docker compose -f docker-compose.yml -f docker-compose.prod.yml
+          --env-file .env.prod --profile apps --profile sim up -d --build
+      - run: scripts/smoke-secure.sh
+      - name: Logs si falla
+        if: failure()
+        run: >
+          docker compose -f docker-compose.yml -f docker-compose.prod.yml
+          --env-file .env.prod --profile apps --profile sim logs --tail=100
+      - if: always()
+        run: >
+          docker compose -f docker-compose.yml -f docker-compose.prod.yml
+          --env-file .env.prod --profile apps --profile sim down -v

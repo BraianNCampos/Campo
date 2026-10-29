@@ -283,3 +283,17 @@ func TestStartsWithoutDependenciesAndRecovers(t *testing.T) {
 		t.Errorf("filas históricas = %d, quería 1", len(hist.snapshot()))
 	}
 }
+
+// Una CA ilegible debe impedir el arranque (fallar pronto), no degradarse a "sin verificación".
+func TestNewFailsOnUnreadableMQTTCA(t *testing.T) {
+	mr := miniredis.RunT(t)
+	cfg := testConfig(t, "localhost:8883", mr.Addr(), map[string]string{
+		"MQTT_BROKER_URL": "ssl://localhost:8883", "MQTT_CA_FILE": "/no/existe/ca.crt",
+	})
+	if a, err := New(context.Background(), cfg, quietLogger(), WithHistoryWriter(&memHistory{})); err == nil {
+		_ = a.Shutdown(context.Background())
+		t.Fatal("New debería fallar con MQTT_CA_FILE ilegible")
+	} else if !strings.Contains(err.Error(), "MQTT_CA_FILE") {
+		t.Fatalf("error poco claro: %v", err)
+	}
+}

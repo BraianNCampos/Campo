@@ -12,7 +12,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-campo_dev}
       POSTGRES_DB: ${POSTGRES_DB:-campo}
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - timescaledb_data:/var/lib/postgresql/data
       - ./infra/timescaledb/init:/docker-entrypoint-initdb.d:ro
@@ -31,7 +31,7 @@ services:
     # AOF activado: el estado actual de los equipos sobrevive a un reinicio.
     command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
     ports:
-      - "${REDIS_PORT:-6379}:6379"
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
     volumes:
       - redis_data:/data
     healthcheck:
@@ -47,8 +47,8 @@ services:
     container_name: campo-mosquitto
     restart: unless-stopped
     ports:
-      - "${MQTT_PORT:-1883}:1883"   # MQTT (sensores / servicio de ingesta)
-      - "${MQTT_WS_PORT:-9001}:9001" # MQTT sobre WebSockets (depuración)
+      - "127.0.0.1:${MQTT_PORT:-1883}:1883"   # MQTT (sensores / servicio de ingesta)
+      - "127.0.0.1:${MQTT_WS_PORT:-9001}:9001" # MQTT sobre WebSockets (depuración)
     volumes:
       - ./infra/mosquitto/config/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
       - mosquitto_data:/mosquitto/data
@@ -74,7 +74,7 @@ services:
       REDIS_URL: redis://redis:6379/0
       DATABASE_URL: postgres://${POSTGRES_USER:-campo}:${POSTGRES_PASSWORD:-campo_dev}@timescaledb:5432/${POSTGRES_DB:-campo}?sslmode=disable
     ports:
-      - "${INGEST_HTTP_PORT:-8080}:8080"   # /healthz /readyz /metrics
+      - "127.0.0.1:${INGEST_HTTP_PORT:-8080}:8080"   # /healthz /readyz /metrics
     depends_on:
       mosquitto: { condition: service_healthy }
       redis: { condition: service_healthy }
@@ -99,7 +99,7 @@ services:
       ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@campo.local}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:?define ADMIN_PASSWORD en .env}
     ports:
-      - "${API_PORT:-3001}:3001"
+      - "127.0.0.1:${API_PORT:-3001}:3001"
     depends_on:
       redis: { condition: service_healthy }
       timescaledb: { condition: service_healthy }
@@ -119,7 +119,7 @@ services:
     container_name: campo-web
     restart: unless-stopped
     ports:
-      - "${WEB_PORT:-3000}:3000"
+      - "127.0.0.1:${WEB_PORT:-3000}:3000"
     depends_on:
       - api
     networks:
