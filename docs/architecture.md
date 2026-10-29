@@ -81,3 +81,26 @@ WebSocket nativo (librería `ws`), mensajes JSON, un tipo discriminado `ServerMe
 - **Pub/Sub de Redis para tiempo real, no Streams**: el tiempo real tolera pérdida (el snapshot corrige); el histórico se escribe directo desde ingest. Revisar si se exige entrega garantizada de alarmas.
 - **WebSocket nativo, no Socket.IO**: menos overhead, protocolo simple y estándar.
 - **Una fila por métrica en `telemetry`**: simple, comprime muy bien en Timescale, permite métricas nuevas sin migrar.
+
+## 8. Seguridad (Fase 3)
+
+### 8.1 Autorización por planta (API)
+
+- Tabla `user_plants(user_id, plant)`. El rol `admin` accede a **todas** las plantas; `engineer`, `operator` y `viewer` solo a las asignadas. Sin asignaciones = sin acceso.
+- El JWT lleva `sub` y `role`, **no** las plantas ni el estado activo: en cada petición el guard consulta al usuario (activo, rol, plantas) a través de una caché en memoria de ≤30 s, que se invalida al instante cuando el propio proceso modifica al usuario. Un usuario desactivado o con plantas revocadas pierde acceso en ≤30 s (no hasta que expire el token).
+- Toda ruta con `:plant` (state, assets, history), `GET /api/alarms` (se filtra por plantas permitidas; `?plant=` opcional), `POST /api/alarms/:id/ack` (según la planta de la alarma) y `/api/alarm-rules` (CRUD limitado a plantas permitidas) responde **403** si el usuario no tiene la planta (404 si la planta no existe para un admin). WebSocket: `/ws?plant=` cierra con **4403** si no tiene acceso (4401 token inválido o usuario inactivo, 4400 planta inválida).
+- `GET /api/me` → `{id,email,role,plants}` (`plants` = `["*"]` para admin). `POST /api/auth/login` añade `user` con la misma forma. El token de acceso dura 1 h por defecto (`JWT_EXPIRES_IN`).
+- Administración (solo `admin`): `GET/POST /api/users`, `PATCH /api/users/:id` (rol, activo, contraseña), `PUT /api/users/:id/plants` (`{plants:[...]}`). Nunca se devuelve el hash. No se puede desactivar ni degradar al último admin activo.
+- En producción (`NODE_ENV=production`) la API se niega a arrancar si `JWT_SECRET` es corto (<32) o parece un valor de ejemplo (`cambia`, `changeme`, `secret`), o si `ADMIN_PASSWORD` es de ejemplo.
+
+### 8.2 MQTT autenticado con TLS
+
+- Usuarios: `ingest` (solo lectura de `campo/v1/#`) y **un usuario por planta cuyo nombre es el id de la planta** (`demo`, …): solo puede publicar en `campo/v1/{plant}/+/telemetry` (ACL `pattern write campo/v1/%u/+/telemetry`) y leer `campo/v1/%u/+/cmd`. Nada más. Sin acceso anónimo.
+- Listener TLS 8883 (TLS ≥ 1.2, CA propia en desarrollo/pruebas; certificados reales en producción). Sin listener en claro ni WebSocket abiertos hacia el exterior.
+- El servicio de ingesta (`MQTT_USERNAME`, `MQTT_PASSWORD`, `MQTT_CA_FILE`, y `ssl://` en `MQTT_BROKER_URL`) y el simulador (mismas opciones) se conectan con credenciales y verificando el certificado del broker.
+
+### 8.3 Despliegue endurecido (`docker-compose.prod.yml`, se superpone al compose base)
+
+- Mosquitto con la configuración segura de 8.2; Redis con `requirepass`; TimescaleDB y Redis **sin puertos publicados** al host; contraseñas obligatorias (`:?`) sin valores por defecto.
+- Proxy inverso con TLS (Caddy) como única entrada HTTP(S): `/` → web, `/api/*` y `/ws` → api. La web se construye same-origin (sin URLs absolutas). Cabeceras de seguridad (HSTS, CSP razonable, etc.).
+- `scripts/bootstrap-secure.sh` genera secretos, CA y certificados del broker, el `passwd` de Mosquitto y un `.env.prod` (permisos 600, nunca versionado).
