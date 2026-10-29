@@ -123,10 +123,9 @@ host llega a ellos; probado que el contenedor los lee igualmente) y avisa de có
 - **Rechazo silencioso de ACL**: con MQTT 3.1.1, Mosquitto confirma (PUBACK) un publish no autorizado y lo descarta; el
   dispositivo no se entera. Sólo se ve en métricas/logs del broker.
 - **Postgres interno sin TLS**, imágenes con etiquetas móviles (`latest`, `2`, `7-alpine`) sin fijar por digest ni escáner de
-  vulnerabilidades, sin límites de memoria/CPU por contenedor, sin copias de seguridad cifradas ni auditoría de acciones
-  de administración, sin alertas sobre fallos de autenticación.
-- **Sesiones**: cambiar una contraseña no revoca los JWT ya emitidos (duran hasta 1 h; `JWT_EXPIRES_IN`) y un WebSocket abierto sobrevive a la
-  expiración de su token (sólo se corta al revocar el acceso o desactivar al usuario). Mejora: versión de token por usuario y refresh tokens.
+  vulnerabilidades, sin límites de memoria/CPU por contenedor, sin copias de seguridad cifradas, sin alertas sobre fallos de autenticación.
+- **Sesiones**: un WebSocket abierto sobrevive a la expiración de su JWT (solo se corta al revocar el acceso, cambiar la contraseña, desactivar al usuario o revocar sus sesiones). Cambiar la contraseña, desactivar o revocar sube `token_version` y deja inservibles los tokens previos. Mejora: refresh tokens de corta vida.
+- **Auditoría**: las acciones de administración se registran en `audit_log` (solo lectura por API, solo admin), pero de forma *best effort* y sin firma ni envío a un sistema externo inmutable.
 - **Disponibilidad**: un único broker, Redis y Postgres (sin réplicas); un fallo derriba el servicio.
 - **Endurecimiento del host** (firewall, actualizaciones, acceso SSH, daemon de Docker) queda fuera de este repositorio.
 

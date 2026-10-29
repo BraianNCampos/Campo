@@ -41,3 +41,26 @@ describe('lineFlow', () => {
     expect(lineFlow(undefined, undefined)).toBe(0);
   });
 });
+
+describe('layout de plantas sin layout propio', () => {
+  it('hasKnownLayout sólo para la planta demo', async () => {
+    const { hasKnownLayout } = await import('./layout');
+    expect(hasKnownLayout(['tk-01', 'x'])).toBe(true);
+    expect(hasKnownLayout(['tk-91', 'bomba-x'])).toBe(false);
+  });
+  it('positionsFor: mezcla → fila trasera; sin layout → centrado y sin solapes', async () => {
+    const { positionsFor, LAYOUT } = await import('./layout');
+    const mixed = positionsFor(['tk-01', 'tk-99']);
+    expect(mixed['tk-01']).toEqual(LAYOUT['tk-01']);
+    expect(mixed['tk-99']?.[2]).toBeGreaterThan(5);
+    const ids = ['tk-91', 'tk-92', 'tk-93', 'bomba-x', 'valve-9', 'otro'];
+    const p = positionsFor(ids);
+    expect(Object.keys(p).sort()).toEqual([...ids].sort());
+    const keys = new Set(Object.values(p).map((v) => v.join()));
+    expect(keys.size).toBe(ids.length);
+    for (const [x, , z] of Object.values(p)) {
+      expect(Math.abs(x)).toBeLessThan(10);
+      expect(Math.abs(z)).toBeLessThan(6);
+    }
+  });
+});

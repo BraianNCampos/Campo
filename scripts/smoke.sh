@@ -50,6 +50,12 @@ hist1m() { $DB -c "CALL refresh_continuous_aggregate('telemetry_1m', NULL, now()
   curl -sf "$API_URL/api/plants/demo/assets/tk-01/history?metric=level&from=$FROM&to=$TO&bucket=1m" -H "$AUTH" | json 'sys.exit(0 if d["points"] else 1)'; }
 wait_for "agregado continuo telemetry_1m con datos" hist1m
 
+echo "Administración"
+curl -sf "$API_URL/api/me" -H "$AUTH" | json 'sys.exit(0 if d["role"] == "admin" and d["plants"] == ["*"] else 1)' && ok "GET /api/me (admin, todas las plantas)" || fail "/api/me"
+curl -sf "$API_URL/api/plants" -H "$AUTH" | json 'sys.exit(0 if any(p["id"] == "demo" and p["assets"] == 8 for p in d) else 1)' && ok "GET /api/plants incluye demo con 8 activos" || fail "/api/plants"
+curl -sf "$API_URL/api/audit?limit=5" -H "$AUTH" >/dev/null && ok "GET /api/audit (solo admin)" || fail "/api/audit"
+[ "$(curl -s -o /dev/null -w '%{http_code}' "$API_URL/api/audit")" = 401 ] && ok "auditoría sin token -> 401" || fail "auditoría sin proteger"
+
 echo "Alarmas"
 curl -sf "$API_URL/api/alarms?state=active" -H "$AUTH" >/dev/null && ok "GET /api/alarms" || fail "alarmas"
 

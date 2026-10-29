@@ -1,4 +1,4 @@
-import { assetKind } from '@/lib/assets';
+import { assetKind, sortAssetIds } from '@/lib/assets';
 
 export type Vec3 = [number, number, number];
 
@@ -24,6 +24,31 @@ export function positionFor(id: string, index: number): Vec3 {
   const kind = assetKind(id);
   const row = kind === 'tank' ? 0 : kind === 'pump' ? 1 : 2;
   return [-9 + (index % 7) * 3, 0, 8 + row * 2.6 + Math.floor(index / 7) * 8];
+}
+
+/** ¿Alguno de los activos tiene posición propia en el layout de la planta demo? */
+export const hasKnownLayout = (ids: readonly string[]): boolean => ids.some((id) => id in LAYOUT);
+
+/**
+ * Posiciones de todos los activos. Si la planta no tiene layout propio (cualquier planta distinta de
+ * `demo`), se centran en filas por tipo dentro del suelo; si no, los desconocidos van a la fila trasera.
+ */
+export function positionsFor(ids: readonly string[]): Record<string, Vec3> {
+  const out: Record<string, Vec3> = {};
+  if (hasKnownLayout(ids)) {
+    ids.forEach((id, i) => (out[id] = positionFor(id, i)));
+    return out;
+  }
+  // cuadrícula centrada: tanques, bombas, válvulas y resto en orden, hasta 5 por fila
+  const sorted = sortAssetIds([...ids]);
+  const cols = Math.min(5, Math.max(1, sorted.length));
+  const rows = Math.ceil(sorted.length / cols);
+  sorted.forEach((id, i) => {
+    const r = Math.floor(i / cols);
+    const inRow = r === rows - 1 ? sorted.length - r * cols : cols;
+    out[id] = [-0.5 + ((i % cols) - (inRow - 1) / 2) * 4.2, 0, (r - (rows - 1) / 2) * 4.5];
+  });
+  return out;
 }
 
 /** Línea de proceso: la bomba (y su válvula) gobiernan el caudal de las tuberías asociadas. */

@@ -19,9 +19,9 @@ let nextId = 1;
 /** Avisos no intrusivos (se anuncian con aria-live en <ToastRegion/>). */
 export const useToastStore = create<ToastState>()((set, get) => ({
   toasts: [],
-  push(text, kind = 'success', ttlMs = 6000) {
+  push(text, kind = 'success', ttlMs = 5000) {
     const id = nextId++;
-    set({ toasts: [...get().toasts.slice(-3), { id, kind, text }] });
+    set({ toasts: [...get().toasts.slice(-2), { id, kind, text }] });
     if (ttlMs > 0) setTimeout(() => get().dismiss(id), ttlMs);
     return id;
   },

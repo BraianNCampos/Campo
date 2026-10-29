@@ -19,7 +19,7 @@ export function NoPlants() {
           {role === 'admin' ? (
             <>
               <p className="text-muted">Todavía no hay plantas creadas. Crea la primera desde Administración.</p>
-              <Link href="/admin/plants" className={btn('primary')}>
+              <Link prefetch={false} href="/admin/plants" className={btn('primary')}>
                 Ir a Plantas y activos
               </Link>
             </>

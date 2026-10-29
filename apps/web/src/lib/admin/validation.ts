@@ -45,7 +45,7 @@ export function validatePlantForm(v: { id: string; name: string }, opts: { editi
   }
   const name = v.name.trim();
   if (!name) e.name = 'El nombre es obligatorio.';
-  else if (name.length > 120) e.name = 'Máximo 120 caracteres.';
+  else if (name.length > 100) e.name = 'Máximo 100 caracteres.';
   return e;
 }
 
@@ -96,6 +96,9 @@ export function parseMetadata(text: string): { ok: true; value: Record<string, u
       const col = before.length - before.lastIndexOf('\n');
       return { ok: false, error: `JSON no válido (línea ${line}, columna ${col}). Revisa comas, comillas dobles y llaves.` };
     }
+    const tok = /Unexpected token '(.+?)'/.exec(msg);
+    if (tok) return { ok: false, error: `JSON no válido: carácter inesperado «${tok[1]}». Revisa comas, comillas dobles y llaves.` };
+    if (/end of JSON|Unexpected end/i.test(msg)) return { ok: false, error: 'JSON no válido: termina antes de tiempo (falta cerrar una llave o comilla).' };
     return { ok: false, error: 'JSON no válido. Revisa comas, comillas dobles y llaves.' };
   }
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
@@ -121,7 +124,7 @@ export function validateAssetForm(v: AssetForm, opts: { editing?: boolean } = {}
   }
   const name = v.name.trim();
   if (!name) errors.name = 'El nombre es obligatorio.';
-  else if (name.length > 120) errors.name = 'Máximo 120 caracteres.';
+  else if (name.length > 100) errors.name = 'Máximo 100 caracteres.';
   if (!ASSET_TYPES.includes(v.type as AssetType)) errors.type = 'Elige un tipo.';
   const ref = v.model3dRef.trim();
   if (ref.length > 200) errors.model3dRef = 'Máximo 200 caracteres.';

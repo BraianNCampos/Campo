@@ -28,11 +28,11 @@ export function UserLinks() {
   return (
     <nav aria-label="Cuenta" className="hidden items-center gap-2 md:flex">
       {canSeeAdminLink(role) && (
-        <Link href="/admin" className="inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-line px-3 text-sm font-semibold hover:bg-surface-2">
+        <Link prefetch={false} href="/admin" className="inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-line px-3 text-sm font-semibold hover:bg-surface-2">
           <IconSettings className="text-base" /> Administración
         </Link>
       )}
-      <Link href="/admin/account" className="inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-line px-3 text-sm font-semibold hover:bg-surface-2">
+      <Link prefetch={false} href="/admin/account" className="inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-line px-3 text-sm font-semibold hover:bg-surface-2">
         <IconUser className="text-base" /> Mi cuenta
       </Link>
       {showLogout && (
@@ -94,11 +94,11 @@ export function UserMenu() {
             </p>
           )}
           {canSeeAdminLink(me?.role) && (
-            <Link href="/admin" className={itemCls} onClick={() => setOpen(false)}>
+            <Link prefetch={false} href="/admin" className={itemCls} onClick={() => setOpen(false)}>
               <IconSettings className="text-xl" /> Administración
             </Link>
           )}
-          <Link href="/admin/account" className={itemCls} onClick={() => setOpen(false)}>
+          <Link prefetch={false} href="/admin/account" className={itemCls} onClick={() => setOpen(false)}>
             <IconUser className="text-xl" /> Mi cuenta
           </Link>
           {showLogout && (

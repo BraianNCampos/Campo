@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { Canvas, useThree } from '@react-three/fiber';
 import { ContactShadows, OrbitControls, PerformanceMonitor } from '@react-three/drei';
@@ -9,7 +9,7 @@ import { clamp } from '@/lib/math';
 import { useLiveStore } from '@/store/live-store';
 import { useUiStore } from '@/store/ui-store';
 import { labelPortal } from './label-portal';
-import { positionFor } from './layout';
+import { hasKnownLayout, positionsFor } from './layout';
 import { detectQuality } from './quality';
 import { Pipes } from './Pipes';
 import { Pump } from './Pump';
@@ -59,10 +59,11 @@ function FitCamera() {
 }
 
 function Equipments({ ids }: { ids: string[] }) {
+  const positions = useMemo(() => positionsFor(ids), [ids]);
   return (
     <>
-      {ids.map((id, i) => {
-        const pos = positionFor(id, i);
+      {ids.map((id) => {
+        const pos = positions[id] ?? [0, 0, 0];
         switch (assetKind(id)) {
           case 'tank':
             return <Tank key={id} id={id} position={pos} />;
@@ -133,7 +134,7 @@ export default function Plant3D() {
         <directionalLight position={[-12, 6, -10]} intensity={0.8} color="#7aa7ff" />
         <Ground />
         {!low && <ContactShadows key={ids.join()} position={[-0.5, 0.05, 0]} opacity={0.55} width={26} height={16} blur={2.4} far={5} frames={1} resolution={512} />}
-        <Pipes />
+        {hasKnownLayout(ids) && <Pipes />}
         <Equipments ids={ids} />
         <OrbitControls
           makeDefault
