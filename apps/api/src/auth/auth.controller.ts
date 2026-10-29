@@ -1,3 +1,4 @@
+import type { LoginResponse } from '@campo/shared';
 import { Body, Controller, HttpCode, Post, UseGuards } from '@nestjs/common';
 import { ThrottlerGuard } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
@@ -13,7 +14,7 @@ export class AuthController {
   @UseGuards(ThrottlerGuard)
   @Post('login')
   @HttpCode(200)
-  login(@Body() dto: LoginDto): Promise<{ accessToken: string }> {
+  login(@Body() dto: LoginDto): Promise<LoginResponse> {
     return this.auth.login(dto.email, dto.password);
   }
 }

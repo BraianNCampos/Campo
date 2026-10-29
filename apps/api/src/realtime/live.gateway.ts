@@ -4,7 +4,9 @@ import { AlarmEvent, ID_PATTERN, ServerMessage, TelemetryEvent } from '@campo/sh
 import type { IncomingMessage } from 'node:http';
 import { Subscription } from 'rxjs';
 import { WebSocket } from 'ws';
+import { AccessService } from '../auth/access.service';
 import { AuthService } from '../auth/auth.service';
+import { canAccessPlant } from '../auth/plant-access';
 import { APP_CONFIG, AppConfig } from '../config/app-config';
 import { StateService } from '../plants/state.service';
 import { BusMessage, RealtimeBus } from '../redis/realtime-bus';
@@ -12,6 +14,7 @@ import { TelemetryCoalescer } from './telemetry-coalescer';
 
 interface Client {
   socket: WebSocket;
+  userId: string;
   plant: string;
   alive: boolean;
   /** true cuando ya se envió el snapshot inicial. */
@@ -22,7 +25,7 @@ interface Client {
 const HARD_FACTOR = 8;
 
 /** Códigos de cierre de aplicación (4000-4999). */
-export const WS_CLOSE = { badRequest: 4400, unauthorized: 4401 } as const;
+export const WS_CLOSE = { badRequest: 4400, unauthorized: 4401, forbidden: 4403 } as const;
 
 @WebSocketGateway({ path: '/ws', maxPayload: 1024 })
 export class LiveGateway
@@ -33,12 +36,15 @@ export class LiveGateway
   private readonly byPlant = new Map<string, Set<Client>>();
   private readonly coalescer: TelemetryCoalescer;
   private sub?: Subscription;
+  private invalidationSub?: Subscription;
+  private revalidation?: NodeJS.Timeout;
   private heartbeat?: NodeJS.Timeout;
   readonly stats = { telemetrySent: 0, telemetrySkipped: 0, alarmsSent: 0 };
 
   constructor(
     private readonly bus: RealtimeBus,
     private readonly auth: AuthService,
+    private readonly access: AccessService,
     private readonly state: StateService,
     @Inject(APP_CONFIG) private readonly cfg: AppConfig,
   ) {
@@ -52,11 +58,21 @@ export class LiveGateway
     this.sub = this.bus.messages$.subscribe((m) => this.onBus(m));
     this.heartbeat = setInterval(() => this.sweep(), this.cfg.wsPingIntervalMs);
     this.heartbeat.unref();
+    // Revocación en vivo: un cambio hecho en este proceso cierra al instante; los hechos en otras réplicas
+    // (o si se pierde el aviso) se detectan en la revalidación periódica (<= TTL de la caché).
+    this.invalidationSub = this.access.invalidations$.subscribe((id) => void this.revalidate([id]));
+    this.revalidation = setInterval(
+      () => void this.revalidate(undefined, true),
+      this.cfg.wsRevalidateMs,
+    );
+    this.revalidation.unref();
   }
 
   onModuleDestroy(): void {
     this.sub?.unsubscribe();
+    this.invalidationSub?.unsubscribe();
     if (this.heartbeat) clearInterval(this.heartbeat);
+    if (this.revalidation) clearInterval(this.revalidation);
     this.coalescer.dispose();
     for (const c of this.clients.values()) c.socket.terminate();
     this.clients.clear();
@@ -72,11 +88,17 @@ export class LiveGateway
       const token = url.searchParams.get('token') ?? bearer ?? '';
 
       if (!ID_PATTERN.test(plant)) return socket.close(WS_CLOSE.badRequest, 'invalid plant');
-      const user = token ? await this.auth.verifyToken(token) : null;
-      if (!user) return socket.close(WS_CLOSE.unauthorized, 'unauthorized');
+      const claims = token ? await this.auth.verifyToken(token) : null;
+      if (!claims) return this.deny(socket, WS_CLOSE.unauthorized, 'unauthorized', plant);
+      // Rol, estado activo y plantas vigentes de la base (no los del token).
+      const user = await this.access.getAccess(claims.id);
+      if (!user) return this.deny(socket, WS_CLOSE.unauthorized, 'unauthorized', plant, claims.id);
+      if (!canAccessPlant(user, plant)) {
+        return this.deny(socket, WS_CLOSE.forbidden, 'forbidden', plant, user.id);
+      }
       if (socket.readyState !== WebSocket.OPEN) return;
 
-      const client: Client = { socket, plant, alive: true, ready: false };
+      const client: Client = { socket, userId: user.id, plant, alive: true, ready: false };
       this.clients.set(socket, client);
       let set = this.byPlant.get(plant);
       if (!set) this.byPlant.set(plant, (set = new Set()));
@@ -106,6 +128,30 @@ export class LiveGateway
     if (set?.size === 0) this.byPlant.delete(client.plant);
   }
 
+  /**
+   * Comprueba contra la base (usuario activo y acceso a la planta) los sockets abiertos de `userIds`
+   * (o de todos) y cierra los que ya no corresponden: 4401 (inactivo/inexistente) o 4403 (sin acceso).
+   * `fresh` salta la caché para acotar la revocación al intervalo de revalidación. Visible para tests.
+   */
+  async revalidate(userIds?: string[], fresh = false): Promise<void> {
+    const ids = new Set(userIds ?? [...this.clients.values()].map((c) => c.userId));
+    for (const userId of ids) {
+      try {
+        const user = await this.access.getAccess(userId, { fresh });
+        for (const client of [...this.clients.values()]) {
+          if (client.userId !== userId) continue;
+          if (!user) this.revoke(client, WS_CLOSE.unauthorized, 'unauthorized');
+          else if (!canAccessPlant(user, client.plant)) {
+            this.revoke(client, WS_CLOSE.forbidden, 'forbidden');
+          }
+        }
+      } catch (err) {
+        // Fallo transitorio de la base: se mantienen los sockets y se reintenta en el siguiente ciclo.
+        this.log.warn({ msg: 'revalidación ws fallida', userId, error: (err as Error).message });
+      }
+    }
+  }
+
   clientCount(): number {
     return this.clients.size;
   }
@@ -124,6 +170,31 @@ export class LiveGateway
         client.socket.terminate();
       }
     }
+  }
+
+  private deny(
+    socket: WebSocket,
+    code: number,
+    reason: string,
+    plant: string,
+    userId?: string,
+  ): void {
+    this.log.warn({
+      msg: 'acceso denegado',
+      transport: 'ws',
+      status: code,
+      userId,
+      path: '/ws',
+      plant,
+    });
+    socket.close(code, reason);
+  }
+
+  /** Deja de enviarle datos al instante y cierra el socket. */
+  private revoke(client: Client, code: number, reason: string): void {
+    this.deny(client.socket, code, reason, client.plant, client.userId);
+    client.ready = false;
+    this.handleDisconnect(client.socket);
   }
 
   private onBus(m: BusMessage): void {

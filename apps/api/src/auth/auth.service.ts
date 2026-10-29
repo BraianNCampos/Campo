@@ -3,7 +3,9 @@ import { JwtService } from '@nestjs/jwt';
 import { randomBytes } from 'node:crypto';
 import * as bcrypt from 'bcryptjs';
 import { APP_CONFIG, AppConfig } from '../config/app-config';
-import { AuthUser, JwtPayload, ROLES } from './auth.types';
+import type { LoginResponse } from '@campo/shared';
+import { JwtPayload, ROLES, TokenClaims } from './auth.types';
+import { toAuthUser } from './plant-access';
 import { UsersRepository } from './users.repository';
 
 @Injectable()
@@ -21,7 +23,7 @@ export class AuthService {
     return bcrypt.hash(password, this.cfg.bcryptRounds);
   }
 
-  async login(email: string, password: string): Promise<{ accessToken: string }> {
+  async login(email: string, password: string): Promise<LoginResponse> {
     const user = await this.users.findByEmail(email.trim().toLowerCase());
     // Siempre se ejecuta un compare para que el tiempo no revele si el usuario existe.
     const hash = user?.passwordHash ?? (await this.getDummyHash());
@@ -32,11 +34,14 @@ export class AuthService {
     }
     const payload: JwtPayload = { sub: user.id, email: user.email, role: user.role };
     this.log.log({ msg: 'login ok', userId: user.id, role: user.role });
-    return { accessToken: await this.jwt.signAsync(payload) };
+    return { accessToken: await this.jwt.signAsync(payload), user: toAuthUser(user) };
   }
 
-  /** Verifica un JWT y devuelve el usuario, o null si es inválido/expirado. */
-  async verifyToken(token: string): Promise<AuthUser | null> {
+  /**
+   * Verifica la firma/expiración del JWT y devuelve sus afirmaciones, o null si es inválido.
+   * No consulta la base: quien autoriza debe pasar por AccessService (rol/activo/plantas vigentes).
+   */
+  async verifyToken(token: string): Promise<TokenClaims | null> {
     try {
       const p = await this.jwt.verifyAsync<JwtPayload>(token, { algorithms: ['HS256'] });
       if (!p || typeof p.sub !== 'string' || !ROLES.includes(p.role)) return null;

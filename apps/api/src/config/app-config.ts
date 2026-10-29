@@ -1,3 +1,5 @@
+import { securityIssues } from './security-check';
+
 export const APP_CONFIG = Symbol('APP_CONFIG');
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
@@ -15,6 +17,10 @@ export interface AppConfig {
   redisUrl: string;
   jwtSecret: string;
   jwtExpiresIn: string;
+  /** TTL de la caché de usuarios/plantas del guard (ms). 0 = sin caché. */
+  authCacheTtlMs: number;
+  /** Cada cuánto se revalidan los WebSocket abiertos contra la base (ms). */
+  wsRevalidateMs: number;
   bcryptRounds: number;
   adminEmail?: string;
   adminPassword?: string;
@@ -81,6 +87,13 @@ export function parseEnv(env: Env): AppConfig {
     throw new Error('ADMIN_PASSWORD debe tener al menos 8 caracteres');
   }
 
+  if (isProduction) {
+    const issues = securityIssues({ jwtSecret, adminPassword });
+    if (issues.length > 0) {
+      throw new Error(`Configuración insegura para producción: ${issues.join('; ')}`);
+    }
+  }
+
   const corsRaw = env['CORS_ORIGINS'] ?? 'http://localhost:3000';
   const corsOrigins = corsRaw
     .split(',')
@@ -89,6 +102,8 @@ export function parseEnv(env: Env): AppConfig {
   if (isProduction && corsOrigins.includes('*')) {
     throw new Error('CORS_ORIGINS no puede ser "*" en producción');
   }
+
+  const authCacheTtlMs = int(env, 'AUTH_CACHE_TTL_MS', 30_000, 0, 30_000);
 
   return {
     nodeEnv: nodeEnv as AppConfig['nodeEnv'],
@@ -106,7 +121,10 @@ export function parseEnv(env: Env): AppConfig {
       ? str(env, 'REDIS_URL')
       : str(env, 'REDIS_URL', 'redis://localhost:6379'),
     jwtSecret,
-    jwtExpiresIn: str(env, 'JWT_EXPIRES_IN', '8h'),
+    jwtExpiresIn: str(env, 'JWT_EXPIRES_IN', '1h'),
+    authCacheTtlMs,
+    // Por defecto igual al TTL de la caché: un socket revocado se cierra en <= TTL.
+    wsRevalidateMs: int(env, 'WS_REVALIDATE_MS', authCacheTtlMs || 10_000, 100, 30_000),
     bcryptRounds: int(env, 'BCRYPT_ROUNDS', 12, 4, 15),
     adminEmail,
     adminPassword,

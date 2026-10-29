@@ -67,3 +67,22 @@ export const redisKeys = {
 
 export const telemetryTopic = (plant: string, asset: string) =>
   `${TOPIC_PREFIX}/${plant}/${asset}/telemetry`;
+
+/** Usuario autenticado tal como lo expone la API (`GET /api/me`, `login.user`). `plants` = ["*"] para admin. */
+export interface Me {
+  id: string;
+  email: string;
+  role: Role;
+  plants: string[];
+}
+
+/** Respuesta de `POST /api/auth/login`. */
+export interface LoginResponse {
+  accessToken: string;
+  user: Me;
+}
+
+/** Usuario en la administración (`/api/users`): `plants` son las asignaciones guardadas. */
+export interface ManagedUser extends Me {
+  active: boolean;
+}

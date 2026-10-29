@@ -6,6 +6,7 @@ import { AppModule } from './app.module';
 import { configureApp } from './app.setup';
 import { JsonLogger } from './common/json-logger';
 import { APP_CONFIG, AppConfig } from './config/app-config';
+import { securityIssues } from './config/security-check';
 
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
@@ -16,6 +17,10 @@ async function bootstrap(): Promise<void> {
   const cfg = app.get<AppConfig>(APP_CONFIG);
   app.useLogger(new JsonLogger(cfg.logLevel));
   configureApp(app, cfg);
+  // En producción parseEnv ya abortó si había problemas; en desarrollo sólo se advierte.
+  for (const issue of securityIssues(cfg)) {
+    new Logger('security').warn({ msg: 'configuración insegura (no apta para producción)', issue });
+  }
   await app.listen(cfg.port, cfg.host);
   new Logger('bootstrap').log({ msg: 'api escuchando', host: cfg.host, port: cfg.port });
 }

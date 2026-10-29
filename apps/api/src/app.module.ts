@@ -8,6 +8,7 @@ import { HistoryModule } from './history/history.module';
 import { PlantsModule } from './plants/plants.module';
 import { RealtimeModule } from './realtime/realtime.module';
 import { RedisModule } from './redis/redis.module';
+import { UsersModule } from './users/users.module';
 
 @Module({
   imports: [
@@ -15,6 +16,7 @@ import { RedisModule } from './redis/redis.module';
     DatabaseModule,
     RedisModule,
     AuthModule,
+    UsersModule,
     PlantsModule,
     HistoryModule,
     AlarmsModule,

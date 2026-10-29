@@ -4,7 +4,8 @@ import { PG_POOL } from '../database/tokens';
 import type { AlarmRule, AlarmRuleInput } from './alarm.types';
 
 export abstract class AlarmRulesRepository {
-  abstract list(plant?: string): Promise<AlarmRule[]>;
+  /** `plants` restringe a esas plantas (undefined = sin restricción; [] = ninguna). */
+  abstract list(plant?: string, plants?: string[]): Promise<AlarmRule[]>;
   abstract get(id: string): Promise<AlarmRule | null>;
   abstract create(input: AlarmRuleInput): Promise<AlarmRule>;
   abstract update(id: string, patch: Partial<AlarmRuleInput>): Promise<AlarmRule | null>;
@@ -63,10 +64,12 @@ export class PgAlarmRulesRepository extends AlarmRulesRepository {
     super();
   }
 
-  async list(plant?: string): Promise<AlarmRule[]> {
+  async list(plant?: string, plants?: string[]): Promise<AlarmRule[]> {
     const { rows } = await this.pool.query<RuleRow>(
-      `SELECT ${COLUMNS} FROM alarm_rules WHERE ($1::text IS NULL OR plant = $1) ORDER BY plant, asset, metric, created_at`,
-      [plant ?? null],
+      `SELECT ${COLUMNS} FROM alarm_rules
+        WHERE ($1::text IS NULL OR plant = $1) AND ($2::text[] IS NULL OR plant = ANY($2))
+        ORDER BY plant, asset, metric, created_at`,
+      [plant ?? null, plants ?? null],
     );
     return rows.map(toRule);
   }

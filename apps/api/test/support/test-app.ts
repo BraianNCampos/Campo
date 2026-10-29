@@ -1,11 +1,13 @@
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
+import type { Role } from '@campo/shared';
 import type Redis from 'ioredis';
 import { AppModule } from '../../src/app.module';
 import { configureApp } from '../../src/app.setup';
 import { AlarmRulesRepository } from '../../src/alarms/alarm-rules.repository';
 import { AlarmsRepository } from '../../src/alarms/alarms.repository';
 import { AuthService } from '../../src/auth/auth.service';
+import { PlantCatalog } from '../../src/auth/plant-catalog';
 import { UsersRepository } from '../../src/auth/users.repository';
 import { APP_CONFIG, AppConfig, parseEnv } from '../../src/config/app-config';
 import { PG_POOL } from '../../src/database/tokens';
@@ -17,6 +19,7 @@ import {
   MemoryAlarmsRepository,
   MemoryAssetsRepository,
   MemoryHistoryRepository,
+  MemoryPlantCatalog,
   MemoryUsersRepository,
 } from './memory-repos';
 import { createRedisMocks } from './redis-mock';
@@ -35,8 +38,17 @@ export interface TestApp {
   alarms: MemoryAlarmsRepository;
   history: MemoryHistoryRepository;
   pool: { query: jest.Mock; end: jest.Mock; on: jest.Mock };
-  /** Crea un usuario y devuelve su JWT. */
-  tokenFor(role: 'admin' | 'engineer' | 'operator' | 'viewer'): Promise<string>;
+  /**
+   * Crea (una vez por rol) un usuario `<rol>@campo.test` y devuelve su JWT.
+   * Los roles distintos de admin quedan asignados a la planta `demo`.
+   */
+  tokenFor(role: Role): Promise<string>;
+  /** Crea un usuario con email/plantas concretos y devuelve su id, email y JWT. */
+  makeUser(
+    email: string,
+    role: Role,
+    plants?: string[],
+  ): Promise<{ id: string; email: string; token: string }>;
 }
 
 /** App completa (guards, pipes, gateway WS...) con repositorios en memoria y Redis mock. */
@@ -67,6 +79,8 @@ export async function createTestApp(overrides: Partial<AppConfig> = {}): Promise
     .useValue(users)
     .overrideProvider(AssetsRepository)
     .useValue(new MemoryAssetsRepository(DEMO_ASSETS))
+    .overrideProvider(PlantCatalog)
+    .useValue(new MemoryPlantCatalog(DEMO_ASSETS, redis))
     .overrideProvider(AlarmRulesRepository)
     .useValue(rules)
     .overrideProvider(AlarmsRepository)
@@ -80,17 +94,29 @@ export async function createTestApp(overrides: Partial<AppConfig> = {}): Promise
   await app.init();
 
   const auth = app.get(AuthService);
-  const passwords = new Map<string, string>();
-  const tokenFor: TestApp['tokenFor'] = async (role) => {
-    const email = `${role}@campo.test`;
+  const makeUser: TestApp['makeUser'] = async (email, role, plants = []) => {
     const password = `${role}-password-123`;
-    if (!passwords.has(email)) {
-      passwords.set(email, password);
-      await users.create({ email, passwordHash: await auth.hashPassword(password), role });
+    const created = await users.create({
+      email,
+      passwordHash: await auth.hashPassword(password),
+      role,
+    });
+    // Si ya existe (p. ej. el admin semilla, cuya contraseña coincide) se reutiliza.
+    const user = created ?? (await users.findByEmail(email));
+    if (!user) throw new Error(`no se pudo crear ${email}`);
+    if (created) await users.setPlants(user.id, plants);
+    const { accessToken } = await auth.login(email, password);
+    return { id: user.id, email, token: accessToken };
+  };
+  const tokens = new Map<Role, string>();
+  const tokenFor: TestApp['tokenFor'] = async (role) => {
+    let token = tokens.get(role);
+    if (!token) {
+      token = (await makeUser(`${role}@campo.test`, role, role === 'admin' ? [] : ['demo'])).token;
+      tokens.set(role, token);
     }
-    const res = await auth.login(email, password);
-    return res.accessToken;
+    return token;
   };
 
-  return { app, cfg, redis, users, rules, alarms, history, pool, tokenFor };
+  return { app, cfg, redis, users, rules, alarms, history, pool, tokenFor, makeUser };
 }

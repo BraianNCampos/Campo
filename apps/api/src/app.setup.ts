@@ -23,7 +23,7 @@ export function configureApp(app: INestApplication, cfg: AppConfig): void {
   app.use(httpLogger);
   app.enableCors({
     origin: cfg.corsOrigins.includes('*') ? true : cfg.corsOrigins,
-    methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Authorization', 'Content-Type'],
     maxAge: 600,
   });

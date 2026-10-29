@@ -1,7 +1,11 @@
-import type { Role } from '@campo/shared';
+import type { Me, Role } from '@campo/shared';
 import type { Request } from 'express';
 
-export interface AuthUser {
+/** Usuario adjunto a la petición: rol y plantas vienen de la base (vía AccessService), no del token. */
+export type AuthUser = Me;
+
+/** Lo que afirma el JWT. Sólo `sub` es de fiar; el resto se vuelve a consultar en cada petición. */
+export interface TokenClaims {
   id: string;
   email: string;
   role: Role;

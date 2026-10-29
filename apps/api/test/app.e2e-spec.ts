@@ -112,11 +112,12 @@ describe('API (e2e, repositorios en memoria)', () => {
       const res = await request(http).get('/api/plants/demo/assets').set(bearer(token)).expect(200);
       expect(res.body).toHaveLength(2);
       expect(res.body[0]).toMatchObject({ plant: 'demo', id: 'tk-01', type: 'tank' });
-      const empty = await request(http)
-        .get('/api/plants/otra/assets')
-        .set(bearer(token))
-        .expect(200);
-      expect(empty.body).toEqual([]);
+      // Contrato 8.1: sin asignación no hay acceso (403, exista o no la planta); al admin una planta
+      // inexistente le da 404.
+      await request(http).get('/api/plants/otra/assets').set(bearer(token)).expect(403);
+      const admin = await t.tokenFor('admin');
+      await request(http).get('/api/plants/demo/assets').set(bearer(admin)).expect(200);
+      await request(http).get('/api/plants/otra/assets').set(bearer(admin)).expect(404);
     });
 
     it('rechaza ids de planta inválidos', async () => {

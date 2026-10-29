@@ -3,7 +3,9 @@ import { EventEmitter } from 'node:events';
 import type { IncomingMessage } from 'node:http';
 import { Subject } from 'rxjs';
 import type { WebSocket } from 'ws';
+import type { AccessService } from '../auth/access.service';
 import type { AuthService } from '../auth/auth.service';
+import type { AuthUser } from '../auth/auth.types';
 import { parseEnv } from '../config/app-config';
 import type { StateService } from '../plants/state.service';
 import type { BusMessage, RealtimeBus } from '../redis/realtime-bus';
@@ -42,6 +44,7 @@ const cfg = parseEnv({
   NODE_ENV: 'test',
   WS_COALESCE_MS: '100',
   WS_MAX_BUFFERED_BYTES: '1024',
+  WS_REVALIDATE_MS: '1000',
 });
 
 const req = (url: string): IncomingMessage => ({ url, headers: {} }) as unknown as IncomingMessage;
@@ -72,7 +75,11 @@ const alarm = (plant = 'demo'): AlarmEvent => ({
 
 describe('LiveGateway', () => {
   let bus: Subject<BusMessage>;
+  let invalidations: Subject<string>;
   let gw: LiveGateway;
+  /** "Base de datos" de usuarios para el AccessService falso (null = inactivo/inexistente). */
+  let db: Record<string, AuthUser | null>;
+  const fresh = jest.fn();
   const state: AssetState = { ts: 1, values: { level: 40 }, quality: 'good' };
 
   const connect = async (url = '/ws?plant=demo&token=good') => {
@@ -84,11 +91,29 @@ describe('LiveGateway', () => {
   beforeEach(() => {
     jest.useFakeTimers();
     bus = new Subject<BusMessage>();
+    db = {
+      u1: { id: 'u1', email: 'e', role: 'viewer', plants: ['demo', 'otra'] },
+      admin: { id: 'admin', email: 'a', role: 'admin', plants: ['*'] },
+      sinplantas: { id: 'sinplantas', email: 's', role: 'operator', plants: [] },
+      inactivo: null,
+    };
+    invalidations = new Subject<string>();
+    fresh.mockClear();
     const auth = {
+      // el token es el id del usuario; 'bad' no es válido
       verifyToken: jest.fn((t: string) =>
-        Promise.resolve(t === 'good' ? { id: 'u1', email: 'e', role: 'viewer' as const } : null),
+        Promise.resolve(
+          t === 'bad' ? null : { id: t === 'good' ? 'u1' : t, email: 'e', role: 'admin' as const },
+        ),
       ),
     } as unknown as AuthService;
+    const access = {
+      invalidations$: invalidations.asObservable(),
+      getAccess: jest.fn((id: string, o?: { fresh?: boolean }) => {
+        if (o?.fresh) fresh(id);
+        return Promise.resolve(db[id] ?? null);
+      }),
+    } as unknown as AccessService;
     const stateSvc = {
       getSnapshot: jest.fn((plant: string): Promise<SnapshotMessage> =>
         Promise.resolve({ type: 'snapshot', plant, assets: { 'tk-01': state } }),
@@ -97,6 +122,7 @@ describe('LiveGateway', () => {
     gw = new LiveGateway(
       { messages$: bus.asObservable() } as unknown as RealtimeBus,
       auth,
+      access,
       stateSvc,
       cfg,
     );
@@ -245,6 +271,125 @@ describe('LiveGateway', () => {
 
     it('usa 25 s por defecto', () => {
       expect(parseEnv({ JWT_SECRET: 'x'.repeat(32) }).wsPingIntervalMs).toBe(25_000);
+    });
+  });
+
+  describe('autorización por planta', () => {
+    const flush = async () => {
+      for (let i = 0; i < 20; i++) await Promise.resolve();
+    };
+
+    it('usuario inactivo o inexistente (token válido) -> 4401', async () => {
+      const s = await connect('/ws?plant=demo&token=inactivo');
+      const t = await connect('/ws?plant=demo&token=fantasma');
+      expect(s.closedWith?.[0]).toBe(WS_CLOSE.unauthorized);
+      expect(t.closedWith?.[0]).toBe(WS_CLOSE.unauthorized);
+      expect(gw.clientCount()).toBe(0);
+    });
+
+    it('sin acceso a la planta -> 4403, y no recibe snapshot', async () => {
+      const s = await connect('/ws?plant=demo&token=sinplantas');
+      expect(s.closedWith?.[0]).toBe(WS_CLOSE.forbidden);
+      expect(s.sent).toEqual([]);
+      const v = await connect('/ws?plant=privada&token=good'); // u1 sólo tiene demo y otra
+      expect(v.closedWith?.[0]).toBe(WS_CLOSE.forbidden);
+      expect(gw.clientCount()).toBe(0);
+    });
+
+    it('el 4403 no depende de que la planta exista', async () => {
+      const a = await connect('/ws?plant=otra-que-existe&token=sinplantas');
+      const b = await connect('/ws?plant=no-existe-nada&token=sinplantas');
+      expect(a.closedWith).toEqual(b.closedWith);
+    });
+
+    it('4400 (planta inválida) se decide antes que el acceso', async () => {
+      const s = await connect('/ws?plant=BAD!&token=sinplantas');
+      expect(s.closedWith?.[0]).toBe(WS_CLOSE.badRequest);
+    });
+
+    it('admin accede a cualquier planta sin asignaciones', async () => {
+      const s = await connect('/ws?plant=cualquiera&token=admin');
+      expect(s.closedWith).toBeUndefined();
+      expect(s.types()).toEqual(['snapshot']);
+    });
+
+    it('sólo reenvía eventos de la planta suscrita (telemetría y alarmas), aunque el usuario tenga otras', async () => {
+      const demo = await connect('/ws?plant=demo&token=good');
+      bus.next(telemetry(tel('tk-01', { level: 1 }, 'otra')));
+      bus.next({ kind: 'alarm', plant: 'otra', event: alarm('otra') });
+      bus.next({ kind: 'alarm', plant: 'privada', event: alarm('privada') });
+      bus.next(telemetry(tel('tk-01', { level: 2 }, 'demo')));
+      jest.advanceTimersByTime(100);
+      const got = demo.sent.filter((m) => m.type !== 'snapshot');
+      expect(got).toHaveLength(1);
+      expect(got[0]).toMatchObject({ type: 'telemetry', plant: 'demo', values: { level: 2 } });
+    });
+
+    describe('revocación en vivo', () => {
+      it('si pierde la planta, se cierra con 4403 al instante (cambio local) y deja de recibir datos', async () => {
+        const s = await connect();
+        db.u1 = { ...db.u1!, plants: ['otra'] };
+        invalidations.next('u1');
+        await flush();
+        expect(s.closedWith?.[0]).toBe(WS_CLOSE.forbidden);
+        expect(gw.clientCount()).toBe(0);
+
+        const before = s.sent.length;
+        bus.next(telemetry(tel('tk-01', { level: 9 })));
+        bus.next({ kind: 'alarm', plant: 'demo', event: alarm() });
+        jest.advanceTimersByTime(100);
+        expect(s.sent).toHaveLength(before);
+      });
+
+      it('si se desactiva o borra, se cierra con 4401', async () => {
+        const s = await connect();
+        db.u1 = null;
+        invalidations.next('u1');
+        await flush();
+        expect(s.closedWith?.[0]).toBe(WS_CLOSE.unauthorized);
+        expect(gw.clientCount()).toBe(0);
+      });
+
+      it('sólo se cierran los sockets afectados: los de otras plantas del mismo usuario o de otros usuarios siguen', async () => {
+        const demo = await connect('/ws?plant=demo&token=good');
+        const otra = await connect('/ws?plant=otra&token=good');
+        const admin = await connect('/ws?plant=demo&token=admin');
+        db.u1 = { ...db.u1!, plants: ['otra'] };
+        invalidations.next('u1');
+        await flush();
+        expect(demo.closedWith?.[0]).toBe(WS_CLOSE.forbidden);
+        expect(otra.closedWith).toBeUndefined();
+        expect(admin.closedWith).toBeUndefined();
+        expect(gw.clientCount()).toBe(2);
+      });
+
+      it('un cambio hecho en otra réplica (sin aviso) se detecta en la revalidación periódica, saltando la caché', async () => {
+        const s = await connect();
+        const other = await connect('/ws?plant=otra&token=good');
+        db.u1 = { ...db.u1!, plants: ['otra'] };
+
+        jest.advanceTimersByTime(cfg.wsRevalidateMs - 1);
+        await flush();
+        expect(s.closedWith).toBeUndefined();
+
+        jest.advanceTimersByTime(1);
+        await flush();
+        expect(s.closedWith?.[0]).toBe(WS_CLOSE.forbidden);
+        expect(other.closedWith).toBeUndefined();
+        expect(fresh).toHaveBeenCalledWith('u1'); // lectura fresca, no de la caché
+        expect(fresh).toHaveBeenCalledTimes(1); // una consulta por usuario, no por socket
+      });
+
+      it('un error transitorio de la base no cierra los sockets', async () => {
+        const s = await connect();
+        (gw as unknown as { access: AccessService }).access.getAccess = jest
+          .fn()
+          .mockRejectedValue(new Error('db caída'));
+        jest.advanceTimersByTime(cfg.wsRevalidateMs);
+        await flush();
+        expect(s.closedWith).toBeUndefined();
+        expect(gw.clientCount()).toBe(1);
+      });
     });
   });
 });

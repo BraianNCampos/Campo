@@ -7,6 +7,8 @@ import type { AlarmRecord } from './alarm.types';
 export interface ListAlarmsFilter {
   state?: 'active' | 'cleared';
   plant?: string;
+  /** Restringe a estas plantas (autorización). undefined = sin restricción (admin); [] = ninguna. */
+  plants?: string[];
   limit: number;
 }
 
@@ -21,6 +23,7 @@ export abstract class AlarmsRepository {
     userId: string,
     at: number,
   ): Promise<{ record: AlarmRecord; changed: boolean } | null>;
+  abstract findById(id: string): Promise<AlarmRecord | null>;
   abstract list(filter: ListAlarmsFilter): Promise<AlarmRecord[]>;
   abstract findActive(): Promise<AlarmRecord[]>;
 }
@@ -116,12 +119,21 @@ export class PgAlarmsRepository extends AlarmsRepository {
     return sel.rows[0] ? { record: toRecord(sel.rows[0]), changed: false } : null;
   }
 
+  async findById(id: string): Promise<AlarmRecord | null> {
+    const { rows } = await this.pool.query<AlarmRow>(
+      `SELECT ${COLUMNS} FROM alarms WHERE id = $1`,
+      [id],
+    );
+    return rows[0] ? toRecord(rows[0]) : null;
+  }
+
   async list(f: ListAlarmsFilter): Promise<AlarmRecord[]> {
     const { rows } = await this.pool.query<AlarmRow>(
       `SELECT ${COLUMNS} FROM alarms
         WHERE ($1::text IS NULL OR state = $1) AND ($2::text IS NULL OR plant = $2)
+          AND ($4::text[] IS NULL OR plant = ANY($4))
         ORDER BY triggered_at DESC LIMIT $3`,
-      [f.state ?? null, f.plant ?? null, f.limit],
+      [f.state ?? null, f.plant ?? null, f.limit, f.plants ?? null],
     );
     return rows.map(toRecord);
   }

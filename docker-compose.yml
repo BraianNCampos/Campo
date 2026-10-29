@@ -90,7 +90,7 @@ services:
     container_name: campo-api
     restart: unless-stopped
     environment:
-      NODE_ENV: production
+      NODE_ENV: ${API_NODE_ENV:-development}   # el overlay de producción lo fija en "production" (exige secretos reales)
       PORT: 3001
       JWT_SECRET: ${JWT_SECRET:?define JWT_SECRET (>=32 caracteres) en .env}
       DATABASE_URL: postgres://${POSTGRES_USER:-campo}:${POSTGRES_PASSWORD:-campo_dev}@timescaledb:5432/${POSTGRES_DB:-campo}

@@ -1,10 +1,11 @@
 import { ExecutionContext, ForbiddenException, UnauthorizedException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import type { Role } from '@campo/shared';
+import type { AccessService } from './access.service';
 import type { AuthService } from './auth.service';
 import type { AuthUser, AuthenticatedRequest } from './auth.types';
 import { IS_PUBLIC_KEY, ROLES_KEY } from './decorators';
-import { JwtAuthGuard } from './jwt-auth.guard';
+import { JwtAuthGuard, SessionInvalid } from './jwt-auth.guard';
 import { RolesGuard } from './roles.guard';
 
 function ctx(
@@ -24,17 +25,26 @@ function ctx(
 }
 
 describe('JwtAuthGuard', () => {
-  const user: AuthUser = { id: 'u1', email: 'a@b.c', role: 'viewer' };
-  const verify = jest.fn((t: string) => Promise.resolve(t === 'good' ? user : null));
-  const guard = new JwtAuthGuard(new Reflector(), {
-    verifyToken: verify,
-  } as unknown as AuthService);
+  // El token afirma "admin", pero manda lo que diga la base.
+  const claims = { id: 'u1', email: 'a@b.c', role: 'admin' as const };
+  const fromDb: AuthUser = { id: 'u1', email: 'a@b.c', role: 'viewer', plants: ['demo'] };
+  const verify = jest.fn((t: string) => Promise.resolve(t === 'good' ? claims : null));
+  const getAccess = jest.fn((id: string) => Promise.resolve(id === 'u1' ? fromDb : null));
+  const guard = new JwtAuthGuard(
+    new Reflector(),
+    { verifyToken: verify } as unknown as AuthService,
+    { getAccess } as unknown as AccessService,
+  );
 
-  beforeEach(() => verify.mockClear());
+  beforeEach(() => {
+    verify.mockClear();
+    getAccess.mockClear();
+  });
 
   it('deja pasar rutas @Public sin token', async () => {
     await expect(guard.canActivate(ctx({ headers: {} }, { isPublic: true }))).resolves.toBe(true);
     expect(verify).not.toHaveBeenCalled();
+    expect(getAccess).not.toHaveBeenCalled();
   });
 
   it('exige Authorization: Bearer', async () => {
@@ -46,16 +56,27 @@ describe('JwtAuthGuard', () => {
     ).rejects.toBeInstanceOf(UnauthorizedException);
   });
 
-  it('rechaza tokens inválidos', async () => {
+  it('rechaza tokens inválidos sin consultar al usuario', async () => {
     await expect(
       guard.canActivate(ctx({ headers: { authorization: 'Bearer bad' } })),
     ).rejects.toBeInstanceOf(UnauthorizedException);
+    expect(getAccess).not.toHaveBeenCalled();
   });
 
-  it('acepta un token válido y adjunta el usuario a la petición', async () => {
+  it('adjunta el usuario de la BASE (rol y plantas), no el del token', async () => {
     const req: Partial<AuthenticatedRequest> = { headers: { authorization: 'Bearer good' } };
     await expect(guard.canActivate(ctx(req))).resolves.toBe(true);
-    expect(req.user).toEqual(user);
+    expect(req.user).toEqual(fromDb);
+    expect(req.user?.role).toBe('viewer');
+  });
+
+  it('401 si el usuario ya no existe o está inactivo (token aún vigente)', async () => {
+    verify.mockResolvedValueOnce({ ...claims, id: 'borrado' });
+    const err = await guard
+      .canActivate(ctx({ headers: { authorization: 'Bearer good' } }))
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(SessionInvalid);
+    expect((err as SessionInvalid).userId).toBe('borrado');
   });
 
   it('no interfiere con contextos no HTTP', async () => {
@@ -66,7 +87,7 @@ describe('JwtAuthGuard', () => {
 describe('RolesGuard', () => {
   const guard = new RolesGuard(new Reflector());
   const asUser = (role: Role): Partial<AuthenticatedRequest> => ({
-    user: { id: 'u', email: 'e', role },
+    user: { id: 'u', email: 'e', role, plants: [] },
   });
 
   it('sin @Roles basta con estar autenticado', () => {

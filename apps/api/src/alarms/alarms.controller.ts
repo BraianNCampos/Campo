@@ -10,8 +10,8 @@ export class AlarmsController {
   constructor(private readonly alarms: AlarmsService) {}
 
   @Get()
-  list(@Query() q: ListAlarmsQuery): Promise<AlarmRecord[]> {
-    return this.alarms.list(q);
+  list(@Query() q: ListAlarmsQuery, @CurrentUser() user: AuthUser): Promise<AlarmRecord[]> {
+    return this.alarms.list(q, user);
   }
 
   @Post(':id/ack')

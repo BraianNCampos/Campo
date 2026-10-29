@@ -1,15 +1,23 @@
-import { Module } from '@nestjs/common';
-import { APP_GUARD } from '@nestjs/core';
+import { Global, Module } from '@nestjs/common';
+import { APP_FILTER, APP_GUARD } from '@nestjs/core';
 import { JwtModule } from '@nestjs/jwt';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { APP_CONFIG, AppConfig } from '../config/app-config';
+import { AccessService } from './access.service';
 import { AdminSeeder } from './admin-seeder';
+import { AuthInvalidationBus, RedisInvalidationBus } from './auth-invalidation';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
+import { DenialLogFilter } from './denial-log.filter';
 import { JwtAuthGuard } from './jwt-auth.guard';
+import { MeController } from './me.controller';
+import { PlantAccessGuard } from './plant-access.guard';
+import { PgPlantCatalog, PlantCatalog } from './plant-catalog';
 import { RolesGuard } from './roles.guard';
 import { PgUsersRepository, UsersRepository } from './users.repository';
 
+/** Global: PlantAccessGuard, AccessService y UsersRepository se usan desde otros módulos. */
+@Global()
 @Module({
   imports: [
     JwtModule.registerAsync({
@@ -26,15 +34,20 @@ import { PgUsersRepository, UsersRepository } from './users.repository';
       }),
     }),
   ],
-  controllers: [AuthController],
+  controllers: [AuthController, MeController],
   providers: [
     AuthService,
+    AccessService,
     AdminSeeder,
+    PlantAccessGuard,
     { provide: UsersRepository, useClass: PgUsersRepository },
+    { provide: AuthInvalidationBus, useClass: RedisInvalidationBus },
+    { provide: PlantCatalog, useClass: PgPlantCatalog },
     // Orden importa: primero autenticación, luego roles.
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
+    { provide: APP_FILTER, useClass: DenialLogFilter },
   ],
-  exports: [AuthService],
+  exports: [AuthService, AccessService, UsersRepository, PlantCatalog, PlantAccessGuard],
 })
 export class AuthModule {}

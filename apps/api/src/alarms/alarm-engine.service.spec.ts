@@ -139,7 +139,11 @@ describe('AlarmEngine', () => {
     const id = published[0].id;
 
     const svc = new AlarmsService(alarms, engine, redis);
-    const rec = await svc.ack(id, { id: 'user-1', email: 'a@b.c', role: 'operator' }, 9000);
+    const rec = await svc.ack(
+      id,
+      { id: 'user-1', email: 'a@b.c', role: 'operator', plants: ['demo'] },
+      9000,
+    );
     expect(rec).toMatchObject({
       acknowledged: true,
       acknowledgedBy: 'user-1',
@@ -154,7 +158,7 @@ describe('AlarmEngine', () => {
     expect(stored.acknowledged).toBe(true);
 
     // idempotente: segundo ack no cambia ni publica
-    await svc.ack(id, { id: 'user-2', email: 'x@y.z', role: 'admin' }, 9500);
+    await svc.ack(id, { id: 'user-2', email: 'x@y.z', role: 'admin', plants: ['*'] }, 9500);
     await flush();
     expect(published).toHaveLength(2);
     expect(alarms.alarms.get(id)?.acknowledgedBy).toBe('user-1');
@@ -168,7 +172,12 @@ describe('AlarmEngine', () => {
   it('ack de una alarma inexistente -> NotFound', async () => {
     const svc = new AlarmsService(alarms, engine, redis);
     await expect(
-      svc.ack('00000000-0000-4000-8000-0000000000ff', { id: 'u', email: 'e', role: 'admin' }),
+      svc.ack('00000000-0000-4000-8000-0000000000ff', {
+        id: 'u',
+        email: 'e',
+        role: 'admin',
+        plants: ['*'],
+      }),
     ).rejects.toThrow('Alarma no encontrada');
   });
 

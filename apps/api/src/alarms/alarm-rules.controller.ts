@@ -1,5 +1,6 @@
 import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Query } from '@nestjs/common';
-import { Roles } from '../auth/decorators';
+import type { AuthUser } from '../auth/auth.types';
+import { CurrentUser, Roles } from '../auth/decorators';
 import type { AlarmRule } from './alarm.types';
 import { AlarmRulesService } from './alarm-rules.service';
 import { CreateRuleDto, IdParam, RuleListQuery, UpdateRuleDto } from './dto';
@@ -11,28 +12,32 @@ export class AlarmRulesController {
   constructor(private readonly rules: AlarmRulesService) {}
 
   @Get()
-  list(@Query() q: RuleListQuery): Promise<AlarmRule[]> {
-    return this.rules.list(q.plant);
+  list(@Query() q: RuleListQuery, @CurrentUser() user: AuthUser): Promise<AlarmRule[]> {
+    return this.rules.list(user, q.plant);
   }
 
   @Get(':id')
-  get(@Param() p: IdParam): Promise<AlarmRule> {
-    return this.rules.get(p.id);
+  get(@Param() p: IdParam, @CurrentUser() user: AuthUser): Promise<AlarmRule> {
+    return this.rules.get(p.id, user);
   }
 
   @Post()
-  create(@Body() dto: CreateRuleDto): Promise<AlarmRule> {
-    return this.rules.create(dto);
+  create(@Body() dto: CreateRuleDto, @CurrentUser() user: AuthUser): Promise<AlarmRule> {
+    return this.rules.create(dto, user);
   }
 
   @Patch(':id')
-  update(@Param() p: IdParam, @Body() dto: UpdateRuleDto): Promise<AlarmRule> {
-    return this.rules.update(p.id, dto);
+  update(
+    @Param() p: IdParam,
+    @Body() dto: UpdateRuleDto,
+    @CurrentUser() user: AuthUser,
+  ): Promise<AlarmRule> {
+    return this.rules.update(p.id, dto, user);
   }
 
   @Delete(':id')
   @HttpCode(204)
-  async remove(@Param() p: IdParam): Promise<void> {
-    await this.rules.remove(p.id);
+  async remove(@Param() p: IdParam, @CurrentUser() user: AuthUser): Promise<void> {
+    await this.rules.remove(p.id, user);
   }
 }
