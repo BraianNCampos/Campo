@@ -31,10 +31,15 @@ import (
 	"time"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
+
+	"github.com/braianncampos/campo/apps/ingest/internal/mqttsec"
 )
 
 type options struct {
 	broker     string
+	username   string // usuario MQTT de la planta (su nombre = id de planta)
+	password   string // nunca se registra; preferir MQTT_PASSWORD a -password (los flags se ven en `ps`)
+	caFile     string // CA propia para verificar el broker TLS
 	plant      string
 	tanks      int
 	pumps      int
@@ -61,6 +66,10 @@ func main() {
 	var o options
 	str := func(s string) (string, error) { return s, nil }
 	flag.StringVar(&o.broker, "broker", envOr("MQTT_BROKER_URL", "tcp://localhost:1883", str), "URL del broker MQTT (env MQTT_BROKER_URL)")
+	flag.StringVar(&o.username, "username", envOr("MQTT_USERNAME", "", str), "usuario MQTT; en el broker seguro = id de planta (env MQTT_USERNAME)")
+	// El valor por defecto de la contraseña NO se pasa a flag (aparecería en -h); se lee del entorno tras Parse.
+	flag.StringVar(&o.password, "password", "", "contraseña MQTT (mejor por env MQTT_PASSWORD: los argumentos son visibles en `ps`)")
+	flag.StringVar(&o.caFile, "ca-file", envOr("MQTT_CA_FILE", "", str), "CA (PEM) con la que verificar el broker ssl:// (env MQTT_CA_FILE)")
 	flag.StringVar(&o.plant, "plant", envOr("SIM_PLANT", "demo", str), "id de planta (env SIM_PLANT)")
 	flag.IntVar(&o.tanks, "tanks", envOr("SIM_TANKS", 4, strconv.Atoi), "cantidad de tanques (env SIM_TANKS)")
 	flag.IntVar(&o.pumps, "pumps", envOr("SIM_PUMPS", 2, strconv.Atoi), "cantidad de bombas (env SIM_PUMPS)")
@@ -73,9 +82,16 @@ func main() {
 	flag.Uint64Var(&o.seed, "seed", uint64(time.Now().UnixNano()), "semilla del generador aleatorio")
 	flag.DurationVar(&o.statsEvery, "stats", 5*time.Second, "intervalo del resumen de throughput")
 	flag.Parse()
+	if o.password == "" {
+		o.password = os.Getenv("MQTT_PASSWORD")
+	}
 
 	if o.rate <= 0 || o.conns < 1 || o.qos < 0 || o.qos > 2 || o.tanks+o.pumps+o.valves < 1 {
 		fmt.Fprintln(os.Stderr, "parámetros inválidos: rate>0, conns>=1, qos 0..2 y al menos un activo")
+		os.Exit(2)
+	}
+	if err := mqttsec.Validate(o.broker, o.caFile); err != nil {
+		fmt.Fprintln(os.Stderr, "parámetros inválidos:", err)
 		os.Exit(2)
 	}
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
@@ -121,20 +137,42 @@ type payload struct {
 	Quality string             `json:"quality"`
 }
 
+// clientOptions construye las opciones paho de una conexión: credenciales y TLS
+// (TLS >= 1.2, verificación siempre activa; con -ca-file sólo se confía en esa CA).
+func clientOptions(o options, clientID string) (*mqtt.ClientOptions, error) {
+	tlsCfg, err := mqttsec.TLSConfig(o.caFile)
+	if err != nil {
+		return nil, err
+	}
+	return mqtt.NewClientOptions().
+		AddBroker(o.broker).
+		SetClientID(clientID).
+		SetUsername(o.username).
+		SetPassword(o.password).
+		SetTLSConfig(tlsCfg).
+		SetAutoReconnect(true).
+		SetConnectRetry(true).
+		SetConnectRetryInterval(2 * time.Second).
+		SetCleanSession(true), nil
+}
+
 func run(ctx context.Context, o options, log *slog.Logger) {
 	assets := buildAssets(o)
+	if mqttsec.WarnCleartextCreds(o.broker, o.username) {
+		log.Warn("credenciales MQTT enviadas SIN TLS; usa ssl://host:8883", "broker", mqttsec.Redact(o.broker))
+	}
 	clients := make([]mqtt.Client, o.conns)
 	for i := range clients {
-		opts := mqtt.NewClientOptions().
-			AddBroker(o.broker).
-			SetClientID(fmt.Sprintf("campo-sim-%d-%d-%d", os.Getpid(), time.Now().UnixMilli()%100000, i)).
-			SetAutoReconnect(true).
-			SetConnectRetry(true).
-			SetConnectRetryInterval(2 * time.Second).
-			SetCleanSession(true)
+		opts, err := clientOptions(o, fmt.Sprintf("campo-sim-%d-%d-%d", os.Getpid(), time.Now().UnixMilli()%100000, i))
+		if err != nil {
+			log.Error("configuración TLS inválida", "err", err)
+			os.Exit(2)
+		}
 		clients[i] = mqtt.NewClient(opts)
 		clients[i].Connect()
 	}
+	waitStart := time.Now()
+	warned := false
 	for _, c := range clients {
 		for !c.IsConnectionOpen() {
 			select {
@@ -142,9 +180,14 @@ func run(ctx context.Context, o options, log *slog.Logger) {
 				return
 			case <-time.After(100 * time.Millisecond):
 			}
+			if !warned && time.Since(waitStart) > 10*time.Second {
+				warned = true
+				log.Warn("sin conexión con el broker tras 10 s: revisa URL, credenciales (-username/MQTT_PASSWORD) y CA (-ca-file)",
+					"broker", mqttsec.Redact(o.broker), "username", o.username)
+			}
 		}
 	}
-	log.Info("simulador iniciado", "plant", o.plant, "assets", len(assets), "rate_hz", o.rate,
+	log.Info("simulador iniciado", "plant", o.plant, "username", o.username, "tls", mqttsec.IsTLSURL(o.broker), "assets", len(assets), "rate_hz", o.rate,
 		"conns", o.conns, "target_msg_per_s", float64(len(assets))*o.rate)
 
 	var sent, failed atomic.Int64

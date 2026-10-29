@@ -6,6 +6,8 @@ import (
 	"runtime"
 	"strconv"
 	"time"
+
+	"github.com/braianncampos/campo/apps/ingest/internal/mqttsec"
 )
 
 type Config struct {
@@ -13,7 +15,8 @@ type Config struct {
 	MQTTTopic        string
 	MQTTClientID     string
 	MQTTUsername     string
-	MQTTPassword     string
+	MQTTPassword     string // nunca se registra en logs
+	MQTTCAFile       string // CA propia (PEM) para verificar el broker TLS
 	MQTTQoS          byte
 	MQTTCleanSession bool
 
@@ -36,6 +39,20 @@ type Config struct {
 	LogFormat       string // json | text
 }
 
+// String devuelve la configuración con los secretos ocultos (contraseña MQTT y
+// credenciales de las URL de Redis/Postgres/broker), por si se imprime con %v / %+v.
+func (c Config) String() string {
+	type plain Config // sin métodos: evita recursión
+	r := plain(c)
+	if r.MQTTPassword != "" {
+		r.MQTTPassword = "xxxxx"
+	}
+	r.MQTTBrokerURL = mqttsec.Redact(r.MQTTBrokerURL)
+	r.RedisURL = mqttsec.Redact(r.RedisURL)
+	r.DatabaseURL = mqttsec.Redact(r.DatabaseURL)
+	return fmt.Sprintf("%+v", r)
+}
+
 // Load lee la configuración usando getenv (os.Getenv en producción).
 func Load(getenv func(string) string) (Config, error) {
 	l := loader{getenv: getenv}
@@ -45,6 +62,7 @@ func Load(getenv func(string) string) (Config, error) {
 		MQTTClientID:     l.str("MQTT_CLIENT_ID", "campo-ingest"),
 		MQTTUsername:     l.str("MQTT_USERNAME", ""),
 		MQTTPassword:     l.str("MQTT_PASSWORD", ""),
+		MQTTCAFile:       l.str("MQTT_CA_FILE", ""),
 		MQTTQoS:          byte(l.integer("MQTT_QOS", 1)),
 		MQTTCleanSession: l.boolean("MQTT_CLEAN_SESSION", false),
 
@@ -76,6 +94,8 @@ func (c Config) validate() error {
 	switch {
 	case c.MQTTQoS > 2:
 		return fmt.Errorf("MQTT_QOS debe ser 0, 1 o 2")
+	case mqttsec.Validate(c.MQTTBrokerURL, c.MQTTCAFile) != nil:
+		return mqttsec.Validate(c.MQTTBrokerURL, c.MQTTCAFile)
 	case c.Workers < 1:
 		return fmt.Errorf("INGEST_WORKERS debe ser >= 1")
 	case c.LiveQueueSize < 1 || c.HistoryQueueSize < 1:

@@ -8,3 +8,9 @@ coverage/
 apps/ingest/bin/
 *.log
 .DS_Store
+
+# Despliegue endurecido: secretos generados por scripts/bootstrap-secure.sh (NUNCA versionar)
+secrets/
+.env.prod
+.env.prod.*
+!.env.prod.example

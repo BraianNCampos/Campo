@@ -1,0 +1,203 @@
+# Campo 2.0 — despliegue ENDURECIDO (docs/architecture.md §8.3, guía en docs/security.md).
+# Se superpone al compose base:
+#
+#   scripts/bootstrap-secure.sh                      # una vez: secretos, CA, certificados, passwd, .env.prod
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env.prod --profile apps up -d --build
+#
+# Qué cambia respecto al compose de desarrollo:
+#   - Mosquitto: sólo TLS (8883) con usuarios + ACL (sin 1883 ni WebSocket 9001).
+#   - Redis con contraseña; Redis y TimescaleDB SIN puertos publicados en el host.
+#   - Contraseñas obligatorias (${VAR:?}), sin valores por defecto.
+#   - Caddy es la ÚNICA entrada HTTP(S) (80/443); api y web no publican puertos.
+#   - Redes: `edge` (caddy, web, api), `backend` (internal: db, redis, api, ingest) y `campo-net` (broker).
+#   - Contenedores con read_only, cap_drop ALL y no-new-privileges.
+
+x-hardened: &hardened
+  restart: unless-stopped
+  read_only: true
+  cap_drop: ["ALL"]
+  security_opt: ["no-new-privileges:true"]
+  logging:
+    driver: json-file
+    options: { max-size: "10m", max-file: "3" }
+
+services:
+  # ---- Datos ---------------------------------------------------------------------------------------
+  timescaledb:
+    <<: *hardened
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-campo}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?define POSTGRES_PASSWORD (ejecuta scripts/bootstrap-secure.sh y usa --env-file .env.prod)}
+      POSTGRES_DB: ${POSTGRES_DB:-campo}
+    ports: !reset []
+    # El entrypoint de postgres arranca como root, ajusta permisos del volumen y baja a `postgres` (gosu).
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID]
+    tmpfs:
+      - /tmp
+      - /run/postgresql
+    networks: !override [backend]
+
+  redis:
+    <<: *hardened
+    user: redis
+    # La contraseña NO va en la línea de comandos (sería visible en `ps` del host): se escribe en un
+    # fichero de configuración efímero (tmpfs, 0600) y se carga con `redis-server <conf>` (= --requirepass).
+    command:
+      - sh
+      - -c
+      - |
+        umask 077
+        printf 'requirepass %s\n' "$$REDIS_PASSWORD" > /tmp/redis-auth.conf
+        exec redis-server /tmp/redis-auth.conf --appendonly yes --maxmemory-policy noeviction
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?define REDIS_PASSWORD (ejecuta scripts/bootstrap-secure.sh y usa --env-file .env.prod)}
+      REDISCLI_AUTH: ${REDIS_PASSWORD}
+    ports: !reset []
+    tmpfs:
+      - /tmp
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep -q PONG"]
+    networks: !override [backend]
+
+  # ---- Broker MQTT: sólo TLS 8883, usuarios + ACL ------------------------------------------------------
+  mosquitto:
+    <<: *hardened
+    user: "1883:1883"
+    ports: !override
+      - "${MQTT_TLS_PORT:-8883}:8883"
+    volumes: !override
+      - ./infra/mosquitto/config/mosquitto.secure.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./infra/mosquitto/config/acl.conf:/mosquitto/config/acl.conf:ro
+      - ${SECRETS_DIR:-./secrets}/mosquitto/passwd:/mosquitto/security/passwd:ro
+      - ${SECRETS_DIR:-./secrets}/mosquitto/healthcheck.pw:/mosquitto/security/healthcheck.pw:ro
+      - ${SECRETS_DIR:-./secrets}/certs/ca.crt:/mosquitto/certs/ca.crt:ro
+      - ${SECRETS_DIR:-./secrets}/certs/server.crt:/mosquitto/certs/server.crt:ro
+      - ${SECRETS_DIR:-./secrets}/certs/server.key:/mosquitto/certs/server.key:ro
+      - mosquitto_data:/mosquitto/data
+    healthcheck:
+      # Usuario `healthcheck` (sólo lee $SYS/broker/uptime) por TLS; la contraseña sale de un fichero montado.
+      test:
+        - CMD-SHELL
+        - >-
+          mosquitto_sub -h localhost -p 8883 --cafile /mosquitto/certs/ca.crt -i healthcheck
+          -u healthcheck -P "$$(cat /mosquitto/security/healthcheck.pw)"
+          -t '$$SYS/broker/uptime' -C 1 -W 3 >/dev/null || exit 1
+      interval: 30s
+      timeout: 6s
+      retries: 3
+      start_period: 5s
+    networks: !override [campo-net]
+
+  # ---- Aplicación (perfil "apps") -----------------------------------------------------------------------
+  ingest:
+    <<: *hardened
+    environment:
+      MQTT_BROKER_URL: ssl://mosquitto:8883
+      MQTT_USERNAME: ingest
+      MQTT_PASSWORD: ${MQTT_INGEST_PASSWORD:?define MQTT_INGEST_PASSWORD (scripts/bootstrap-secure.sh)}
+      MQTT_CA_FILE: /certs/ca.crt
+      REDIS_URL: redis://:${REDIS_PASSWORD:?define REDIS_PASSWORD}@redis:6379/0
+      DATABASE_URL: postgres://${POSTGRES_USER:-campo}:${POSTGRES_PASSWORD:?define POSTGRES_PASSWORD}@timescaledb:5432/${POSTGRES_DB:-campo}?sslmode=disable
+    volumes:
+      - ${SECRETS_DIR:-./secrets}/certs/ca.crt:/certs/ca.crt:ro
+    ports: !reset []
+    healthcheck:
+      test: ["CMD", "/ingest", "healthcheck"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks: !override [backend, campo-net]
+
+  api:
+    <<: *hardened
+    environment:
+      NODE_ENV: production
+      JWT_SECRET: ${JWT_SECRET:?define JWT_SECRET (>=48 caracteres; scripts/bootstrap-secure.sh)}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1h}
+      DATABASE_URL: postgres://${POSTGRES_USER:-campo}:${POSTGRES_PASSWORD:?define POSTGRES_PASSWORD}@timescaledb:5432/${POSTGRES_DB:-campo}
+      REDIS_URL: redis://:${REDIS_PASSWORD:?define REDIS_PASSWORD}@redis:6379
+      # Same-origin vía Caddy: CORS sólo para el propio origen público.
+      CORS_ORIGINS: https://${CAMPO_DOMAIN:-localhost}
+      # Detrás de Caddy: IP real del cliente (límite de intentos de login).
+      TRUST_PROXY: "true"
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@campo.local}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?define ADMIN_PASSWORD (scripts/bootstrap-secure.sh)}
+    ports: !reset []
+    tmpfs:
+      - /tmp
+    networks: !override [backend, edge]
+
+  web:
+    <<: *hardened
+    build:
+      args:
+        # Same-origin: URLs vacías -> el cliente deriva el origen (https://dominio, wss://dominio/ws).
+        NEXT_PUBLIC_API_URL: ""
+        NEXT_PUBLIC_WS_URL: ""
+        NEXT_PUBLIC_MOCK: "0"
+    ports: !reset []
+    tmpfs:
+      - /tmp
+      - /app/apps/web/.next/cache
+    networks: !override [edge]
+
+  # ---- Proxy inverso: ÚNICA entrada HTTP(S) -------------------------------------------------------------
+  caddy:
+    <<: *hardened
+    profiles: ["apps"]
+    image: caddy:2-alpine
+    container_name: campo-caddy
+    cap_add: [NET_BIND_SERVICE]
+    environment:
+      CAMPO_DOMAIN: ${CAMPO_DOMAIN:-localhost}
+      CAMPO_TLS: ${CAMPO_TLS:-internal}
+      CAMPO_HSTS: ${CAMPO_HSTS:-max-age=31536000;includeSubDomains}
+    ports:
+      - "${CAMPO_HTTP_PORT:-80}:80"
+      - "${CAMPO_HTTPS_PORT:-443}:443"
+      - "${CAMPO_HTTPS_PORT:-443}:443/udp"   # HTTP/3
+    volumes:
+      - ./infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data       # certificados (CA interna / ACME): conservar entre despliegues
+      - caddy_config:/config
+    tmpfs:
+      - /tmp
+    depends_on:
+      api: { condition: service_started }
+      web: { condition: service_started }
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:2019/config/ >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+    networks: [edge]
+
+  # ---- Simulador (perfil "sim"): publica como el usuario de SU planta, con TLS y verificando la CA -----------
+  simulator:
+    <<: *hardened
+    command:
+      - -broker
+      - ssl://mosquitto:8883
+      - -ca-file
+      - /certs/ca.crt
+      - -username
+      - ${MQTT_SIM_PLANT:?define MQTT_SIM_PLANT (scripts/bootstrap-secure.sh)}
+      - -plant
+      - ${MQTT_SIM_PLANT}
+    environment:
+      MQTT_PASSWORD: ${MQTT_SIM_PASSWORD:?define MQTT_SIM_PASSWORD (scripts/bootstrap-secure.sh)}
+    volumes:
+      - ${SECRETS_DIR:-./secrets}/certs/ca.crt:/certs/ca.crt:ro
+    networks: !override [campo-net]
+
+volumes:
+  caddy_data:
+  caddy_config:
+
+networks:
+  # Red interna (sin salida a Internet ni al host): base de datos, Redis, api e ingest.
+  backend:
+    internal: true
+  # Red de cara al proxy: caddy, web y api.
+  edge: {}

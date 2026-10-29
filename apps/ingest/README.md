@@ -16,10 +16,11 @@ reintentan con backoff mientras la cola absorbe el pico.
 
 | Variable | Defecto | Descripción |
 |---|---|---|
-| `MQTT_BROKER_URL` | `tcp://localhost:1883` | broker |
+| `MQTT_BROKER_URL` | `tcp://localhost:1883` | broker; `ssl://host:8883` para TLS |
 | `MQTT_TOPIC` | `campo/v1/+/+/telemetry` | filtro de suscripción |
 | `MQTT_CLIENT_ID` | `campo-ingest` | único por réplica |
-| `MQTT_USERNAME` / `MQTT_PASSWORD` | vacío | credenciales opcionales |
+| `MQTT_USERNAME` / `MQTT_PASSWORD` | vacío | credenciales del broker (el usuario `ingest` en el despliegue seguro). La contraseña nunca se registra |
+| `MQTT_CA_FILE` | vacío | CA propia (PEM) con la que verificar el certificado del broker. Sólo con `ssl://`; vacío = raíces del sistema |
 | `MQTT_QOS` / `MQTT_CLEAN_SESSION` | `1` / `false` | sesión persistente retiene QoS 1 mientras estamos caídos |
 | `REDIS_URL` | `redis://localhost:6379/0` | |
 | `DATABASE_URL` | `postgres://campo:campo_dev@localhost:5432/campo?sslmode=disable` | vacío = histórico deshabilitado |
@@ -56,11 +57,42 @@ go test -bench . ./internal/parser       # benchmark del parser
 docker build -t campo-ingest .           # imagen distroless con /ingest y /simulator
 ```
 
+## MQTT con TLS y credenciales (despliegue seguro)
+
+Contrato: `docs/architecture.md` §8.2; guía operativa: `docs/security.md`.
+
+```bash
+MQTT_BROKER_URL=ssl://mosquitto:8883 MQTT_USERNAME=ingest MQTT_PASSWORD=... MQTT_CA_FILE=/certs/ca.crt ./ingest
+```
+
+- TLS **mínimo 1.2** y verificación del certificado (cadena **y** nombre/SAN del host de la URL) **siempre activa**.
+  No existe ninguna opción para desactivarla (a propósito: no hay `INSECURE_SKIP_VERIFY`).
+- Con `MQTT_CA_FILE` sólo se confía en esa CA (CA propia); sin él, en las raíces del sistema (certificados públicos).
+  `MQTT_CA_FILE` con una URL en claro (`tcp://`) es un error de configuración y el servicio no arranca.
+- Credenciales con `tcp://` (sin TLS) arrancan pero emiten un aviso: viajarían en claro.
+- Ni la contraseña ni los datos de usuario incrustados en URLs (`scheme://user:pass@host`) se escriben en logs;
+  `Config` impresa con `%v` oculta secretos.
+- `ingest healthcheck` consulta `/readyz` por loopback y sale con 0/1 (la imagen distroless no trae curl);
+  lo usa el `healthcheck` de `docker-compose.prod.yml`.
+- Tests: `internal/mqttsec` (tls.Config, validación, redacción) y `internal/mqttin/mqttin_tls_test.go`
+  (broker mochi-mqtt embebido con TLS + usuarios + ACL equivalentes a `infra/mosquitto/config/acl.conf`:
+  conexión válida, contraseña/anónimo/CA no confiable/host fuera del SAN rechazados, publicar fuera de la
+  propia planta descartado).
+
 ### Simulador
 
-Flags (o env): `-broker`/`MQTT_BROKER_URL`, `-plant`/`SIM_PLANT`, `-tanks`/`SIM_TANKS`, `-pumps`/`SIM_PUMPS`,
+Flags (o env): `-broker`/`MQTT_BROKER_URL`, `-username`/`MQTT_USERNAME`, `-password`/`MQTT_PASSWORD`
+(preferir el env: los argumentos de proceso son visibles en `ps`), `-ca-file`/`MQTT_CA_FILE`,
+`-plant`/`SIM_PLANT`, `-tanks`/`SIM_TANKS`, `-pumps`/`SIM_PUMPS`,
 `-valves`/`SIM_VALVES`, `-rate`/`SIM_RATE_HZ` (msg/s por activo), `-conns`/`SIM_CONNS`, `-qos`/`SIM_QOS`,
 `-duration`, `-excursion-every` (media por activo, `0` desactiva), `-seed`.
+
+En el broker seguro el usuario del simulador **es** el id de planta (sólo puede publicar en
+`campo/v1/{plant}/+/telemetry`):
+
+```bash
+MQTT_PASSWORD=... go run ./cmd/simulator -broker ssl://localhost:8883 -ca-file secrets/certs/ca.crt -username demo -plant demo
+```
 
 Excursiones que cruzan umbrales típicos: `level` > 90 ó < 10, `temp` > 35, `current` > 18, `position` > 95.
 

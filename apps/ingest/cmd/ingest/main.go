@@ -4,15 +4,23 @@ package main
 import (
 	"context"
 	"log/slog"
+	"net"
+	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
+	"time"
 
 	"github.com/braianncampos/campo/apps/ingest/internal/app"
 	"github.com/braianncampos/campo/apps/ingest/internal/config"
 )
 
 func main() {
+	// `ingest healthcheck`: sonda para HEALTHCHECK de Docker (la imagen distroless no trae curl/wget).
+	if len(os.Args) > 1 && os.Args[1] == "healthcheck" {
+		os.Exit(healthcheck(os.Getenv("HTTP_ADDR")))
+	}
 	cfg, err := config.Load(os.Getenv)
 	if err != nil {
 		slog.Error("configuración inválida", "err", err)
@@ -51,4 +59,28 @@ func newLogger(cfg config.Config) *slog.Logger {
 		return slog.New(slog.NewTextHandler(os.Stderr, opts))
 	}
 	return slog.New(slog.NewJSONHandler(os.Stderr, opts))
+}
+
+// healthcheck consulta /readyz en el propio proceso (loopback). Devuelve el código de salida.
+func healthcheck(httpAddr string) int {
+	if httpAddr == "" {
+		httpAddr = ":8080"
+	}
+	host, port, err := net.SplitHostPort(httpAddr)
+	if err != nil {
+		return 2
+	}
+	if host == "" || host == "0.0.0.0" || host == "::" || strings.HasPrefix(host, "[") {
+		host = "127.0.0.1"
+	}
+	c := http.Client{Timeout: 3 * time.Second}
+	resp, err := c.Get("http://" + net.JoinHostPort(host, port) + "/readyz")
+	if err != nil {
+		return 1
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return 1
+	}
+	return 0
 }

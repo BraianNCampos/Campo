@@ -1,0 +1,63 @@
+# Proxy inverso de Campo 2.0 — ÚNICA entrada HTTP(S) de la pila endurecida (docker-compose.prod.yml).
+#   /api/*  y  /ws  ->  api:3001        (REST + WebSocket nativo)
+#   todo lo demás   ->  web:3000        (Next.js)
+# Variables de entorno (las pasa el compose desde .env.prod):
+#   CAMPO_DOMAIN  dominio público. Por defecto localhost.
+#   CAMPO_TLS     `internal` = CA interna de Caddy (localhost / redes privadas).
+#                 Con un dominio real: tu email -> certificado automático ACME (Let's Encrypt).
+#   CAMPO_HSTS    valor de Strict-Transport-Security (corto en local para no "pegar" HSTS a localhost).
+{
+	# API de administración de Caddy sólo en loopback del contenedor (la usa el healthcheck).
+	admin localhost:2019
+	servers {
+		timeouts {
+			read_header 10s
+			idle 2m
+		}
+	}
+}
+
+{$CAMPO_DOMAIN:localhost} {
+	# HTTP (80) redirige a HTTPS automáticamente.
+	tls {$CAMPO_TLS:internal}
+
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "{$CAMPO_HSTS:max-age=31536000;includeSubDomains}"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()"
+		Cross-Origin-Opener-Policy "same-origin"
+		Cross-Origin-Resource-Policy "same-origin"
+		# CSP: la web (Next.js) inyecta scripts de hidratación en línea (sin nonce) y estilos en línea, de ahí
+		# 'unsafe-inline'. Todo lo demás es same-origin: WebSocket wss:// al mismo host, service worker y
+		# workers (blob: para three.js), imágenes data:/blob: (texturas, iconos PWA). Sin eval, sin objetos,
+		# sin <base> ni formularios a otros orígenes, sin ser embebida (frame-ancestors).
+		Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' wss://{http.request.hostport}; worker-src 'self' blob:; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests"
+		-Server
+		-X-Powered-By
+	}
+
+	handle /api/* {
+		request_body {
+			max_size 1MB
+		}
+		reverse_proxy api:3001
+	}
+
+	# WebSocket de tiempo real (el upgrade lo gestiona reverse_proxy).
+	handle /ws {
+		reverse_proxy api:3001
+	}
+
+	handle {
+		reverse_proxy web:3000
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}

@@ -4,11 +4,14 @@ package mqttin
 
 import (
 	"errors"
+	"fmt"
 	"log/slog"
 	"sync/atomic"
 	"time"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
+
+	"github.com/braianncampos/campo/apps/ingest/internal/mqttsec"
 )
 
 type Config struct {
@@ -16,7 +19,8 @@ type Config struct {
 	Topic        string
 	ClientID     string
 	Username     string
-	Password     string
+	Password     string // nunca se registra en logs
+	CAFile       string // CA propia (PEM) para verificar el broker; vacío = raíces del sistema
 	QoS          byte
 	CleanSession bool
 }
@@ -30,7 +34,19 @@ type Client struct {
 }
 
 // New no conecta: Start lanza la conexión en segundo plano con reintentos.
-func New(cfg Config, h Handler, log *slog.Logger) *Client {
+// Falla si la configuración TLS es inválida (CA ilegible, CA con URL en claro).
+func New(cfg Config, h Handler, log *slog.Logger) (*Client, error) {
+	if err := mqttsec.Validate(cfg.BrokerURL, cfg.CAFile); err != nil {
+		return nil, err
+	}
+	tlsCfg, err := mqttsec.TLSConfig(cfg.CAFile)
+	if err != nil {
+		return nil, fmt.Errorf("mqtt: %w", err)
+	}
+	shownURL := mqttsec.Redact(cfg.BrokerURL)
+	if mqttsec.WarnCleartextCreds(cfg.BrokerURL, cfg.Username) {
+		log.Warn("credenciales MQTT enviadas SIN TLS; usa ssl://host:8883", "broker", shownURL)
+	}
 	cl := &Client{cfg: cfg}
 	onMessage := func(_ mqtt.Client, m mqtt.Message) { h(m.Topic(), m.Payload()) }
 
@@ -39,6 +55,7 @@ func New(cfg Config, h Handler, log *slog.Logger) *Client {
 		SetClientID(cfg.ClientID).
 		SetUsername(cfg.Username).
 		SetPassword(cfg.Password).
+		SetTLSConfig(tlsCfg).
 		SetKeepAlive(30 * time.Second).
 		SetConnectTimeout(10 * time.Second).
 		SetAutoReconnect(true).
@@ -54,7 +71,7 @@ func New(cfg Config, h Handler, log *slog.Logger) *Client {
 			log.Warn("conexión MQTT perdida", "err", err)
 		}).
 		SetOnConnectHandler(func(c mqtt.Client) {
-			log.Info("MQTT conectado", "broker", cfg.BrokerURL)
+			log.Info("MQTT conectado", "broker", shownURL, "tls", mqttsec.IsTLSURL(cfg.BrokerURL), "user", cfg.Username)
 			t := c.Subscribe(cfg.Topic, cfg.QoS, onMessage)
 			t.Wait()
 			if err := t.Error(); err != nil {
@@ -65,7 +82,7 @@ func New(cfg Config, h Handler, log *slog.Logger) *Client {
 			log.Info("MQTT suscrito", "topic", cfg.Topic, "qos", cfg.QoS)
 		})
 	cl.c = mqtt.NewClient(opts)
-	return cl
+	return cl, nil
 }
 
 func (c *Client) Start() { c.c.Connect() } // el token se ignora: ConnectRetry reintenta solo

@@ -13,6 +13,7 @@ import (
 	"github.com/braianncampos/campo/apps/ingest/internal/httpserver"
 	"github.com/braianncampos/campo/apps/ingest/internal/metrics"
 	"github.com/braianncampos/campo/apps/ingest/internal/mqttin"
+	"github.com/braianncampos/campo/apps/ingest/internal/mqttsec"
 	"github.com/braianncampos/campo/apps/ingest/internal/pipeline"
 	"github.com/braianncampos/campo/apps/ingest/internal/redisout"
 	"github.com/braianncampos/campo/apps/ingest/internal/tsdb"
@@ -45,6 +46,14 @@ func New(ctx context.Context, cfg config.Config, log *slog.Logger, opts ...Optio
 		opt(&o)
 	}
 	a := &App{cfg: cfg, log: log, m: metrics.New()}
+
+	// Fallar pronto (antes de abrir Redis/Postgres) si la configuración TLS de MQTT es inválida.
+	if err := mqttsec.Validate(cfg.MQTTBrokerURL, cfg.MQTTCAFile); err != nil {
+		return nil, err
+	}
+	if _, err := mqttsec.TLSConfig(cfg.MQTTCAFile); err != nil {
+		return nil, err
+	}
 
 	ropts, err := redis.ParseURL(cfg.RedisURL)
 	if err != nil {
@@ -84,11 +93,14 @@ func New(ctx context.Context, cfg config.Config, log *slog.Logger, opts ...Optio
 	}, redisout.New(a.rdb), hist, a.m, log)
 	a.m.RegisterQueue("live", a.pipe.QueueLen)
 
-	a.mqtt = mqttin.New(mqttin.Config{
+	a.mqtt, err = mqttin.New(mqttin.Config{
 		BrokerURL: cfg.MQTTBrokerURL, Topic: cfg.MQTTTopic, ClientID: cfg.MQTTClientID,
-		Username: cfg.MQTTUsername, Password: cfg.MQTTPassword,
+		Username: cfg.MQTTUsername, Password: cfg.MQTTPassword, CAFile: cfg.MQTTCAFile,
 		QoS: cfg.MQTTQoS, CleanSession: cfg.MQTTCleanSession,
 	}, a.pipe.Submit, log)
+	if err != nil {
+		return nil, err
+	}
 
 	a.http, err = httpserver.New(cfg.HTTPAddr, a.m.Handler(), map[string]httpserver.Check{
 		"mqtt":  func(context.Context) error { return a.mqtt.Ready() },
