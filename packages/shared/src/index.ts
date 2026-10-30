@@ -10,6 +10,43 @@ export type Quality = 'good' | 'uncertain' | 'bad';
 export type Role = 'platform_admin' | 'admin' | 'engineer' | 'operator' | 'viewer';
 export type Severity = 'warning' | 'critical';
 
+// ---- Alarmas ISA-18.2 (docs/architecture.md §12) ----
+export type AlarmKind = 'HH' | 'HI' | 'LO' | 'LL' | 'DEV' | 'ROC';
+export type AlarmLifecycle = 'unacked' | 'acked' | 'rtn_unacked' | 'closed' | 'shelved';
+
+export interface AlarmRationale {
+  description?: string;
+  consequence?: string;
+  response?: string;
+}
+
+export interface AlarmPolicy {
+  ratePerDay: number;
+  peak10min: number;
+  staleHours: number;
+}
+
+export const DEFAULT_ALARM_POLICY: AlarmPolicy = { ratePerDay: 150, peak10min: 10, staleHours: 24 };
+
+export interface AlarmKpis {
+  window: '24h' | '7d' | '30d';
+  from: number;
+  to: number;
+  policy: AlarmPolicy;
+  total: number;
+  perDay: number;
+  perHour: number;
+  peak10min: { count: number; at: number | null };
+  byPriority: { critical: number; warning: number };
+  top: { ruleId: string; asset: string; metric: string; kind: AlarmKind; count: number }[];
+  chattering: { ruleId: string; asset: string; metric: string; activations10min: number }[];
+  stale: { id: string; asset: string; metric: string; since: number }[];
+  shelved: number;
+  suppressed: number;
+  outOfService: number;
+  status: 'ok' | 'warning' | 'critical';
+}
+
 /** Payload MQTT en campo/v1/{plant}/{asset}/telemetry */
 export interface TelemetryPayload {
   ts?: number; // epoch ms
@@ -46,6 +83,12 @@ export interface AlarmEvent {
   ts: number;
   message: string;
   acknowledged?: boolean;
+  /** ISA-18.2 (docs/architecture.md §12). */
+  kind?: AlarmKind;
+  lifecycle?: AlarmLifecycle;
+  rationale?: AlarmRationale;
+  shelvedUntil?: number; // epoch ms
+  shelvedReason?: string;
 }
 
 export interface SnapshotMessage {
@@ -245,4 +288,5 @@ export interface Limit {
   operator: 'gt' | 'lt' | 'gte' | 'lte';
   threshold: number;
   severity: Severity;
+  kind?: AlarmKind;
 }

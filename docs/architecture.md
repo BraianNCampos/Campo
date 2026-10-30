@@ -222,3 +222,53 @@ Campo es un producto de **Campos Ingeniería** que se entrega a **clientes**; ca
 - **Auditoría:** `audit_log.org_id`; un `admin` solo ve su cliente; `platform_admin` filtra con `?orgId=` (alias `?org=`).
 - **Semilla de `ADMIN_EMAIL`:** crea o promueve a `platform_admin` (sin cliente) y nunca degrada a uno existente; si era el único admin de `campos-demo`, ese cliente queda sin administrador (aviso en el log) hasta crear uno con `POST /api/orgs/campos-demo/admins`.
 - **Límites conocidos:** el módulo `view3d` aún no restringe la subida de modelos en la API; los ids de planta y los emails son únicos globalmente (un 409 revela que existe).
+
+## 12. Alarmas ISA-18.2 y desviación (Fases 7a/7b)
+
+Implementa lo pedido en `docs/ux-isa.md`. Todo lo nuevo es **aditivo**: una regla existente sigue funcionando igual.
+
+### 12.1 Reglas
+
+`alarm_rules` gana columnas opcionales (valores por defecto que conservan el comportamiento actual):
+
+- `kind`: `HH | HI | LO | LL | DEV | ROC`. Por defecto se deriva del operador y la severidad: `gt/gte` + `critical` → `HH`, `gt/gte` + `warning` → `HI`, `lt/lte` + `critical` → `LL`, `lt/lte` + `warning` → `LO`. `DEV`: se activa si `|valor − SP| > umbral` (el SP sale de `metadata.setpoints[métrica]` del activo o de la métrica `<métrica>_sp` de la telemetría, que manda; **sin SP la regla no se evalúa** y el estado de la regla lo informa). `ROC`: tasa de cambio absoluta por minuto, calculada sobre `rocWindowSeconds` (def. 60, 10–600) y comparada con el umbral; `rocDirection`: `any | rise | fall`.
+- Banda muerta (`hysteresis`, ya existe) y retardos: `forSeconds` (activación, ya existe) y **`offDelaySeconds`** (retorno a normal, def. 0): la condición debe dejar de cumplirse este tiempo antes de normalizar.
+- **Supresión por estado** `suppressWhen: {asset, metric, operator: 'eq'|'neq'|'gt'|'lt', value}`: mientras la condición se cumpla sobre el último dato del activo indicado (p. ej. bomba detenida: `{asset:'pump-01', metric:'rpm', operator:'lt', value:1}`), la alarma **no se genera** y se cuenta como suprimida.
+- **Racionalización** (texto para el operador): `description` (≤200), `consequence` (≤300), `response` (≤300).
+- Fuera de servicio: `enabled=false` exige `outOfServiceReason` (≥3 caracteres) y queda auditado (`rule.out_of_service`).
+
+### 12.2 Ciclo de vida de una alarma
+
+`AlarmEvent` y los registros REST ganan campos opcionales: `kind`, `lifecycle`, `rationale {description,consequence,response}`, `shelvedUntil`, `shelvedReason`. Se conserva `state: 'active'|'cleared'` (condición cumplida o no) y se añade `lifecycle`:
+
+| `state` | `lifecycle` | Significado |
+|---|---|---|
+| active | `unacked` | activa, sin reconocer |
+| active | `acked` | activa, reconocida |
+| cleared | `rtn_unacked` | volvió a normal, **falta reconocer**: sigue en la lista |
+| cleared | `closed` | volvió a normal y fue reconocida: sale de la lista |
+| active | `shelved` | postergada con motivo y vencimiento: no cuenta ni se muestra como activa |
+
+- Reconocer una `rtn_unacked` la cierra. Reconocer una `unacked` la pasa a `acked`; si luego se normaliza, pasa a `closed` directamente.
+- `GET /api/alarms?state=active` devuelve la **lista de alarmas** (lifecycle `unacked`, `acked`, `rtn_unacked`; no `shelved` ni `closed`); `?state=cleared` las `closed`; `?state=shelved` las postergadas.
+- **Postergar:** `POST /api/alarms/:id/shelve {minutes: 1–480, reason ≥3}` (roles `engineer`, `admin`, `platform_admin`) y `POST /api/alarms/:id/unshelve`. Al vencer vuelve sola (la alarma se reanuncia si sigue activa). Auditado (`alarm.shelve|unshelve`).
+- **Diario** (`alarm_events`: activación, reconocimiento, normalización, postergación, supresión, quién): `GET /api/alarms/:id/journal`.
+
+### 12.3 Salud de alarmas (EEMUA 191 / ISA-18.2)
+
+- Política por planta `AlarmPolicy {ratePerDay: 150, peak10min: 10, staleHours: 24}` (valores por defecto): `GET /api/plants/:plant/alarm-policy` (cualquier rol con acceso) y `PUT` (`admin`, `platform_admin`; validación de rangos; auditado). Los valores por defecto siguen las referencias habituales (≈150 por operador y día; ≤10 en los 10 minutos posteriores a una perturbación); pendiente de confirmar con el equipo.
+- `GET /api/plants/:plant/alarm-kpis?window=24h|7d|30d` → `AlarmKpis`: `total`, `perDay`, `perHour`, `peak10min {count, at}`, `byPriority {critical, warning}`, `top` (10 reglas/activos más frecuentes), `chattering` (≥3 activaciones en 10 min), `stale` (activas más de `staleHours`), `shelved`, `suppressed`, `outOfService` y `status: 'ok'|'warning'|'critical'` (ok si cumple la política; warning hasta 1,5×; critical por encima).
+
+### 12.4 Setpoints
+
+`metadata.setpoints: {[métrica]: número finito}` en el activo (validado). La telemetría puede traer `<métrica>_sp` (setpoint informado por el controlador), que tiene prioridad. Semillas de `demo`/`tanques`: SP de nivel 60 % en tanques, de temperatura 20 °C en clima, de presión 6 bar en `pres-01`.
+
+### 12.5 Web (7a/7b)
+
+- **Barra de desviación** centrada en el SP, con extremos en los límites de alarma más cercanos (LL/HH); color por estado: neutro en rango, **ámbar al llegar al 90 % de la distancia SP→límite**, rojo en alarma; sin SP se mantiene la barra de rango actual.
+- **Tendencia a un clic:** cualquier tarjeta (nivel 2) o fila abre un panel (lateral en escritorio, hoja inferior en móvil) con la curva de la métrica, las líneas de SP y límites, y ventanas 15 min / 1 h / 6 h / 24 h (API de histórico; búfer en vivo en el demo).
+- **Pie global de alarmas:** cuenta por ciclo de vida (sin reconocer, normalizadas sin reconocer, postergadas) y las 3 más importantes con **tag/activo, descripción, valor y límite**.
+- **Lista de alarmas** (`/alarmas`): pestañas Activas · Postergadas · Historial; columnas tag/activo, descripción, valor, límite, tipo (HH/HI/…), prioridad, tiempo; acciones Reconocer (una o todas las visibles), Postergar (diálogo con minutos y motivo) y detalle con racionalización (consecuencia y acción) y diario.
+- **Salud de alarmas** (`/alarmas/salud`): indicadores contra la política (tasa por día, pico de 10 min), top 10, alarmas intermitentes, estancadas, postergadas y suprimidas; ventana 24 h / 7 d / 30 d.
+- **Editor de reglas:** tipo (HH/HI/LO/LL/DEV/ROC) con campos dependientes, banda muerta, retardos, ventana y dirección de ROC, condición de supresión, racionalización y "fuera de servicio" con motivo.
+- **Vista general de la planta (nivel 1)** en `/`: KPIs de alto nivel y alertas agregadas por módulo, **sin valores de instrumentos**; con 3D si el cliente tiene `view3d` (paneles de vidrio sobre la escena) o mapa 2D de módulos si no.
