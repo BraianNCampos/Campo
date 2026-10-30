@@ -2,16 +2,16 @@ import type { MetadataRoute } from 'next';
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: 'Campo 2.0 — SCADA agroindustrial',
+    name: 'Campo — Monitoreo y alarmas para tu industria',
     short_name: 'Campo',
-    description: 'Gemelo digital, alarmas y telemetría en tiempo real.',
+    description: 'Tu planta en tiempo real: valores en vivo, historial y alarmas.',
     id: '/',
     start_url: '/',
     scope: '/',
     display: 'standalone',
     orientation: 'any',
-    background_color: '#0a0e13',
-    theme_color: '#0a0e13',
+    background_color: '#0a1620',
+    theme_color: '#0a1620',
     lang: 'es',
     categories: ['productivity', 'utilities'],
     icons: [

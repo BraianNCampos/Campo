@@ -6,7 +6,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useEffect } from 'react';
 import { canAccessSection, landingSection, sectionForPath, visibleSections, type SectionId } from '@/lib/admin/access';
 import { useSessionStore } from '@/store/session-store';
-import { Logo } from '../Header';
+import { Logo } from '../Brand';
 import { IconAudit, IconBack, IconCritical, IconPlant, IconRules, IconUser, IconUsers } from '../icons';
 import { SessionGate } from '../SessionGate';
 import { btn, EmptyState } from './ui';

@@ -13,7 +13,7 @@ export interface StatusMeta {
 }
 
 export const STATUS_META: Record<AssetStatus, StatusMeta> = {
-  ok: { label: 'Normal', text: 'text-ok', soft: 'bg-ok/15', border: 'border-ok/60', hex: '#38bdf8' },
+  ok: { label: 'Normal', text: 'text-ok', soft: 'bg-ok/15', border: 'border-ok/60', hex: '#3fb8a0' },
   warning: { label: 'Advertencia', text: 'text-warn', soft: 'bg-warn/15', border: 'border-warn/70', hex: '#fbbf24' },
   critical: { label: 'Crítica', text: 'text-crit', soft: 'bg-crit/15', border: 'border-crit/80', hex: '#ff4d4d' },
   uncertain: { label: 'Dato dudoso', text: 'text-warn', soft: 'bg-warn/15', border: 'border-warn/70', hex: '#c9a227' },

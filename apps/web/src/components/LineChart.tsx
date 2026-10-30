@@ -6,8 +6,8 @@ import { readSeries } from '@/store/history';
 import { useAssetName } from './useAsset';
 
 const COLORS = {
-  line: '#38bdf8',
-  fill: 'rgba(56,189,248,0.14)',
+  line: '#4fd1a5',
+  fill: 'rgba(79,209,165,0.13)',
   grid: 'rgba(163,179,198,0.16)',
   text: '#a3b3c6',
   crit: '#ff6b6b',

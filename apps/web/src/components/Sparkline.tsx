@@ -12,7 +12,7 @@ export function Sparkline({
   points = 60,
   height = 36,
   className = '',
-  color = 'var(--color-accent)',
+  color = 'var(--color-ok)',
 }: {
   asset: string;
   metric: string;

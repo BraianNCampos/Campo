@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useState, type FormEvent } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Logo } from '@/components/Header';
+import { Wordmark } from '@/components/Brand';
 import { ApiError, login, setToken } from '@/lib/auth';
 import { config } from '@/lib/env';
 
@@ -39,12 +39,11 @@ function LoginForm() {
 
   return (
     <main id="main" className="mx-auto flex min-h-dvh max-w-sm flex-col justify-center gap-6 px-4 py-10">
-      <div className="flex items-center gap-3">
-        <Logo />
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Campo</h1>
-          <p className="text-sm text-muted">Acceso al panel de planta</p>
-        </div>
+      <div className="flex flex-col gap-2">
+        <h1 className="m-0"><Wordmark className="text-5xl" /></h1>
+        <p className="text-lg font-semibold leading-snug">
+          Monitoreo y alarmas <span className="text-accent">para tu industria.</span>
+        </p>
       </div>
       {config.mock && (
         <p className="rounded-lg border border-accent/60 bg-accent/15 px-3 py-2 text-sm text-accent">

@@ -29,7 +29,7 @@ export function AssetCard({ id }: { id: string }) {
   const meta = STATUS_META[status];
   const v = state?.values ?? {};
   const main = kind === 'tank' ? 'level' : kind === 'pump' ? 'rpm' : kind === 'valve' ? 'position' : (Object.keys(v)[0] ?? 'value');
-  const color = status === 'ok' ? 'var(--color-accent)' : `var(--color-${status === 'critical' ? 'crit' : status === 'bad' ? 'bad' : 'warn'})`;
+  const color = status === 'ok' ? 'var(--color-ok)' : `var(--color-${status === 'critical' ? 'crit' : status === 'bad' ? 'bad' : 'warn'})`;
   const running = pumpRunning(v);
 
   return (

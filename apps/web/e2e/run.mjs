@@ -156,7 +156,7 @@ try {
     await sleep(1500);
     await ctx.setOffline(true);
     await page.reload({ waitUntil: 'load' }).catch(() => {});
-    const offlineOk = await pollUntil(async () => (await page.locator('h1', { hasText: 'Campo' }).count()) > 0, 10_000);
+    const offlineOk = await pollUntil(async () => (await page.locator('h1 [aria-label="Campo"]').count()) > 0, 10_000);
     check(!!offlineOk, 'PWA: con red cortada la app carga desde el shell cacheado');
     const chip = await pollUntil(async () => ((await textOf(page, 'connection-chip')) ?? '').includes('Sin conexión'), 5000);
     check(!!chip, 'PWA: indicador "Sin conexión" visible');

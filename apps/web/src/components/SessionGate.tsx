@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { getToken } from '@/lib/auth';
 import { config } from '@/lib/env';
 import { signOut, useSessionStore } from '@/store/session-store';
-import { Logo } from './Header';
+import { Logo } from './Brand';
 import { Button } from './admin/ui';
 
 export function Skeleton() {
