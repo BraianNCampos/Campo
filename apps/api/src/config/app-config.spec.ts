@@ -9,6 +9,7 @@ describe('parseEnv', () => {
       port: 3001,
       nodeEnv: 'development',
       wsCoalesceMs: 100,
+      wsCatalogCoalesceMs: 250,
       wsPingIntervalMs: 25_000,
       corsOrigins: ['http://localhost:3000'],
       alarmEngineEnabled: true,

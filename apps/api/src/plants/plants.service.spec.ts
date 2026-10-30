@@ -4,6 +4,7 @@ import type Redis from 'ioredis';
 import {
   MemoryAssetsRepository,
   MemoryAuditRepository,
+  MemoryModelsRepository,
   MemoryPlantCatalog,
   MemoryPlantsRepository,
   MemoryUsersRepository,
@@ -14,6 +15,7 @@ import { AccessService } from '../auth/access.service';
 import { InMemoryInvalidationBus } from '../auth/auth-invalidation';
 import type { AuthUser } from '../auth/auth.types';
 import { parseEnv } from '../config/app-config';
+import { CatalogNotifier } from '../redis/catalog-notifier';
 import { PlantsService } from './plants.service';
 
 const cfg = parseEnv({ JWT_SECRET: 's'.repeat(40), NODE_ENV: 'test' });
@@ -33,6 +35,7 @@ describe('PlantsService', () => {
   let users: MemoryUsersRepository;
   let plants: MemoryPlantsRepository;
   let audit: MemoryAuditRepository;
+  let models: MemoryModelsRepository;
   let access: AccessService;
   let svc: PlantsService;
 
@@ -46,6 +49,7 @@ describe('PlantsService', () => {
     users = new MemoryUsersRepository();
     plants = new MemoryPlantsRepository(assets, users);
     audit = new MemoryAuditRepository();
+    models = new MemoryModelsRepository(assets);
     access = new AccessService(users, new InMemoryInvalidationBus(), cfg);
     svc = new PlantsService(
       plants,
@@ -53,6 +57,8 @@ describe('PlantsService', () => {
       access,
       new AuditService(audit),
       redis,
+      models,
+      new CatalogNotifier(redis),
     );
   });
 
@@ -155,6 +161,55 @@ describe('PlantsService', () => {
       await users.setPlants(a.id, ['huerfana']);
       expect(await svc.remove('huerfana', admin)).toEqual({ deleted: true });
       expect(users.users[0].plants).toEqual([]);
+    });
+  });
+
+  describe('catálogo vivo y modelos (§10.1)', () => {
+    let published: string[];
+    beforeEach(() => {
+      published = [];
+      const real = redis.publish.bind(redis);
+      redis.publish = (channel: string, message: string) => {
+        if (channel === 'campo:catalog:changed') published.push(message);
+        return real(channel, message);
+      };
+    });
+
+    it('crear, renombrar y borrar una planta publican campo:catalog:changed {plant}', async () => {
+      await svc.create('norte', 'Norte', admin);
+      await svc.rename('norte', 'Norte 2', admin);
+      await svc.remove('norte', admin);
+      expect(published).toEqual(Array(3).fill(JSON.stringify({ plant: 'norte' })));
+    });
+
+    it('no publica si la operación falla (409/404)', async () => {
+      await expect(svc.create('demo', 'x', admin)).rejects.toBeInstanceOf(ConflictException);
+      await expect(svc.rename('fantasma', 'x', admin)).rejects.toBeInstanceOf(NotFoundException);
+      await expect(svc.remove('demo', admin)).rejects.toBeInstanceOf(ConflictException);
+      expect(published).toEqual([]);
+    });
+
+    it('borrar una planta borra sus modelos 3D (y sólo los suyos)', async () => {
+      await svc.create('norte', 'Norte', admin);
+      const row = (plant: string, sha: string) => ({
+        id: `${sha}0000000-0000-4000-8000-000000000000`,
+        plant,
+        name: 'm',
+        size: 1,
+        sha256: sha.repeat(64),
+        createdAt: 1,
+        data: Buffer.alloc(1),
+        createdBy: null,
+      });
+      models.rows.push(row('norte', 'a'), row('norte', 'b'), row('demo', 'c'));
+      await svc.remove('norte', admin);
+      expect(models.rows.map((r) => r.plant)).toEqual(['demo']);
+    });
+
+    it('si falla el borrado de modelos la planta ya está borrada y no lanza', async () => {
+      await svc.create('norte', 'Norte', admin);
+      models.deleteByPlant = () => Promise.reject(new Error('db caída'));
+      await expect(svc.remove('norte', admin)).resolves.toEqual({ deleted: true });
     });
   });
 });

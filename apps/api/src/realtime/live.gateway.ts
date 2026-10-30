@@ -1,6 +1,12 @@
 import { Inject, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { OnGatewayConnection, OnGatewayDisconnect, WebSocketGateway } from '@nestjs/websockets';
-import { AlarmEvent, ID_PATTERN, ServerMessage, TelemetryEvent } from '@campo/shared';
+import {
+  AlarmEvent,
+  CatalogMessage,
+  ID_PATTERN,
+  ServerMessage,
+  TelemetryEvent,
+} from '@campo/shared';
 import type { IncomingMessage } from 'node:http';
 import { Subscription } from 'rxjs';
 import { WebSocket } from 'ws';
@@ -10,6 +16,7 @@ import { canAccessPlant } from '../auth/plant-access';
 import { APP_CONFIG, AppConfig } from '../config/app-config';
 import { StateService } from '../plants/state.service';
 import { BusMessage, RealtimeBus } from '../redis/realtime-bus';
+import { CatalogCoalescer } from './catalog-coalescer';
 import { TelemetryCoalescer } from './telemetry-coalescer';
 
 interface Client {
@@ -37,6 +44,7 @@ export class LiveGateway
   private readonly clients = new Map<WebSocket, Client>();
   private readonly byPlant = new Map<string, Set<Client>>();
   private readonly coalescer: TelemetryCoalescer;
+  private readonly catalogCoalescer: CatalogCoalescer;
   private sub?: Subscription;
   private invalidationSub?: Subscription;
   private revalidation?: NodeJS.Timeout;
@@ -52,6 +60,9 @@ export class LiveGateway
   ) {
     this.coalescer = new TelemetryCoalescer(cfg.wsCoalesceMs, (plant, events) =>
       this.broadcastTelemetry(plant, events),
+    );
+    this.catalogCoalescer = new CatalogCoalescer(cfg.wsCatalogCoalesceMs, (plant) =>
+      this.broadcastCatalog(plant),
     );
   }
 
@@ -76,6 +87,7 @@ export class LiveGateway
     if (this.heartbeat) clearInterval(this.heartbeat);
     if (this.revalidation) clearInterval(this.revalidation);
     this.coalescer.dispose();
+    this.catalogCoalescer.dispose();
     for (const c of this.clients.values()) c.socket.terminate();
     this.clients.clear();
     this.byPlant.clear();
@@ -212,7 +224,18 @@ export class LiveGateway
   private onBus(m: BusMessage): void {
     if (!this.byPlant.has(m.plant)) return;
     if (m.kind === 'telemetry') this.coalescer.push(m.event);
-    else this.broadcastAlarm(m.plant, m.event);
+    else if (m.kind === 'alarm') this.broadcastAlarm(m.plant, m.event);
+    else this.catalogCoalescer.push(m.plant);
+  }
+
+  /** `{type:"catalog"}` sólo a los clientes de esa planta; el cliente vuelve a pedir el catálogo por HTTP. */
+  private broadcastCatalog(plant: string): void {
+    const msg: CatalogMessage = { type: 'catalog', plant };
+    const payload = JSON.stringify(msg);
+    for (const c of this.byPlant.get(plant) ?? []) {
+      if (!c.ready || c.socket.readyState !== WebSocket.OPEN) continue;
+      this.sendRaw(c, payload);
+    }
   }
 
   private broadcastTelemetry(plant: string, events: TelemetryEvent[]): void {

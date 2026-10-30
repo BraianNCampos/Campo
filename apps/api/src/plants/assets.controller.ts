@@ -3,8 +3,7 @@ import type { AuthUser } from '../auth/auth.types';
 import { CurrentUser, Roles } from '../auth/decorators';
 import { PlantAccessGuard } from '../auth/plant-access.guard';
 import { AssetParams, PlantParams } from '../common/params';
-import type { Asset } from './assets.repository';
-import { AssetsService } from './assets.service';
+import { AssetResult, AssetsService } from './assets.service';
 import { CreateAssetDto, UpdateAssetDto } from './dto';
 
 /**
@@ -22,7 +21,7 @@ export class AssetsController {
     @Param() p: PlantParams,
     @Body() dto: CreateAssetDto,
     @CurrentUser() actor: AuthUser,
-  ): Promise<Asset> {
+  ): Promise<AssetResult> {
     return this.assets.create(p.plant, dto, actor);
   }
 
@@ -31,7 +30,7 @@ export class AssetsController {
     @Param() p: AssetParams,
     @Body() dto: UpdateAssetDto,
     @CurrentUser() actor: AuthUser,
-  ): Promise<Asset> {
+  ): Promise<AssetResult> {
     return this.assets.update(p.plant, p.asset, dto, actor);
   }
 

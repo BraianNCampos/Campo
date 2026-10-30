@@ -6,6 +6,7 @@ import { AppConfigModule } from './config/config.module';
 import { DatabaseModule } from './database/database.module';
 import { HealthModule } from './health/health.module';
 import { HistoryModule } from './history/history.module';
+import { ModelsModule } from './models/models.module';
 import { PlantsModule } from './plants/plants.module';
 import { RealtimeModule } from './realtime/realtime.module';
 import { RedisModule } from './redis/redis.module';
@@ -19,6 +20,7 @@ import { UsersModule } from './users/users.module';
     AuditModule,
     AuthModule,
     UsersModule,
+    ModelsModule,
     PlantsModule,
     HistoryModule,
     AlarmsModule,

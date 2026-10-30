@@ -16,6 +16,9 @@ export const AUDIT_FIELDS = {
   'asset.create': ['name', 'type', 'model3dRef'],
   'asset.update': ['changed', 'name', 'type', 'model3dRef'],
   'asset.delete': ['affectedRules'],
+  // Modelos 3D: nunca el contenido del archivo, sólo su identidad (nombre, tamaño, hash).
+  'model.upload': ['name', 'size', 'sha256', 'dedup'],
+  'model.delete': ['name', 'id'],
   'rule.create': [
     'plant',
     'asset',

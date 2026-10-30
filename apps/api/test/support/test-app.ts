@@ -13,6 +13,7 @@ import { APP_CONFIG, AppConfig, parseEnv } from '../../src/config/app-config';
 import { PG_POOL } from '../../src/database/tokens';
 import { HistoryRepository } from '../../src/history/history.repository';
 import { AuditRepository } from '../../src/audit/audit.repository';
+import { ModelsRepository } from '../../src/models/models.repository';
 import { Asset, AssetsRepository } from '../../src/plants/assets.repository';
 import { PlantsRepository } from '../../src/plants/plants.repository';
 import { REDIS, REDIS_SUB } from '../../src/redis/tokens';
@@ -22,6 +23,7 @@ import {
   MemoryAssetsRepository,
   MemoryAuditRepository,
   MemoryHistoryRepository,
+  MemoryModelsRepository,
   MemoryPlantCatalog,
   MemoryPlantsRepository,
   MemoryUsersRepository,
@@ -42,6 +44,7 @@ export interface TestApp {
   alarms: MemoryAlarmsRepository;
   history: MemoryHistoryRepository;
   assets: MemoryAssetsRepository;
+  models: MemoryModelsRepository;
   plants: MemoryPlantsRepository;
   audit: MemoryAuditRepository;
   pool: { query: jest.Mock; end: jest.Mock; on: jest.Mock };
@@ -68,6 +71,7 @@ export async function createTestApp(overrides: Partial<AppConfig> = {}): Promise
   const alarms = new MemoryAlarmsRepository();
   const history = new MemoryHistoryRepository();
   const assets = new MemoryAssetsRepository(DEMO_ASSETS.map((a) => ({ ...a })));
+  const models = new MemoryModelsRepository(assets);
   const plants = new MemoryPlantsRepository(assets, users);
   const audit = new MemoryAuditRepository();
   const pool = {
@@ -89,6 +93,8 @@ export async function createTestApp(overrides: Partial<AppConfig> = {}): Promise
     .useValue(users)
     .overrideProvider(AssetsRepository)
     .useValue(assets)
+    .overrideProvider(ModelsRepository)
+    .useValue(models)
     .overrideProvider(PlantsRepository)
     .useValue(plants)
     .overrideProvider(AuditRepository)
@@ -141,6 +147,7 @@ export async function createTestApp(overrides: Partial<AppConfig> = {}): Promise
     alarms,
     history,
     assets,
+    models,
     plants,
     audit,
     pool,

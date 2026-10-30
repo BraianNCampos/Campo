@@ -253,6 +253,62 @@ describe('LiveGateway', () => {
     });
   });
 
+  describe('catálogo vivo', () => {
+    const catalog = (plant: string): BusMessage => ({ kind: 'catalog', plant });
+
+    it('envía {type:"catalog", plant} sólo a los clientes de esa planta', async () => {
+      const demo = await connect('/ws?plant=demo&token=good');
+      const other = await connect('/ws?plant=otra&token=good');
+      bus.next(catalog('demo'));
+      jest.advanceTimersByTime(cfg.wsCatalogCoalesceMs);
+      expect(demo.sent.at(-1)).toEqual({ type: 'catalog', plant: 'demo' });
+      expect(other.types()).toEqual(['snapshot']);
+    });
+
+    it('agrupa ráfagas por planta (~250 ms): un solo mensaje', async () => {
+      expect(cfg.wsCatalogCoalesceMs).toBe(250);
+      const s = await connect();
+      for (let i = 0; i < 10; i++) bus.next(catalog('demo'));
+      jest.advanceTimersByTime(249);
+      expect(s.types()).toEqual(['snapshot']);
+      jest.advanceTimersByTime(1);
+      expect(s.types()).toEqual(['snapshot', 'catalog']);
+      jest.advanceTimersByTime(1000);
+      expect(s.types()).toEqual(['snapshot', 'catalog']);
+      bus.next(catalog('demo'));
+      jest.advanceTimersByTime(250);
+      expect(s.types()).toEqual(['snapshot', 'catalog', 'catalog']);
+    });
+
+    it('un aviso de una planta sin clientes se ignora (no acumula temporizadores)', async () => {
+      const s = await connect();
+      bus.next(catalog('nadie'));
+      jest.advanceTimersByTime(1000);
+      expect(s.types()).toEqual(['snapshot']);
+      expect(jest.getTimerCount()).toBeLessThanOrEqual(2); // sólo los periódicos (ping, revalidación)
+    });
+
+    it('no se envía a clientes expulsados (revocados) ni a los desconectados', async () => {
+      const s = await connect();
+      const gone = await connect();
+      gw.handleDisconnect(gone as unknown as WebSocket);
+      bus.next(catalog('demo'));
+      jest.advanceTimersByTime(250);
+      expect(s.types()).toEqual(['snapshot', 'catalog']);
+      expect(gone.types()).toEqual(['snapshot']);
+    });
+
+    it('no interfiere con la telemetría (ventanas independientes)', async () => {
+      const s = await connect();
+      bus.next(catalog('demo'));
+      bus.next(telemetry(tel('tk-01', { level: 1 })));
+      jest.advanceTimersByTime(100);
+      expect(s.types()).toEqual(['snapshot', 'telemetry']);
+      jest.advanceTimersByTime(150);
+      expect(s.types()).toEqual(['snapshot', 'telemetry', 'catalog']);
+    });
+  });
+
   describe('ping/pong', () => {
     it('hace ping a los clientes y termina a los que no responden', async () => {
       const alive = await connect();

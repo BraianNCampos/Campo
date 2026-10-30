@@ -1,10 +1,17 @@
 import { randomUUID } from 'node:crypto';
-import { redisKeys, type AlarmEvent, type AuditEntry, type Plant } from '@campo/shared';
+import {
+  redisKeys,
+  type AlarmEvent,
+  type AuditEntry,
+  type ModelInfo,
+  type Plant,
+} from '@campo/shared';
 import type Redis from 'ioredis';
 import type { AlarmRecord, AlarmRule, AlarmRuleInput } from '../../src/alarms/alarm.types';
 import { AlarmRulesRepository } from '../../src/alarms/alarm-rules.repository';
 import { AlarmsRepository, ListAlarmsFilter } from '../../src/alarms/alarms.repository';
 import { AuditRepository, AuditQuery, NewAuditEntry } from '../../src/audit/audit.repository';
+import { ModelsRepository, NewModel } from '../../src/models/models.repository';
 import { Asset, AssetPatch, AssetsRepository } from '../../src/plants/assets.repository';
 import { PlantsRepository, RemoveResult } from '../../src/plants/plants.repository';
 import { UpdateResult, User, UserPatch, UsersRepository } from '../../src/auth/users.repository';
@@ -301,5 +308,90 @@ export class MemoryHistoryRepository extends HistoryRepository {
   query(plant: string, asset: string, metric: string, plan: HistoryPlan): Promise<HistoryPoint[]> {
     this.calls.push({ plant, asset, metric, plan });
     return Promise.resolve(this.points);
+  }
+}
+
+/** Tabla `asset_models` en memoria (UNIQUE(plant, sha256) incluido). */
+export class MemoryModelsRepository extends ModelsRepository {
+  readonly rows: (ModelInfo & { data: Buffer; createdBy: string | null })[] = [];
+  /** Lecturas del contenido (para comprobar que un 304 no lo carga). */
+  dataReads = 0;
+
+  constructor(private readonly assets: MemoryAssetsRepository) {
+    super();
+  }
+
+  insert(m: NewModel): Promise<{ model: ModelInfo; created: boolean }> {
+    const found = this.rows.find((r) => r.plant === m.plant && r.sha256 === m.sha256);
+    if (found) return Promise.resolve({ model: this.info(found), created: false });
+    const row = {
+      id: randomUUID(),
+      plant: m.plant,
+      name: m.name,
+      size: m.data.length,
+      sha256: m.sha256,
+      createdAt: Date.now(),
+      data: m.data,
+      createdBy: m.createdBy,
+    };
+    this.rows.push(row);
+    return Promise.resolve({ model: this.info(row), created: true });
+  }
+
+  private info(r: ModelInfo): ModelInfo {
+    return {
+      id: r.id,
+      plant: r.plant,
+      name: r.name,
+      size: r.size,
+      sha256: r.sha256,
+      createdAt: r.createdAt,
+    };
+  }
+
+  list(plant: string): Promise<ModelInfo[]> {
+    return Promise.resolve(
+      this.rows
+        .filter((r) => r.plant === plant)
+        .sort((a, b) => b.createdAt - a.createdAt)
+        .map((r) => this.info(r)),
+    );
+  }
+
+  getInfo(id: string): Promise<ModelInfo | null> {
+    const r = this.rows.find((x) => x.id === id);
+    return Promise.resolve(r ? this.info(r) : null);
+  }
+
+  getData(id: string): Promise<Buffer | null> {
+    this.dataReads++;
+    return Promise.resolve(this.rows.find((x) => x.id === id)?.data ?? null);
+  }
+
+  exists(plant: string, id: string): Promise<boolean> {
+    return Promise.resolve(this.rows.some((r) => r.plant === plant && r.id === id));
+  }
+
+  assetsUsing(plant: string, id: string): Promise<string[]> {
+    return Promise.resolve(
+      this.assets.assets
+        .filter((a) => a.plant === plant && a.model3dRef === `model:${id}`)
+        .map((a) => a.id)
+        .sort(),
+    );
+  }
+
+  delete(plant: string, id: string): Promise<ModelInfo | null> {
+    const i = this.rows.findIndex((r) => r.plant === plant && r.id === id);
+    if (i < 0) return Promise.resolve(null);
+    const [r] = this.rows.splice(i, 1);
+    return Promise.resolve(this.info(r));
+  }
+
+  deleteByPlant(plant: string): Promise<number> {
+    const before = this.rows.length;
+    for (let i = this.rows.length - 1; i >= 0; i--)
+      if (this.rows[i].plant === plant) this.rows.splice(i, 1);
+    return Promise.resolve(before - this.rows.length);
   }
 }

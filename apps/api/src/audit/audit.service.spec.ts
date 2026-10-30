@@ -55,6 +55,8 @@ describe('AuditService', () => {
           'asset.create',
           'asset.update',
           'asset.delete',
+          'model.upload',
+          'model.delete',
           'rule.create',
           'rule.update',
           'rule.delete',
@@ -119,6 +121,27 @@ describe('AuditService', () => {
       const [entry] = repo.entries;
       expect(entry.detail).toEqual({ changed: ['role', 'password'], role: 'viewer' });
       expect(JSON.stringify(entry)).not.toMatch(/clave-super-secreta|\$2b\$|eyJ/);
+    });
+
+    it('model.upload / model.delete: sólo nombre, tamaño, hash, dedup e id; nunca el contenido', async () => {
+      await svc.record(actor, 'model.upload', 'model:demo/x', {
+        name: 'Bomba',
+        size: 3004,
+        sha256: 'a'.repeat(64),
+        dedup: false,
+        data: Buffer.from('glTF...'),
+        content: 'AAAA',
+        base64: 'AAAA',
+      });
+      await svc.record(actor, 'model.delete', 'model:demo/x', {
+        name: 'Bomba',
+        id: 'x',
+        data: 'AAAA',
+      });
+      expect(repo.entries.map((e) => e.detail)).toEqual([
+        { name: 'Bomba', size: 3004, sha256: 'a'.repeat(64), dedup: false },
+        { name: 'Bomba', id: 'x' },
+      ]);
     });
 
     it('asset.update: no guarda el contenido de metadata', async () => {

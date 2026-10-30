@@ -27,6 +27,8 @@ export interface AppConfig {
   loginRateLimit: number;
   loginRateTtlMs: number;
   wsCoalesceMs: number;
+  /** Ventana de coalescing del aviso `{type:"catalog"}` por planta (ms). */
+  wsCatalogCoalesceMs: number;
   wsPingIntervalMs: number;
   wsMaxBufferedBytes: number;
   historyMaxPoints: number;
@@ -131,6 +133,7 @@ export function parseEnv(env: Env): AppConfig {
     loginRateLimit: int(env, 'LOGIN_RATE_LIMIT', 10, 1, 10_000),
     loginRateTtlMs: int(env, 'LOGIN_RATE_TTL_MS', 60_000, 1000, 3_600_000),
     wsCoalesceMs: int(env, 'WS_COALESCE_MS', 100, 10, 5000),
+    wsCatalogCoalesceMs: int(env, 'WS_CATALOG_COALESCE_MS', 250, 10, 5000),
     wsPingIntervalMs: int(env, 'WS_PING_INTERVAL_MS', 25_000, 1000, 300_000),
     wsMaxBufferedBytes: int(env, 'WS_MAX_BUFFERED_BYTES', 262_144, 1024, 64 * 1024 * 1024),
     historyMaxPoints: int(env, 'HISTORY_MAX_POINTS', 5000, 10, 100_000),

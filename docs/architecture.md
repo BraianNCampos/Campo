@@ -55,6 +55,7 @@ Hypertable `telemetry` (ver `infra/timescaledb/init/010_telemetry.sql`), una fil
 | `GET /api/plants/:plant/assets/:asset/history?metric&from&to&bucket` | histórico agregado (continuous aggregates) |
 | `GET/POST/PATCH/DELETE /api/alarm-rules` | reglas de alarma (rol `admin`/`engineer`) |
 | `GET /api/alarms?state=active` | alarmas; `POST /api/alarms/:id/ack` reconoce |
+| `GET/POST /api/plants/:plant/models`, `GET /api/models/:id`, `DELETE /api/plants/:plant/models/:id` | modelos 3D (GLB), ver §10.2 |
 | `GET /api/me` | usuario actual `{id,email,role,plants}` |
 | `GET/POST /api/users`, `PATCH /api/users/:id`, `PUT /api/users/:id/plants` | administración de usuarios (solo `admin`, ver §8.1) |
 | `GET /health`, `GET /ready` | sondas |
@@ -142,10 +143,12 @@ Pantallas de administración en la web (`/admin`) sobre la API. Los endpoints ya
 
 ## 10. Catálogo vivo y modelos 3D (Fase 5)
 
+> Detalles de la implementación de la API: `?name=` es obligatorio al subir (400 si falta); se acepta `Content-Type: model/gltf-binary` (o `application/octet-stream`), otro da 415; el 409 al borrar un modelo en uso lleva `assets:[ids]`; las respuestas de crear/editar activo pueden incluir `warnings: string[]` (ids de `connectsTo` inexistentes); el bloque JSON del GLB está limitado a 1 MiB; borrar una planta borra también sus modelos; `model3dRef` antiguos de texto libre (p. ej. `tank` en el seed) se tratan como "sin modelo". Esquema en `050_models.sql` (tabla `asset_models`, propiedad de `api`).
+
 ### 10.1 Catálogo como fuente de la lista en vivo
 
 - La web construye la lista de activos (y el 3D) desde el **catálogo** (`GET /api/plants/:plant/assets`), no desde la telemetría recibida. Un activo del catálogo sin datos aún se muestra con estado **"Sin datos"** (gris, icono distinto, sin valores); un activo que envía telemetría pero no está en el catálogo se muestra como *no catalogado* (como hoy).
-- WebSocket: nuevo mensaje servidor → cliente `{type:"catalog", plant}` (en `ServerMessage`). La API lo envía a los clientes de esa planta cuando cambian activos o modelos (a partir de `campo:catalog:changed`, que ahora también se publica al crear/borrar modelos y plantas). El cliente vuelve a pedir el catálogo (con *debounce*) al recibirlo.
+- WebSocket: nuevo mensaje servidor → cliente `{type:"catalog", plant}` (en `ServerMessage`). La API lo envía a los clientes de esa planta cuando cambian activos o modelos (a partir de `campo:catalog:changed`, que se publica al cambiar activos, modelos y plantas; la API fusiona ráfagas en ventanas de 250 ms por planta). El cliente vuelve a pedir el catálogo (con *debounce*) al recibirlo.
 - En modo demo el catálogo es el de los 8 activos de `demo`.
 
 ### 10.2 Modelos glTF por activo

@@ -12,6 +12,7 @@ import { redisKeys } from '@campo/shared';
 import request from 'supertest';
 import type { App } from 'supertest/types';
 import { WebSocket } from 'ws';
+import { triangleGlb } from './support/glb';
 import { createTestApp, TestApp } from './support/test-app';
 
 const bearer = (token: string) => ({ Authorization: `Bearer ${token}` });
@@ -107,14 +108,24 @@ describe('Administración: plantas, activos, auditoría y revocación (e2e)', ()
       await api.post('/api/plants', admin).send({ id: 'extra', name: 'x', foo: 1 }).expect(400);
     });
 
+    // model3dRef ya no admite texto libre (§10.2): un activo referencia un modelo subido a su planta.
+    let modelRef = '';
+
     it('el admin crea activos en la planta nueva; valida y detecta duplicados', async () => {
+      const model = await request(http)
+        .post('/api/plants/norte/models?name=Tanque')
+        .set(bearer(admin))
+        .set('Content-Type', 'model/gltf-binary')
+        .send(triangleGlb())
+        .expect(201);
+      modelRef = `model:${(model.body as { id: string }).id}`;
       const created = await api
         .post('/api/plants/norte/assets', admin)
         .send({
           id: 'tk-01',
           name: 'Tanque 1',
           type: 'tank',
-          model3dRef: 'tank',
+          model3dRef: modelRef,
           metadata: { capacityL: 5000 },
         })
         .expect(201);
@@ -124,7 +135,7 @@ describe('Administración: plantas, activos, auditoría y revocación (e2e)', ()
         id: 'tk-01',
         name: 'Tanque 1',
         type: 'tank',
-        model3dRef: 'tank',
+        model3dRef: modelRef,
         metadata: { capacityL: 5000 },
       });
       // sin modelo ni metadata -> null / {}
@@ -149,8 +160,9 @@ describe('Administración: plantas, activos, auditoría y revocación (e2e)', ()
         400,
       );
       await bad({ id: 'a1', name: 'x', type: 'tank', plant: 'demo' }).expect(400);
-      // en el límite sí cabe
-      await bad({ id: 'a2', name: 'x', type: 'sensor', model3dRef: 'm'.repeat(200) }).expect(201);
+      // texto libre o modelo inexistente: 400 (ver models.e2e-spec.ts para el detalle)
+      await bad({ id: 'a2', name: 'x', type: 'sensor', model3dRef: 'tank' }).expect(400);
+      await bad({ id: 'a2', name: 'x', type: 'sensor', model3dRef: null }).expect(201);
       // planta inexistente -> 404 (admin); id de planta inválido -> 400
       await api
         .post('/api/plants/fantasma/assets', admin)
@@ -360,7 +372,7 @@ describe('Administración: plantas, activos, auditoría y revocación (e2e)', ()
       );
       expect(created).toMatchObject({
         actorEmail: 'admin@campo.test',
-        detail: { name: 'Tanque 1', type: 'tank', model3dRef: 'tank' },
+        detail: { name: 'Tanque 1', type: 'tank', model3dRef: modelRef },
       });
       expect(typeof created?.ts).toBe('number');
       // metadata no se audita, sólo que cambió

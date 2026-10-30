@@ -4,6 +4,7 @@ import {
   MemoryAlarmRulesRepository,
   MemoryAssetsRepository,
   MemoryAuditRepository,
+  MemoryModelsRepository,
   MemoryPlantCatalog,
   MemoryPlantsRepository,
   MemoryUsersRepository,
@@ -12,6 +13,7 @@ import { createRedisMocks } from '../../test/support/redis-mock';
 import type { AlarmRuleInput } from '../alarms/alarm.types';
 import { AuditService } from '../audit/audit.service';
 import type { AuthUser } from '../auth/auth.types';
+import { CatalogNotifier } from '../redis/catalog-notifier';
 import { AssetsService, CATALOG_CHANGED_CHANNEL } from './assets.service';
 import { CreateAssetDto, UpdateAssetDto } from './dto';
 
@@ -34,6 +36,7 @@ describe('AssetsService', () => {
   let assets: MemoryAssetsRepository;
   let rules: MemoryAlarmRulesRepository;
   let audit: MemoryAuditRepository;
+  let models: MemoryModelsRepository;
   let svc: AssetsService;
   let published: string[];
   let realPublish: Redis['publish'];
@@ -51,12 +54,14 @@ describe('AssetsService', () => {
     rules = new MemoryAlarmRulesRepository();
     audit = new MemoryAuditRepository();
     const plants = new MemoryPlantsRepository(assets, new MemoryUsersRepository());
+    models = new MemoryModelsRepository(assets);
     svc = new AssetsService(
       assets,
       rules,
       new MemoryPlantCatalog(plants, redis),
       new AuditService(audit),
-      redis,
+      models,
+      new CatalogNotifier(redis),
     );
     // ioredis-mock comparte los listeners de los suscriptores entre tests: se espía el PUBLISH en su lugar.
     published = [];
@@ -211,6 +216,195 @@ describe('AssetsService', () => {
       await flush();
       expect(published).toEqual([]);
       expect(audit.entries).toEqual([]);
+    });
+  });
+
+  describe('model3dRef (docs/architecture.md §10.2)', () => {
+    const MODEL = '11111111-1111-4111-8111-111111111111';
+    const addModel = (plant: string, id = MODEL) =>
+      models.rows.push({
+        id,
+        plant,
+        name: 'm',
+        size: 1,
+        sha256: 'a'.repeat(64),
+        createdAt: 1,
+        data: Buffer.alloc(1),
+        createdBy: null,
+      });
+    const create = (model3dRef: string | null | undefined, id = 'p-new') =>
+      svc.create('demo', dto<CreateAssetDto>({ id, name: 'B', type: 'pump', model3dRef }), eng);
+
+    it('null/ausente, o model:<uuid> de un modelo de la MISMA planta', async () => {
+      addModel('demo');
+      expect((await create(undefined, 'a1')).model3dRef).toBeNull();
+      expect((await create(null, 'a2')).model3dRef).toBeNull();
+      expect((await create(`model:${MODEL}`, 'a3')).model3dRef).toBe(`model:${MODEL}`);
+    });
+
+    it.each([
+      ['texto libre', 'tank'],
+      ['sin prefijo', '11111111-1111-4111-8111-111111111111'],
+      ['uuid en mayúsculas', 'model:11111111-1111-4111-8111-11111111111F'],
+      ['uuid mal formado', 'model:1234'],
+      ['prefijo distinto', 'glb:11111111-1111-4111-8111-111111111111'],
+      ['con espacios', ' model:11111111-1111-4111-8111-111111111111'],
+    ])('400 si el formato no es model:<uuid> (%s)', async (_n, ref) => {
+      addModel('demo');
+      await expect(create(ref)).rejects.toThrow(/model3dRef debe ser null o "model:<uuid>"/);
+      expect(assets.assets.find((a) => a.id === 'p-new')).toBeUndefined();
+    });
+
+    it('400 si el modelo no existe', async () => {
+      await expect(create(`model:${MODEL}`)).rejects.toThrow('el modelo no existe en esta planta');
+    });
+
+    it('400 si el modelo es de OTRA planta', async () => {
+      addModel('norte');
+      await expect(create(`model:${MODEL}`)).rejects.toBeInstanceOf(BadRequestException);
+      await expect(create(`model:${MODEL}`)).rejects.toThrow('no existe en esta planta');
+    });
+
+    it('update: cambia a un modelo válido y vuelve a null; 400 si es de otra planta o inexistente', async () => {
+      addModel('demo');
+      addModel('norte', '22222222-2222-4222-8222-222222222222');
+      const up = (d: Partial<UpdateAssetDto>) =>
+        svc.update('demo', 'tk-01', dto<UpdateAssetDto>(d), eng);
+      expect((await up({ model3dRef: `model:${MODEL}` })).model3dRef).toBe(`model:${MODEL}`);
+      await expect(
+        up({ model3dRef: 'model:22222222-2222-4222-8222-222222222222' }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      await expect(
+        up({ model3dRef: 'model:33333333-3333-4333-8333-333333333333' }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect((await up({ model3dRef: null })).model3dRef).toBeNull();
+    });
+
+    describe('datos anteriores a la Fase 5 (texto libre ya guardado)', () => {
+      it('siguen listándose y no se tocan', async () => {
+        expect((await assets.listByPlant('demo'))[0].model3dRef).toBe('tank');
+      });
+
+      it('un PATCH que no toca model3dRef no falla por el valor antiguo', async () => {
+        const a = await svc.update('demo', 'tk-01', dto<UpdateAssetDto>({ name: 'Nuevo' }), eng);
+        expect(a).toMatchObject({ name: 'Nuevo', model3dRef: 'tank' });
+        const b = await svc.update(
+          'demo',
+          'tk-01',
+          dto<UpdateAssetDto>({ metadata: { a: 1 } }),
+          eng,
+        );
+        expect(b.model3dRef).toBe('tank');
+      });
+
+      it('reenviar el mismo valor antiguo tampoco falla; cambiarlo a otro texto libre sí', async () => {
+        const same = await svc.update(
+          'demo',
+          'tk-01',
+          dto<UpdateAssetDto>({ model3dRef: 'tank' }),
+          eng,
+        );
+        expect(same.model3dRef).toBe('tank');
+        await expect(
+          svc.update('demo', 'tk-01', dto<UpdateAssetDto>({ model3dRef: 'pump' }), eng),
+        ).rejects.toBeInstanceOf(BadRequestException);
+      });
+
+      it('se puede migrar a null o a un modelo real', async () => {
+        addModel('demo');
+        expect(
+          (await svc.update('demo', 'tk-01', dto<UpdateAssetDto>({ model3dRef: null }), eng))
+            .model3dRef,
+        ).toBeNull();
+        expect(
+          (
+            await svc.update(
+              'demo',
+              'tk-01',
+              dto<UpdateAssetDto>({ model3dRef: `model:${MODEL}` }),
+              eng,
+            )
+          ).model3dRef,
+        ).toBe(`model:${MODEL}`);
+      });
+    });
+  });
+
+  describe('metadata.layout / metadata.connectsTo (§10.3)', () => {
+    const create = (metadata: Record<string, unknown>, id = 'p-new') =>
+      svc.create('demo', dto<CreateAssetDto>({ id, name: 'B', type: 'pump', metadata }), eng);
+
+    it('acepta layout y connectsTo válidos junto a claves libres', async () => {
+      const a = await create({
+        capacityL: 5000,
+        layout: { x: 3, z: -4, y: 0, rotY: 90, scale: 1.5 },
+        connectsTo: ['tk-01'],
+      });
+      expect(a.metadata).toMatchObject({ capacityL: 5000, layout: { x: 3, z: -4 } });
+      expect(a.warnings).toBeUndefined();
+    });
+
+    it('400 con el motivo si layout o connectsTo son inválidos (no se crea nada)', async () => {
+      await expect(create({ layout: { x: 5000, z: 0 } })).rejects.toThrow('metadata.layout.x');
+      await expect(create({ layout: { x: 0 } })).rejects.toThrow('metadata.layout.z');
+      await expect(create({ connectsTo: 'tk-01' })).rejects.toThrow('metadata.connectsTo');
+      await expect(create({ connectsTo: ['tk-01', 'tk-01'] })).rejects.toThrow('repetido');
+      await expect(create({ connectsTo: ['Bad Id'] })).rejects.toThrow('connectsTo[0]');
+      expect(assets.assets.find((a) => a.id === 'p-new')).toBeUndefined();
+    });
+
+    it('un activo no puede conectarse consigo mismo (create y update)', async () => {
+      await expect(create({ connectsTo: ['p-new'] })).rejects.toThrow('consigo mismo');
+      await expect(
+        svc.update(
+          'demo',
+          'tk-01',
+          dto<UpdateAssetDto>({ metadata: { connectsTo: ['tk-01'] } }),
+          eng,
+        ),
+      ).rejects.toThrow('consigo mismo');
+    });
+
+    it('ids de connectsTo inexistentes: se crea igual y la respuesta lleva warnings', async () => {
+      const a = await create({ connectsTo: ['tk-01', 'aun-no-existe', 'otro'] });
+      expect(a.warnings).toEqual([
+        'connectsTo: el activo "aun-no-existe" no existe todavía en la planta',
+        'connectsTo: el activo "otro" no existe todavía en la planta',
+      ]);
+      expect(assets.assets.find((x) => x.id === 'p-new')).toBeDefined();
+      // los warnings no se guardan en el activo
+      expect((await assets.get('demo', 'p-new'))?.metadata).not.toHaveProperty('warnings');
+      expect(await assets.get('demo', 'p-new')).not.toHaveProperty('warnings');
+    });
+
+    it('update: valida y avisa; un PATCH sin metadata no devuelve warnings', async () => {
+      const up = await svc.update(
+        'demo',
+        'tk-01',
+        dto<UpdateAssetDto>({ metadata: { connectsTo: ['fantasma'] } }),
+        eng,
+      );
+      expect(up.warnings).toHaveLength(1);
+      const plain = await svc.update('demo', 'tk-01', dto<UpdateAssetDto>({ name: 'otro' }), eng);
+      expect(plain.warnings).toBeUndefined();
+      await expect(
+        svc.update(
+          'demo',
+          'tk-01',
+          dto<UpdateAssetDto>({ metadata: { layout: { x: 'a', z: 0 } } }),
+          eng,
+        ),
+      ).rejects.toThrow('metadata.layout.x');
+    });
+
+    it('metadata null en update la vacía sin validar', async () => {
+      const a = await svc.update(
+        'demo',
+        'tk-01',
+        dto<UpdateAssetDto>({ metadata: null as never }),
+        eng,
+      );
+      expect(a.metadata).toEqual({});
     });
   });
 });

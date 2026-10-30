@@ -6,6 +6,8 @@ import { AccessService } from '../auth/access.service';
 import type { AuthUser } from '../auth/auth.types';
 import { PlantCatalog } from '../auth/plant-catalog';
 import { AuditService } from '../audit/audit.service';
+import { ModelsRepository } from '../models/models.repository';
+import { CatalogNotifier } from '../redis/catalog-notifier';
 import { REDIS } from '../redis/tokens';
 import { PlantsRepository } from './plants.repository';
 
@@ -21,6 +23,8 @@ export class PlantsService {
     private readonly access: AccessService,
     private readonly audit: AuditService,
     @Inject(REDIS) private readonly redis: Redis,
+    private readonly models: ModelsRepository,
+    private readonly notifier: CatalogNotifier,
   ) {}
 
   /**
@@ -47,6 +51,7 @@ export class PlantsService {
 
   async create(id: string, name: string, actor: AuthUser): Promise<Plant> {
     if (!(await this.repo.create(id, name))) throw new ConflictException('La planta ya existe');
+    await this.notifier.changed(id);
     await this.audit.record(actor, 'plant.create', `plant:${id}`, { name });
     return { id, name, assets: 0 };
   }
@@ -54,6 +59,7 @@ export class PlantsService {
   async rename(id: string, name: string, actor: AuthUser): Promise<Plant> {
     if (!(await this.catalog.exists(id))) throw new NotFoundException('Planta no encontrada');
     const plant = await this.repo.rename(id, name);
+    await this.notifier.changed(id);
     await this.audit.record(actor, 'plant.update', `plant:${id}`, { name });
     return plant;
   }
@@ -66,6 +72,17 @@ export class PlantsService {
       throw new ConflictException('La planta tiene activos: bórrelos antes de eliminarla');
     }
     for (const userId of res.unassignedUserIds) await this.access.invalidate(userId);
+    // Sus modelos 3D (hasta 10 MB cada uno) no deben quedar huérfanos ni reaparecer si se recrea la planta.
+    try {
+      await this.models.deleteByPlant(id);
+    } catch (err) {
+      this.log.warn({
+        msg: 'no se pudieron borrar los modelos de la planta',
+        plant: id,
+        error: (err as Error).message,
+      });
+    }
+    await this.notifier.changed(id);
     await this.audit.record(actor, 'plant.delete', `plant:${id}`, {
       unassignedUsers: res.unassignedUserIds.length,
     });

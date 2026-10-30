@@ -49,4 +49,50 @@ describe('RealtimeBus', () => {
     bus.handle('otro:canal', '{}');
     expect(got).toHaveLength(0);
   });
+
+  describe('catálogo (campo:catalog:changed)', () => {
+    it('reparte {kind:"catalog", plant} una sola vez por publicación', async () => {
+      const { redis, sub } = createRedisMocks();
+      const bus = new RealtimeBus(sub);
+      const got: BusMessage[] = [];
+      bus.messages$.subscribe((m) => got.push(m));
+      await bus.onModuleInit();
+
+      await redis.publish('campo:catalog:changed', JSON.stringify({ plant: 'demo' }));
+      await redis.publish(
+        'campo:events:demo',
+        JSON.stringify({ type: 'telemetry', asset: 'a', values: { x: 1 } }),
+      );
+      await new Promise((r) => setTimeout(r, 20));
+
+      expect(got).toEqual([
+        { kind: 'catalog', plant: 'demo' },
+        expect.objectContaining({ kind: 'telemetry', plant: 'demo' }),
+      ]);
+      await bus.onModuleDestroy();
+      redis.disconnect();
+      sub.disconnect();
+    });
+
+    it('descarta payloads inválidos, plantas con formato incorrecto y otros canales', () => {
+      const bus = new RealtimeBus({} as Redis);
+      const got: BusMessage[] = [];
+      bus.messages$.subscribe((m) => got.push(m));
+      for (const raw of [
+        'no-json',
+        'null',
+        '5',
+        '{}',
+        JSON.stringify({ plant: 5 }),
+        JSON.stringify({ plant: 'BAD PLANT' }),
+        JSON.stringify({ plant: '../x' }),
+      ]) {
+        bus.handle('campo:catalog:changed', raw);
+      }
+      bus.handle('campo:catalog:other', JSON.stringify({ plant: 'demo' }));
+      expect(got).toHaveLength(0);
+      bus.handle('campo:catalog:changed', JSON.stringify({ plant: 'demo', extra: 1 }));
+      expect(got).toEqual([{ kind: 'catalog', plant: 'demo' }]);
+    });
+  });
 });
