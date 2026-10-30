@@ -1,3 +1,4 @@
+import { withBase } from '../base-path';
 import type { Role } from '@campo/shared';
 import { clearToken, getToken } from '@/lib/auth';
 import { getDemoOrgId, setDemoOrgId, DEMO_ORGS, type DemoOrgId } from '@/lib/demo-org';
@@ -50,7 +51,7 @@ export { DEMO_ORGS };
 /** 401: la sesión no vale → se limpia el token y se vuelve a /login (navegación completa: reinicia el estado). */
 function handleUnauthorized(): void {
   clearToken();
-  if (typeof window !== 'undefined' && window.location.pathname !== '/login') window.location.replace('/login');
+  if (typeof window !== 'undefined' && !window.location.pathname.replace(/\/$/, '').endsWith('/login')) window.location.replace(withBase('/login'));
 }
 
 let instance: AdminApi | null = null;

@@ -1,3 +1,4 @@
+import { withBase } from '@/lib/base-path';
 import '@fontsource/barlow/400.css';
 import '@fontsource/barlow/500.css';
 import '@fontsource/barlow/600.css';
@@ -14,13 +15,13 @@ export const metadata: Metadata = {
   title: { default: 'Campo', template: '%s · Campo' },
   description: 'Plataforma SCADA agroindustrial: gemelo digital, alarmas y telemetría en tiempo real.',
   applicationName: 'Campo',
-  manifest: '/manifest.webmanifest',
+  manifest: withBase('/manifest.webmanifest'),
   icons: {
     icon: [
-      { url: '/icons/icon.svg', type: 'image/svg+xml' },
-      { url: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' },
+      { url: withBase('/icons/icon.svg'), type: 'image/svg+xml' },
+      { url: withBase('/icons/icon-192.png'), sizes: '192x192', type: 'image/png' },
     ],
-    apple: '/icons/apple-touch-icon.png',
+    apple: withBase('/icons/apple-touch-icon.png'),
   },
   appleWebApp: { capable: true, title: 'Campo', statusBarStyle: 'black-translucent' },
 };

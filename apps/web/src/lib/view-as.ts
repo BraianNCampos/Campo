@@ -1,3 +1,4 @@
+import { withBase } from './base-path';
 import { DEMO_ORGS, getDemoOrgId, setDemoOrgId, type DemoOrgId } from './demo-org';
 
 /** Selector «Ver como» del modo demo: con qué cliente (o como personal de plataforma) se mira la app. */
@@ -21,7 +22,7 @@ export const viewAsLabel = (v: ViewAs): string => VIEW_AS_OPTIONS.find((o) => o.
  * API en memoria (mismo criterio que el cambio de rol demo), y `/` lleva al primer módulo del nuevo cliente.
  */
 // eslint-disable-next-line @next/next/no-location-assign-relative-destination
-export function switchViewAs(value: ViewAs, reload: () => void = () => window.location.assign('/') /* recarga completa a propósito */): void {
+export function switchViewAs(value: ViewAs, reload: () => void = () => window.location.assign(withBase('/')) /* recarga completa a propósito */): void {
   setDemoOrgId(value === 'platform' ? null : value);
   reload();
 }

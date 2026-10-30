@@ -46,6 +46,10 @@ docker compose up -d
 
 Cada app tiene su propio README con variables y scripts. La web funciona sola en **modo demo** (sin backend) con `cd apps/web && npm i && npm run dev`.
 
+### Ver la demo sin instalar nada (GitHub Pages)
+
+Cada cambio publica la web en modo demo, con datos simulados y los dos clientes de ejemplo, en `https://<usuario>.github.io/<repositorio>/`. Se activa una sola vez en el repositorio: **Settings → Pages → Build and deployment → Source: GitHub Actions**. Después el flujo `.github/workflows/demo-pages.yml` la actualiza solo. Es un sitio estático: no incluye backend, así que lo que se crea o edita en la administración no persiste.
+
 ## Despliegue seguro
 
 El compose base es solo para desarrollo (credenciales de ejemplo, puertos en loopback, MQTT sin TLS). Para un entorno real hay un overlay endurecido: MQTT autenticado con TLS y permisos por planta, Redis con contraseña, bases de datos sin puertos publicados y Caddy como única entrada HTTPS.
