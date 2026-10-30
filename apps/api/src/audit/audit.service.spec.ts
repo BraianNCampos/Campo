@@ -32,6 +32,7 @@ describe('AuditService', () => {
           actorEmail: actor.email,
           action: 'asset.create',
           target: 'asset:demo/tk-01',
+          orgId: 'campos-demo',
           detail: { name: 'Tanque', type: 'tank', model3dRef: null },
         },
       ]);

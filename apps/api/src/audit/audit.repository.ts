@@ -38,6 +38,7 @@ interface AuditRow {
   actor_email: string | null;
   action: string;
   target: string;
+  org_id: string | null;
   detail: Record<string, unknown>;
 }
 
@@ -64,7 +65,7 @@ export class PgAuditRepository extends AuditRepository {
     // `ORDER BY audit_log.id` calificado a propósito: con `ORDER BY id` Postgres usaría el alias de salida
     // `id::text` y ordenaría como cadena ("9" > "21").
     const { rows } = await this.pool.query<AuditRow>(
-      `SELECT id::text AS id, ts, actor_id, actor_email, action, target, detail
+      `SELECT id::text AS id, ts, actor_id, actor_email, action, target, org_id, detail
          FROM audit_log
         WHERE ($1::bigint IS NULL OR id < $1)
           AND ($2::uuid IS NULL OR actor_id = $2)
@@ -82,6 +83,7 @@ export class PgAuditRepository extends AuditRepository {
       actorEmail: r.actor_email,
       action: r.action,
       target: r.target,
+      orgId: r.org_id,
       detail: r.detail ?? {},
     }));
   }

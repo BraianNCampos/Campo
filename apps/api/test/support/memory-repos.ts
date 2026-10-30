@@ -314,7 +314,7 @@ export class MemoryAuditRepository extends AuditRepository {
     const { orgId, ...entry } = e;
     const id = String(++this.seq);
     this.orgOfEntry.set(id, orgId);
-    this.entries.push({ ...entry, id, ts: Date.now() });
+    this.entries.push({ ...entry, id, ts: Date.now(), orgId });
     return Promise.resolve();
   }
 

@@ -122,6 +122,8 @@ export interface AuditEntry {
   actorEmail: string | null;
   action: string; // p.ej. "user.create", "asset.delete", "rule.update"
   target: string; // p.ej. "user:<id>", "asset:demo/tk-01"
+  /** Cliente del recurso afectado (`null` = sin cliente, p. ej. acciones de plataforma). */
+  orgId: string | null;
   detail: Record<string, unknown>; // sin secretos
 }
 
