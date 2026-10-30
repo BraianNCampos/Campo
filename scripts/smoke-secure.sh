@@ -170,14 +170,14 @@ CODE=$("${CURL[@]}" -o /dev/null -w '%{http_code}' "$BASE/health")
 
 echo; echo "Flujo de datos: simulador (TLS+credenciales) -> ingest -> Redis/TimescaleDB -> API"
 check "ingest conectado al broker por TLS con el usuario ingest (log)" sh -c "docker logs campo-ingest 2>&1 | grep -q '\"msg\":\"MQTT conectado\".*\"tls\":true.*\"user\":\"ingest\"'"
-check "el simulador publica como '$PLANT' con TLS (log)" sh -c "docker logs campo-simulator 2>&1 | grep -q 'username=$PLANT tls=true'"
+check "el simulador publica como '$PLANT' con TLS (log)" sh -c "docker logs campo-simulator 2>&1 | grep -q 'usernames=\[$PLANT\] tls=true'"
 ! docker logs campo-ingest 2>&1 | grep -q "$MQTT_INGEST_PASSWORD" && ok "la contraseña MQTT de ingest no aparece en sus logs" || bad "la contraseña MQTT aparece en los logs de ingest"
 ! docker logs campo-simulator 2>&1 | grep -q "$PLANT_PW" && ok "la contraseña MQTT del simulador no aparece en sus logs" || bad "la contraseña MQTT aparece en los logs del simulador"
 TOKEN=$("${CURL[@]}" "$BASE/api/auth/login" -H 'content-type: application/json' \
   -d "{\"email\":\"${ADMIN_EMAIL:-admin@campo.local}\",\"password\":\"$ADMIN_PASSWORD\"}" | json 'd["accessToken"]' 2>/dev/null) && [ -n "$TOKEN" ] && ok "login admin con la contraseña generada (vía HTTPS)" || bad "login admin falló"
 AUTH="authorization: Bearer ${TOKEN:-}"
-assets8() { [ "$("${CURL[@]}" -f "$BASE/api/plants/$PLANT/state" -H "$AUTH" | json 'len(d.get("assets", d))')" = 8 ]; }
-wait_for "estado de $PLANT con 8 activos (Redis -> API)" assets8
+assets8() { [ "$("${CURL[@]}" -f "$BASE/api/plants/$PLANT/state" -H "$AUTH" | json 'len(d.get("assets", d))')" = 20 ]; }
+wait_for "estado de $PLANT con 20 activos (Redis -> API)" assets8
 rows() { [ "$(docker exec campo-timescaledb psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -qAt -c 'select count(*) from telemetry')" -gt 50 ]; }
 wait_for "filas en TimescaleDB (telemetry)" rows
 BAD=$(docker exec campo-timescaledb psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -qAt -c "select count(*) from telemetry where plant <> '$PLANT'" 2>/dev/null || echo "?")
@@ -190,7 +190,7 @@ if command -v node >/dev/null 2>&1 && [ -n "${TOKEN:-}" ]; then
     ws.onmessage = (e) => { const m = JSON.parse(e.data); if (m.type === "snapshot") { console.log("snapshot " + Object.keys(m.assets).length); clearTimeout(t); ws.close(); process.exit(0); } };
     ws.onerror = (e) => { console.log("error " + (e.message || "")); process.exit(1); };
   ' 2>&1)
-  [ "$OUT" = "snapshot 8" ] && ok "WebSocket wss://$DOMAIN/ws por Caddy entrega snapshot de 8 activos" || bad "WebSocket vía Caddy: $OUT"
+  [ "$OUT" = "snapshot 20" ] && ok "WebSocket wss://$DOMAIN/ws por Caddy entrega snapshot de 20 activos" || bad "WebSocket vía Caddy: $OUT"
 else
   note "node no disponible: se omite la prueba del WebSocket"
 fi

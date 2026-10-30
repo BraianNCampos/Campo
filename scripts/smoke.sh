@@ -37,8 +37,8 @@ ok "login admin"
 AUTH="authorization: Bearer $TOKEN"
 
 echo "Datos en vivo (Redis)"
-assets8() { [ "$(curl -sf "$API_URL/api/plants/demo/state" -H "$AUTH" | json 'len(d.get("assets", d))')" = 8 ]; }
-wait_for "estado de 8 activos" assets8
+assets20() { [ "$(curl -sf "$API_URL/api/plants/demo/state" -H "$AUTH" | json 'len(d.get("assets", d))')" = 20 ]; }
+wait_for "estado de 20 activos (todos los módulos)" assets20
 
 echo "Histórico (TimescaleDB)"
 rows() { [ "$($DB -c 'select count(*) from telemetry')" -gt 100 ]; }
@@ -51,10 +51,41 @@ hist1m() { $DB -c "CALL refresh_continuous_aggregate('telemetry_1m', NULL, now()
 wait_for "agregado continuo telemetry_1m con datos" hist1m
 
 echo "Administración"
-curl -sf "$API_URL/api/me" -H "$AUTH" | json 'sys.exit(0 if d["role"] == "admin" and d["plants"] == ["*"] else 1)' && ok "GET /api/me (admin, todas las plantas)" || fail "/api/me"
-curl -sf "$API_URL/api/plants" -H "$AUTH" | json 'sys.exit(0 if any(p["id"] == "demo" and p["assets"] == 8 for p in d) else 1)' && ok "GET /api/plants incluye demo con 8 activos" || fail "/api/plants"
+curl -sf "$API_URL/api/me" -H "$AUTH" | json 'sys.exit(0 if d["role"] == "platform_admin" and d["org"] is None and d["plants"] == ["*"] else 1)' && ok "GET /api/me (personal de plataforma, sin cliente)" || fail "/api/me"
+curl -sf "$API_URL/api/plants" -H "$AUTH" | json 'sys.exit(0 if any(p["id"] == "demo" and p["assets"] == 20 for p in d) and any(p["id"] == "tanques" for p in d) else 1)' && ok "GET /api/plants incluye demo (20 activos) y tanques" || fail "/api/plants"
 curl -sf "$API_URL/api/audit?limit=5" -H "$AUTH" >/dev/null && ok "GET /api/audit (solo admin)" || fail "/api/audit"
 [ "$(curl -s -o /dev/null -w '%{http_code}' "$API_URL/api/audit")" = 401 ] && ok "auditoría sin token -> 401" || fail "auditoría sin proteger"
+
+echo "Clientes: aislamiento y módulos"
+TS=$(date +%s); CADM="admin-tanques-$TS@campo.test"; CPASS="clave-del-cliente-$TS"
+curl -sf -X POST "$API_URL/api/orgs/cliente-tanques/admins" -H "$AUTH" -H 'content-type: application/json' -d "{\"email\":\"$CADM\",\"password\":\"$CPASS\"}" >/dev/null && ok "platform_admin crea el administrador del cliente solo-tanques" || fail "crear administrador de cliente"
+CTOKEN=$(curl -sf "$API_URL/api/auth/login" -H 'content-type: application/json' -d "{\"email\":\"$CADM\",\"password\":\"$CPASS\"}" | json 'd["accessToken"]') || fail "login del administrador del cliente"
+CAUTH="authorization: Bearer $CTOKEN"
+curl -sf "$API_URL/api/me" -H "$CAUTH" | json 'sys.exit(0 if d["role"] == "admin" and d["org"]["id"] == "cliente-tanques" and d["org"]["modules"] == ["tanks"] else 1)' && ok "el cliente ve su espacio y solo el módulo Tanques" || fail "/api/me del cliente"
+curl -sf "$API_URL/api/plants" -H "$CAUTH" | json 'sys.exit(0 if [p["id"] for p in d] == ["tanques"] else 1)' && ok "el cliente solo lista su planta (tanques)" || fail "el cliente ve plantas ajenas"
+code() { curl -s -o /dev/null -w '%{http_code}' "$@"; }
+[ "$(code "$API_URL/api/plants/demo/state" -H "$CAUTH")" = 403 ] && ok "estado de la planta de otro cliente -> 403" || fail "aislamiento: estado ajeno"
+[ "$(code "$API_URL/api/plants/demo/assets" -H "$CAUTH")" = 403 ] && ok "activos de otro cliente -> 403" || fail "aislamiento: activos ajenos"
+[ "$(code "$API_URL/api/plants/inexistente/state" -H "$CAUTH")" = 403 ] && ok "planta inexistente -> el mismo 403 (no revela qué existe)" || fail "planta inexistente distinguible"
+[ "$(code "$API_URL/api/plants/demo/limits" -H "$CAUTH")" = 403 ] && ok "límites de otro cliente -> 403" || fail "aislamiento: limits"
+[ "$(code "$API_URL/api/orgs" -H "$CAUTH")" = 403 ] && ok "el administrador de cliente no accede a /api/orgs" || fail "escalada a plataforma"
+curl -sf "$API_URL/api/alarms?state=active" -H "$CAUTH" | json 'sys.exit(0 if all(a["plant"] == "tanques" for a in d) else 1)' && ok "las alarmas del cliente son solo de su planta" || fail "alarmas de otro cliente"
+curl -sf "$API_URL/api/audit?limit=200" -H "$CAUTH" | json 'sys.exit(0 if all(e.get("orgId") == "cliente-tanques" for e in d) else 1)' && ok "la auditoría del cliente es solo de su cliente" || fail "auditoría de otro cliente"
+curl -sf "$API_URL/api/plants/tanques/limits" -H "$CAUTH" | json 'sys.exit(0 if len(d) >= 4 and all(l["asset"] in ("tk-a", "tk-b") for l in d) else 1)' && ok "límites de su planta (nivel alto y bajo de cada tanque)" || fail "limits del cliente"
+MC=$(curl -s -o /tmp/smoke-mod.json -w '%{http_code}' -X POST "$API_URL/api/plants/tanques/assets" -H "$CAUTH" -H 'content-type: application/json' -d '{"id":"clima-x","name":"Clima X","type":"climate"}')
+{ [ "$MC" = 403 ] && grep -q module_disabled /tmp/smoke-mod.json; } && ok "crear un activo de un módulo no contratado -> 403 module_disabled" || fail "módulo no contratado permitido ($MC)"
+rm -f /tmp/smoke-mod.json
+[ "$(code -X POST "$API_URL/api/plants/demo/models?name=x" -H "$CAUTH" -H 'content-type: model/gltf-binary' --data-binary 'x')" = 403 ] && ok "subir un modelo a la planta de otro cliente -> 403" || fail "aislamiento: modelos"
+# activar el módulo desde plataforma surte efecto al instante
+curl -sf -X PATCH "$API_URL/api/orgs/cliente-tanques" -H "$AUTH" -H 'content-type: application/json' -d '{"modules":["tanks","climate"]}' >/dev/null || fail "activar módulo"
+MC2=$(code -X POST "$API_URL/api/plants/tanques/assets" -H "$CAUTH" -H 'content-type: application/json' -d '{"id":"clima-x","name":"Clima X","type":"climate"}')
+{ [ "$MC2" = 201 ] || [ "$MC2" = 200 ]; } && ok "al activar el módulo desde plataforma, el cliente ya puede crear activos de clima" || fail "módulo activado sin efecto ($MC2)"
+curl -s -X DELETE "$API_URL/api/plants/tanques/assets/clima-x" -H "$CAUTH" >/dev/null
+curl -sf -X PATCH "$API_URL/api/orgs/cliente-tanques" -H "$AUTH" -H 'content-type: application/json' -d '{"modules":["tanks"]}' >/dev/null
+curl -sf -X PATCH "$API_URL/api/orgs/cliente-tanques" -H "$AUTH" -H 'content-type: application/json' -d '{"active":false}' >/dev/null || fail "desactivar cliente"
+[ "$(code "$API_URL/api/me" -H "$CAUTH")" = 401 ] && ok "desactivar el cliente corta su sesión (401)" || fail "cliente inactivo conserva acceso"
+curl -sf -X PATCH "$API_URL/api/orgs/cliente-tanques" -H "$AUTH" -H 'content-type: application/json' -d '{"active":true}' >/dev/null
+[ "$(code "$API_URL/api/me" -H "$CAUTH")" = 401 ] && ok "reactivar el cliente no resucita el token anterior" || fail "token anterior resucitado"
 
 echo "Modelos 3D"
 GLB=examples/models/sample-tank.glb
