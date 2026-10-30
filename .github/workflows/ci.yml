@@ -7,7 +7,8 @@ on:
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # en pull requests se cancela la corrida anterior; en ramas cada corrida termina (solo se descartan las pendientes intermedias)
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   ingest:
