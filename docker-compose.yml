@@ -125,7 +125,7 @@ services:
     networks:
       - campo-net
 
-  # Simulador de la planta "demo" (perfil "sim"): docker compose --profile apps --profile sim up -d
+  # Simulador de las plantas "demo" (todos los módulos) y "tanques" (solo tanques) (perfil "sim"): docker compose --profile apps --profile sim up -d
   simulator:
     profiles: ["sim"]
     build:
@@ -133,7 +133,7 @@ services:
     container_name: campo-simulator
     restart: unless-stopped
     entrypoint: ["/simulator"]
-    command: ["-broker", "tcp://mosquitto:1883"]
+    command: ["-broker", "tcp://mosquitto:1883", "-plants", "demo,tanques"]
     depends_on:
       mosquitto: { condition: service_healthy }
     networks:

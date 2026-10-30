@@ -85,7 +85,15 @@ func startBroker(t *testing.T, hook mochi.Hook) (url string) {
 		t.Fatal(err)
 	}
 	go s.Serve()
-	t.Cleanup(func() { s.Close() })
+	t.Cleanup(func() {
+		done := make(chan struct{})
+		go func() { s.Close(); close(done) }()
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			t.Log("el broker embebido tardó demasiado en cerrar")
+		}
+	})
 	return "tcp://" + addr
 }
 

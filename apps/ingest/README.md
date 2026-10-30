@@ -51,7 +51,7 @@ Arranque tolerante: MQTT, Redis y Postgres pueden estar caídos al iniciar; se r
 
 ```bash
 go run ./cmd/ingest                      # con docker compose levantado en la raíz (mosquitto, redis, timescaledb)
-go run ./cmd/simulator                   # planta `demo`: 4 tanques, 2 bombas, 2 válvulas a 1 Hz
+go run ./cmd/simulator                   # plantas `demo` (20 activos) y `tanques` (2) a 1 Hz
 go vet ./... && go test -race ./...      # tests; no requieren Docker (miniredis + broker MQTT embebido)
 go test -bench . ./internal/parser       # benchmark del parser
 docker build -t campo-ingest .           # imagen distroless con /ingest y /simulator
@@ -81,23 +81,58 @@ MQTT_BROKER_URL=ssl://mosquitto:8883 MQTT_USERNAME=ingest MQTT_PASSWORD=... MQTT
 
 ### Simulador
 
-Flags (o env): `-broker`/`MQTT_BROKER_URL`, `-username`/`MQTT_USERNAME`, `-password`/`MQTT_PASSWORD`
-(preferir el env: los argumentos de proceso son visibles en `ps`), `-ca-file`/`MQTT_CA_FILE`,
-`-plant`/`SIM_PLANT`, `-tanks`/`SIM_TANKS`, `-pumps`/`SIM_PUMPS`,
-`-valves`/`SIM_VALVES`, `-rate`/`SIM_RATE_HZ` (msg/s por activo), `-conns`/`SIM_CONNS`, `-qos`/`SIM_QOS`,
-`-duration`, `-excursion-every` (media por activo, `0` desactiva), `-seed`.
+Publica en `campo/v1/{planta}/{activo}/telemetry` (contrato §1) con números finitos y `quality` `good`
+casi siempre. Modelos de dominio puros (`cmd/simulator/models*.go`), sin I/O y con semilla (`-seed`).
 
-En el broker seguro el usuario del simulador **es** el id de planta (sólo puede publicar en
-`campo/v1/{plant}/+/telemetry`):
+**Flags (o env)**: `-broker`/`MQTT_BROKER_URL`, `-ca-file`/`MQTT_CA_FILE`, `-plants`/`SIM_PLANTS`,
+`-plant`/`SIM_PLANT`, `-username`/`MQTT_USERNAME`, `-password`/`MQTT_PASSWORD`,
+`-passwords`/`MQTT_SIM_PASSWORDS`, `-tanks`/`SIM_TANKS`, `-pumps`/`SIM_PUMPS`, `-valves`/`SIM_VALVES`,
+`-rate`/`SIM_RATE_HZ` (msg/s por activo, 1 por defecto), `-conns`/`SIM_CONNS` (conexiones **por planta**),
+`-qos`/`SIM_QOS`, `-duration`/`SIM_DURATION`, `-excursion-every`/`SIM_EXCURSION_EVERY` (media por activo,
+`0` desactiva), `-seed`, `-stats`.
+
+**Plantas.** `-plants demo,tanques` (por defecto). `-plant` es el alias de **una** sola planta (compatibilidad).
+Precedencia: flag `-plants` > flag `-plant` > env `SIM_PLANTS` > env `SIM_PLANT` > `demo,tanques`
+(un flag explícito siempre gana al entorno). Los ids deben cumplir `^[a-z0-9][a-z0-9_-]{0,63}$` y no repetirse.
+
+| Planta | Activos (tipo: métricas) |
+|---|---|
+| `demo` | `tk-01..04` (tank: `level`, `temp`), `pump-01..02` (pump: `rpm`, `current`), `valve-01..02` (valve: `position`), `clima-01`, `clima-02` (climate: `temp` °C con ciclo diario, `humidity` % anticorrelada, 35-80), `en-linea1` (~120-180 kW), `en-compresores` (~80-110), `en-clima` (~50-70), `en-calderas` (~60-95 con picos) (energy: `kw`, `kwh` contador acumulado, `pf` 0,88-0,98), `gas-01` (gas: `flow` 0-30 m³/h a escalones, `total` m³ contador), `maq-01..03` (machine: `state` 0/1, cambios cada varios minutos), `pres-01` (pressure: `pressure` 4-7 bar, con excursiones > 8), `cau-01` (flow: `flow` 5-40 m³/h) |
+| `tanques` | `tk-a`, `tk-b` (tank: `level`, `temp`) |
+| cualquier otra | solo `tk-NN`, `pump-NN`, `valve-NN` (comportamiento histórico de `-plant <id>`) |
+
+Los contadores `kwh` y `total` integran `kw`/`flow` con el tiempo real transcurrido y nunca decrecen
+durante la ejecución (arrancan en un valor inicial plausible, no persistido: al reiniciar el simulador
+vuelven a empezar). Excursiones que cruzan umbrales típicos: `level` > 90 ó < 10, `temp` > 35 (tanques),
+`current` > 18, `position` > 95, `pressure` > 8.
+
+**Carga.** `-tanks/-pumps/-valves` escalan solo los activos heredados `tk-NN/pump-NN/valve-NN` de `demo` (y de
+las plantas sin perfil propio); `demo` publica además siempre sus 12 activos nuevos y `tanques` siempre
+`tk-a`/`tk-b`. `-rate` es por activo y `-conns` por planta (cada planta tiene sus propias conexiones).
+Para una prueba de carga conviene `-plants demo`.
+
+**Credenciales MQTT.** Cada planta es una identidad distinta (usuario = id de planta, §8.2) con **su propia
+conexión**:
+
+- Una planta: como siempre, `-username` y `MQTT_PASSWORD`/`-password` (si solo se da `-passwords`, el usuario
+  es la planta).
+- Varias plantas: `-passwords demo=xxx,tanques=yyy` o `MQTT_SIM_PASSWORDS` (mismo formato; `-passwords`
+  manda sobre el env). Cada planta publica con `usuario = su id` y su contraseña. Si falta la de alguna
+  planta, sobra una de una planta no simulada, o se usa `-username`/`-password` con varias plantas, el
+  simulador **no arranca** (error de configuración): jamás publica una planta con credenciales de otra.
+  Sin ninguna credencial, todas conectan en anónimo (broker de desarrollo).
+- Las contraseñas no pueden contener comas. Nunca se escriben en logs, en mensajes de error ni en `-h`; usa el
+  env en vez de flags (los argumentos son visibles en `ps`).
 
 ```bash
+go run ./cmd/simulator                                        # demo + tanques, broker de desarrollo
+go run ./cmd/simulator -plants demo -rate 2                   # solo demo
+MQTT_SIM_PASSWORDS=demo=...,tanques=... go run ./cmd/simulator -broker ssl://localhost:8883 -ca-file secrets/certs/ca.crt
 MQTT_PASSWORD=... go run ./cmd/simulator -broker ssl://localhost:8883 -ca-file secrets/certs/ca.crt -username demo -plant demo
 ```
-
-Excursiones que cruzan umbrales típicos: `level` > 90 ó < 10, `temp` > 35, `current` > 18, `position` > 95.
 
 Prueba de carga de ~5000 msg/s:
 
 ```bash
-go run ./cmd/simulator -tanks 2000 -pumps 2000 -valves 1000 -rate 1 -conns 4
+go run ./cmd/simulator -plants demo -tanks 2000 -pumps 2000 -valves 1000 -rate 1 -conns 4
 ```
