@@ -8,8 +8,8 @@ import (
 )
 
 func TestClientOptionsTLSAndCredentials(t *testing.T) {
-	o := options{broker: "ssl://mosquitto:8883", username: "demo", password: "pw"}
-	opts, err := clientOptions(o, "sim-1")
+	o := options{broker: "ssl://mosquitto:8883"}
+	opts, err := clientOptions(o, credential{username: "demo", password: "pw"}, "sim-1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -25,12 +25,12 @@ func TestClientOptionsTLSAndCredentials(t *testing.T) {
 }
 
 func TestClientOptionsBadCA(t *testing.T) {
-	if _, err := clientOptions(options{broker: "ssl://h:8883", caFile: filepath.Join(t.TempDir(), "no.crt")}, "x"); err == nil {
+	if _, err := clientOptions(options{broker: "ssl://h:8883", caFile: filepath.Join(t.TempDir(), "no.crt")}, credential{}, "x"); err == nil {
 		t.Error("CA inexistente debe fallar")
 	}
 	bad := filepath.Join(t.TempDir(), "bad.crt")
 	_ = os.WriteFile(bad, []byte("nope"), 0o600)
-	if _, err := clientOptions(options{broker: "ssl://h:8883", caFile: bad}, "x"); err == nil {
+	if _, err := clientOptions(options{broker: "ssl://h:8883", caFile: bad}, credential{}, "x"); err == nil {
 		t.Error("PEM inválido debe fallar")
 	}
 }

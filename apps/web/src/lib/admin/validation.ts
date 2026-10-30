@@ -17,7 +17,7 @@ export const hasErrors = (e: FieldErrors) => Object.keys(e).length > 0;
 const byteLength = (s: string) => new TextEncoder().encode(s).length;
 
 export function validatePassword(pw: string, field = 'password'): FieldErrors {
-  if (pw.length < PASSWORD_MIN) return { [field]: `Mínimo ${PASSWORD_MIN} caracteres (llevas ${pw.length}).` };
+  if (pw.length < PASSWORD_MIN) return { [field]: `Mínimo ${PASSWORD_MIN} caracteres (llevás ${pw.length}).` };
   if (byteLength(pw) > PASSWORD_MAX_BYTES) return { [field]: `No puede superar ${PASSWORD_MAX_BYTES} bytes.` };
   return {};
 }
@@ -34,7 +34,7 @@ export function passwordStrength(pw: string): { ratio: number; ok: boolean; text
 
 export function validatePlantId(id: string): string | null {
   if (!id) return 'El id es obligatorio.';
-  if (!ID_PATTERN.test(id)) return 'Usa minúsculas, números, "-" o "_" (máx. 64), empezando por letra o número.';
+  if (!ID_PATTERN.test(id)) return 'Usá minúsculas, números, "-" o "_" (máx. 64), empezando por letra o número.';
   return null;
 }
 
@@ -61,9 +61,9 @@ export function validateUserForm(v: UserForm): { errors: FieldErrors; value?: { 
   const errors: FieldErrors = {};
   const email = v.email.trim().toLowerCase();
   if (!email) errors.email = 'El correo es obligatorio.';
-  else if (!EMAIL.test(email) || email.length > 254) errors.email = 'Introduce un correo válido (nombre@dominio.com).';
+  else if (!EMAIL.test(email) || email.length > 254) errors.email = 'Ingresá un correo válido (nombre@dominio.com).';
   Object.assign(errors, validatePassword(v.password));
-  if (!ROLES.includes(v.role as Role)) errors.role = 'Elige un rol.';
+  if (!ROLES.includes(v.role as Role)) errors.role = 'Elegí un rol.';
   if (v.plants.some((p) => !ID_PATTERN.test(p))) errors.plants = 'Alguna planta no es válida.';
   if (hasErrors(errors)) return { errors };
   return { errors, value: { email, password: v.password, role: v.role as Role, plants: [...new Set(v.plants)] } };
@@ -71,10 +71,10 @@ export function validateUserForm(v: UserForm): { errors: FieldErrors; value?: { 
 
 export function validatePasswordChange(v: { current: string; next: string; confirm: string }): FieldErrors {
   const e: FieldErrors = {};
-  if (!v.current) e.current = 'Introduce tu contraseña actual.';
+  if (!v.current) e.current = 'Ingresá tu contraseña actual.';
   Object.assign(e, validatePassword(v.next, 'next'));
   if (!e.next && v.next === v.current) e.next = 'La nueva contraseña debe ser distinta de la actual.';
-  if (!v.confirm) e.confirm = 'Repite la nueva contraseña.';
+  if (!v.confirm) e.confirm = 'Repetí la nueva contraseña.';
   else if (v.confirm !== v.next) e.confirm = 'No coincide con la nueva contraseña.';
   return e;
 }
@@ -95,12 +95,12 @@ export function parseMetadata(text: string): { ok: true; value: Record<string, u
       const before = src.slice(0, Number(pos[1]));
       const line = before.split('\n').length;
       const col = before.length - before.lastIndexOf('\n');
-      return { ok: false, error: `JSON no válido (línea ${line}, columna ${col}). Revisa comas, comillas dobles y llaves.` };
+      return { ok: false, error: `JSON no válido (línea ${line}, columna ${col}). Revisá comas, comillas dobles y llaves.` };
     }
     const tok = /Unexpected token '(.+?)'/.exec(msg);
-    if (tok) return { ok: false, error: `JSON no válido: carácter inesperado «${tok[1]}». Revisa comas, comillas dobles y llaves.` };
+    if (tok) return { ok: false, error: `JSON no válido: carácter inesperado «${tok[1]}». Revisá comas, comillas dobles y llaves.` };
     if (/end of JSON|Unexpected end/i.test(msg)) return { ok: false, error: 'JSON no válido: termina antes de tiempo (falta cerrar una llave o comilla).' };
-    return { ok: false, error: 'JSON no válido. Revisa comas, comillas dobles y llaves.' };
+    return { ok: false, error: 'JSON no válido. Revisá comas, comillas dobles y llaves.' };
   }
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
     return { ok: false, error: 'Los metadatos deben ser un objeto JSON, p. ej. {"capacityL": 5000}.' };
@@ -158,7 +158,7 @@ export function validateLayoutForm(f: LayoutForm): { errors: FieldErrors; value?
     const v = parseNum(f[key]);
     if (v === undefined) continue;
     const name = `layout${key[0]!.toUpperCase()}${key.slice(1)}`;
-    if (!Number.isFinite(v)) errors[name] = `${label}: introduce un número.`;
+    if (!Number.isFinite(v)) errors[name] = `${label}: ingresá un número.`;
     else if (min !== undefined && max !== undefined && (v < min || v > max)) errors[name] = `${label}: entre ${fmt(min)} y ${fmt(max)}.`;
     else nums[key] = v;
   }
@@ -166,7 +166,7 @@ export function validateLayoutForm(f: LayoutForm): { errors: FieldErrors; value?
   const any = Object.keys(nums).length > 0;
   if (!any) return { errors, value: null };
   if (nums.x === undefined || nums.z === undefined) {
-    errors[nums.x === undefined ? 'layoutX' : 'layoutZ'] = 'Indica X y Z para colocar el activo (o vacía todos los campos para usar la posición automática).';
+    errors[nums.x === undefined ? 'layoutX' : 'layoutZ'] = 'Indicá X y Z para colocar el activo (o vaciá todos los campos para usar la posición automática).';
     return { errors };
   }
   const layout: AssetLayout = { x: nums.x, z: nums.z };
@@ -260,9 +260,9 @@ export function validateAssetForm(v: AssetForm, opts: { editing?: boolean; keepR
   const name = v.name.trim();
   if (!name) errors.name = 'El nombre es obligatorio.';
   else if (name.length > 100) errors.name = 'Máximo 100 caracteres.';
-  if (!ASSET_TYPES.includes(v.type as AssetType)) errors.type = 'Elige un tipo.';
+  if (!ASSET_TYPES.includes(v.type as AssetType)) errors.type = 'Elegí un tipo.';
   const ref = v.model3dRef.trim();
-  if (ref && !MODEL_REF_PATTERN.test(ref) && ref !== opts.keepRef) errors.model3dRef = 'Elige un modelo de la lista (model:<uuid>) o déjalo en «Procedural».';
+  if (ref && !MODEL_REF_PATTERN.test(ref) && ref !== opts.keepRef) errors.model3dRef = 'Elegí un modelo de la lista o dejalo en «Procedural».';
   const meta = parseMetadata(v.metadataText);
   if (!meta.ok) errors.metadata = meta.error;
   else {
@@ -309,18 +309,18 @@ const num = (s: string): number => (s.trim() === '' ? NaN : Number(s));
 /** Misma política que `CreateRuleDto` del servidor (apps/api/src/alarms/dto.ts). */
 export function validateRuleForm(v: RuleForm): { errors: FieldErrors; value?: AlarmRuleInput } {
   const errors: FieldErrors = {};
-  if (!v.plant) errors.plant = 'Elige una planta.';
+  if (!v.plant) errors.plant = 'Elegí una planta.';
   else if (!ID_PATTERN.test(v.plant)) errors.plant = 'Planta no válida.';
   const asset = v.asset.trim();
-  if (!asset) errors.asset = 'Indica un activo o un patrón con * (p. ej. tk-*).';
+  if (!asset) errors.asset = 'Indicá un activo o un patrón con * (p. ej. tk-*).';
   else if (!RULE_ASSET_PATTERN.test(asset)) errors.asset = 'Id exacto o patrón con * en minúsculas (p. ej. tk-*, *).';
   const metric = v.metric.trim();
-  if (!metric) errors.metric = 'Indica la métrica (p. ej. level).';
+  if (!metric) errors.metric = 'Indicá la métrica (p. ej. level).';
   else if (!RULE_METRIC_PATTERN.test(metric)) errors.metric = 'Sólo letras, números, "_", "." o "-" (máx. 64).';
-  if (!OPERATORS.includes(v.operator as Operator)) errors.operator = 'Elige un operador.';
+  if (!OPERATORS.includes(v.operator as Operator)) errors.operator = 'Elegí un operador.';
   const threshold = num(v.threshold);
   if (!Number.isFinite(threshold)) errors.threshold = 'El umbral debe ser un número.';
-  if (!SEVERITIES.includes(v.severity as Severity)) errors.severity = 'Elige una severidad.';
+  if (!SEVERITIES.includes(v.severity as Severity)) errors.severity = 'Elegí una severidad.';
   const forSeconds = num(v.forSeconds);
   if (!Number.isInteger(forSeconds) || forSeconds < 0 || forSeconds > 86_400) {
     errors.forSeconds = 'Entero entre 0 y 86 400 segundos.';

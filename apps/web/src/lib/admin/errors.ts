@@ -1,3 +1,4 @@
+import { MODULES, type ModuleId } from '@campo/shared';
 import { ApiError } from '@/lib/auth';
 
 export type ApiErrorKind =
@@ -45,6 +46,8 @@ const FIELD_LABELS: Record<string, string> = {
   hysteresis: 'Histéresis',
   enabled: 'Activa',
   name: 'Nombre',
+  orgId: 'Cliente',
+  modules: 'Módulos',
   type: 'Tipo',
   id: 'Id',
   model3dRef: 'Modelo 3D',
@@ -111,12 +114,12 @@ const ENGLISH_DEFAULTS = new Set([
 
 const DEFAULT_TEXT: Record<number, string> = {
   400: 'Los datos enviados no son válidos.',
-  401: 'Tu sesión ha caducado. Inicia sesión de nuevo.',
-  403: 'No tienes permisos para realizar esta acción.',
-  404: 'No se encontró el recurso solicitado.',
-  409: 'La operación entra en conflicto con el estado actual.',
+  401: 'Tu sesión caducó. Iniciá sesión de nuevo.',
+  403: 'No tenés permisos para hacer esto.',
+  404: 'No se encontró lo que buscabas.',
+  409: 'La operación choca con el estado actual.',
   413: 'El archivo supera el tamaño máximo permitido (10 MB).',
-  429: 'Demasiadas peticiones. Espera un momento y reinténtalo.',
+  429: 'Demasiados pedidos. Esperá un momento y volvé a intentar.',
 };
 
 export function kindForStatus(status: number): ApiErrorKind {
@@ -134,6 +137,10 @@ export function kindForStatus(status: number): ApiErrorKind {
 /** Construye el error a partir de la respuesta JSON de NestJS (`{statusCode,message,error}`); nunca expone trazas. */
 export function errorFromResponse(status: number, body: unknown): AdminApiError {
   const kind = kindForStatus(status);
+  if (status === 403) {
+    const moduleError = moduleDisabledFrom(body);
+    if (moduleError) return moduleError;
+  }
   const rawMsg =
     typeof body === 'object' && body !== null && 'message' in body ? (body as { message: unknown }).message : undefined;
   const messages = (Array.isArray(rawMsg) ? rawMsg : [rawMsg]).filter(
@@ -145,18 +152,64 @@ export function errorFromResponse(status: number, body: unknown): AdminApiError 
     const details = parsed.length > 0 ? parsed.map((p) => p.text) : [DEFAULT_TEXT[400]!];
     const fields: Record<string, string> = {};
     for (const p of parsed) if (p.field && !fields[p.field]) fields[p.field] = p.text;
-    const message = details.length === 1 ? details[0]! : 'Revisa los datos del formulario.';
+    const message = details.length === 1 ? details[0]! : 'Revisá los datos del formulario.';
     return new AdminApiError(message, status, kind, details, fields);
   }
   const first = messages[0];
   const useServerText = first && !ENGLISH_DEFAULTS.has(first.trim().toLowerCase());
   const text =
     kind === 'server'
-      ? `Error del servidor (${status}). Inténtalo de nuevo en unos minutos.`
+      ? `Error del servidor (${status}). Intentá de nuevo en unos minutos.`
       : useServerText
         ? first
         : (DEFAULT_TEXT[status] ?? `Error inesperado (${status}).`);
   return new AdminApiError(text, status, kind);
+}
+
+export const MODULE_DISABLED_TEXT = 'Este módulo no está contratado, pedíselo a Campos Ingeniería.';
+
+/** 403 `{error:"module_disabled", module}`: el cliente no contrató el módulo del tipo de activo (docs §11.2). */
+export class ModuleDisabledError extends AdminApiError {
+  constructor(readonly module: string | null) {
+    super(MODULE_DISABLED_TEXT, 403, 'forbidden', [], { type: MODULE_DISABLED_TEXT });
+    this.name = 'ModuleDisabledError';
+  }
+
+  /** Nombre legible del módulo (si es uno conocido). */
+  get moduleLabel(): string | null {
+    return MODULES.find((m) => m.id === (this.module as ModuleId))?.label ?? null;
+  }
+}
+
+function moduleDisabledFrom(body: unknown): ModuleDisabledError | null {
+  if (typeof body !== 'object' || body === null) return null;
+  const rec = body as Record<string, unknown>;
+  const flagged = rec.error === 'module_disabled' || rec.message === 'module_disabled';
+  if (!flagged) return null;
+  return new ModuleDisabledError(typeof rec.module === 'string' ? rec.module : null);
+}
+
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+
+/** 409 al borrar un cliente que todavía tiene plantas o usuarios (docs §11.1). Los contadores pueden ser `null` si la API no los informa. */
+export class OrgNotEmptyError extends AdminApiError {
+  constructor(
+    readonly plants: number | null,
+    readonly users: number | null,
+  ) {
+    const parts = [plants ? plural(plants, 'planta', 'plantas') : null, users ? plural(users, 'usuario', 'usuarios') : null].filter(Boolean);
+    const what = parts.length > 0 ? `Todavía tiene ${parts.join(' y ')}` : 'Todavía tiene plantas o usuarios';
+    super(`No se puede borrar el cliente. ${what}: eliminalos o pasalos a otro cliente antes de borrarlo.`, 409, 'conflict');
+    this.name = 'OrgNotEmptyError';
+  }
+}
+
+const countOf = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : Array.isArray(v) ? v.length : null);
+
+/** Lee `{plants, users}` (números o listas) del cuerpo de un 409 al borrar un cliente. */
+export function orgNotEmptyFrom(body: unknown): OrgNotEmptyError {
+  const rec = typeof body === 'object' && body !== null ? (body as Record<string, unknown>) : {};
+  return new OrgNotEmptyError(countOf(rec.plants), countOf(rec.users));
 }
 
 /** 409 al borrar un modelo que usan activos. El contrato no fija la forma del cuerpo: se aceptan varias. */
@@ -164,7 +217,7 @@ export class ModelInUseError extends AdminApiError {
   constructor(readonly assets: string[]) {
     const list = assets.length > 0 ? `: ${assets.join(', ')}` : '';
     super(
-      `El modelo está en uso por ${assets.length === 1 ? 'el activo' : assets.length > 1 ? `${assets.length} activos` : 'uno o más activos'}${list}. Cambia su modelo 3D antes de borrarlo.`,
+      `El modelo está en uso por ${assets.length === 1 ? 'el activo' : assets.length > 1 ? `${assets.length} activos` : 'uno o más activos'}${list}. Cambiá su modelo 3D antes de borrarlo.`,
       409,
       'conflict',
     );
@@ -190,10 +243,10 @@ export function assetsFromConflict(body: unknown): string[] {
 }
 
 export const networkError = () =>
-  new AdminApiError('No se pudo contactar con el servidor. Revisa tu conexión e inténtalo de nuevo.', 0, 'network');
+  new AdminApiError('No se pudo contactar con el servidor. Revisá tu conexión e intentá de nuevo.', 0, 'network');
 
 /** Texto de cualquier error capturado, apto para mostrar. */
 export function errorMessage(e: unknown): string {
   if (e instanceof AdminApiError) return e.message;
-  return 'Ha ocurrido un error inesperado.';
+  return 'Ocurrió un error inesperado.';
 }

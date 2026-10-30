@@ -1,7 +1,7 @@
 import type { Me, Role } from '@campo/shared';
 import type { Request } from 'express';
 
-/** Usuario adjunto a la petición: rol y plantas vienen de la base (vía AccessService), no del token. */
+/** Usuario adjunto a la petición: rol, cliente y plantas vienen de la base (vía AccessService), no del token. */
 export type AuthUser = Me;
 
 /** Lo que afirma el JWT. Sólo `sub` es de fiar; el resto se vuelve a consultar en cada petición. */
@@ -22,4 +22,6 @@ export interface JwtPayload {
 
 export type AuthenticatedRequest = Request & { user?: AuthUser };
 
-export const ROLES: readonly Role[] = ['admin', 'engineer', 'operator', 'viewer'];
+export const ROLES: readonly Role[] = ['platform_admin', 'admin', 'engineer', 'operator', 'viewer'];
+/** Roles que pertenecen siempre a un cliente (todos salvo `platform_admin`). */
+export const ORG_ROLES: readonly Role[] = ROLES.filter((r) => r !== 'platform_admin');

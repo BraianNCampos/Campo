@@ -1,11 +1,16 @@
-import type { AssetDef, AssetType, AuditEntry, ManagedUser, Me, ModelInfo, Plant, Role, Severity } from '@campo/shared';
+import { ASSET_KINDS } from '@campo/shared';
+import type { AssetDef, AssetType, AuditEntry, Limit, ManagedUser, Me, ModelInfo, ModuleId, Org, OrgSummary, Plant, Role, Severity } from '@campo/shared';
 
-export type { AssetDef, AssetType, AuditEntry, ManagedUser, Me, ModelInfo, Plant, Role, Severity };
+export type { AssetDef, AssetType, AuditEntry, Limit, ManagedUser, Me, ModelInfo, ModuleId, Org, OrgSummary, Plant, Role, Severity };
 
 export type Operator = 'gt' | 'lt' | 'gte' | 'lte';
 export const OPERATORS: readonly Operator[] = ['gt', 'lt', 'gte', 'lte'];
-export const ASSET_TYPES: readonly AssetType[] = ['tank', 'pump', 'valve', 'sensor'];
-export const ROLES: readonly Role[] = ['admin', 'engineer', 'operator', 'viewer'];
+/** Todos los tipos de activo, en el orden del registro compartido. */
+export const ASSET_TYPES = Object.keys(ASSET_KINDS) as readonly AssetType[];
+/** Todos los roles; `platform_admin` sólo lo puede otorgar otro `platform_admin` (docs §11.1). */
+export const ROLES: readonly Role[] = ['platform_admin', 'admin', 'engineer', 'operator', 'viewer'];
+/** Roles que un administrador de cliente puede otorgar. */
+export const CLIENT_ROLES: readonly Role[] = ['admin', 'engineer', 'operator', 'viewer'];
 export const SEVERITIES: readonly Severity[] = ['warning', 'critical'];
 
 /** Regla tal como la devuelve `GET /api/alarm-rules` (ver apps/api/src/alarms/alarm.types.ts). */
@@ -55,12 +60,17 @@ export interface UserInput {
   password: string;
   role: Role;
   plants?: string[];
+  /** Cliente del usuario. Obligatorio para un `platform_admin` que crea usuarios de cliente; el resto no lo envía (docs §11.1). */
+  orgId?: string;
 }
 export interface UserPatch {
   role?: Role;
   active?: boolean;
   password?: string;
 }
+
+/** Entrada de auditoría con el cliente al que pertenece (`audit_log.org_id`, docs §11.1); `null` = acción de plataforma. */
+export type AdminAuditEntry = AuditEntry & { orgId?: string | null };
 
 export interface AuditQuery {
   /** nº de entradas por página (def. 50) */
@@ -69,15 +79,41 @@ export interface AuditQuery {
   before?: string;
   actor?: string;
   action?: string;
+  /** Sólo `platform_admin`: filtra por cliente. */
+  orgId?: string;
 }
+
+/** Alta de cliente (`POST /api/orgs`). */
+export interface OrgInput {
+  id: string;
+  name: string;
+  modules: ModuleId[];
+}
+/** `PATCH /api/orgs/:id`: el id no se cambia. */
+export type OrgPatch = Partial<{ name: string; modules: ModuleId[]; active: boolean }>;
 
 /** Cliente tipado de la API de administración (docs/architecture.md §4, §8.1, §9). */
 export interface AdminApi {
   me(): Promise<Me>;
   changePassword(input: { currentPassword: string; newPassword: string }): Promise<{ accessToken: string }>;
 
-  listPlants(): Promise<Plant[]>;
-  createPlant(input: { id: string; name: string }): Promise<Plant>;
+  // Clientes y módulos (docs/architecture.md §11), sólo `platform_admin`
+  listOrgs(): Promise<Org[]>;
+  getOrg(id: string): Promise<Org>;
+  createOrg(input: OrgInput): Promise<Org>;
+  updateOrg(id: string, patch: OrgPatch): Promise<Org>;
+  /** 409 (`OrgNotEmptyError`) si tiene plantas o usuarios. */
+  deleteOrg(id: string): Promise<void>;
+  /** Crea el primer administrador del cliente. */
+  createOrgAdmin(orgId: string, input: { email: string; password: string }): Promise<ManagedUser>;
+
+  /** Límites de alarma resueltos de una planta (visibles para todos los roles con acceso). */
+  listLimits(plant: string): Promise<Limit[]>;
+
+  /** `orgId`: sólo `platform_admin` (filtra por cliente). */
+  listPlants(q?: { orgId?: string }): Promise<Plant[]>;
+  /** `orgId`: obligatorio para `platform_admin`, no se envía desde un administrador de cliente. */
+  createPlant(input: { id: string; name: string; orgId?: string }): Promise<Plant>;
   renamePlant(id: string, name: string): Promise<Plant>;
   deletePlant(id: string): Promise<void>;
 
@@ -97,7 +133,7 @@ export interface AdminApi {
   /** Avisa cuando cambian activos o modelos de una planta (sólo el mock: la API real lo hace por WebSocket). */
   onCatalogChange?(listener: (plant: string) => void): () => void;
 
-  listUsers(): Promise<ManagedUser[]>;
+  listUsers(q?: { orgId?: string }): Promise<ManagedUser[]>;
   createUser(input: UserInput): Promise<ManagedUser>;
   updateUser(id: string, patch: UserPatch): Promise<ManagedUser>;
   setUserPlants(id: string, plants: string[]): Promise<ManagedUser>;
@@ -109,5 +145,5 @@ export interface AdminApi {
   updateRule(id: string, patch: AlarmRulePatch): Promise<AlarmRule>;
   deleteRule(id: string): Promise<void>;
 
-  listAudit(query?: AuditQuery): Promise<AuditEntry[]>;
+  listAudit(query?: AuditQuery): Promise<AdminAuditEntry[]>;
 }
