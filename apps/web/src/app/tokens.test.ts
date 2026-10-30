@@ -45,3 +45,33 @@ describe('contraste AA de los tokens (WCAG 2.1)', () => {
     expect(token('calm-bar')).not.toBe(token('accent'));
   });
 });
+
+describe('modo de alto contraste (luz solar)', () => {
+  const block = /html\[data-theme='contrast'\]\s*\{([^}]*)\}/.exec(css)?.[1] ?? '';
+  const t = (name: string): string => {
+    const m = new RegExp(`--color-${name}:\\s*(#[0-9a-fA-F]{6})`).exec(block);
+    if (!m) throw new Error(`token --color-${name} no definido en el tema de alto contraste`);
+    return m[1]!;
+  };
+  it('define todos los tokens de color del tema', () => {
+    for (const n of ['bg', 'surface', 'surface-2', 'line', 'fg', 'muted', 'accent', 'ok', 'calm', 'calm-bar', 'warn', 'crit', 'bad']) expect(() => t(n)).not.toThrow();
+  });
+  it('es un tema claro', () => {
+    expect(block).toContain('color-scheme: light');
+    expect(lum(t('bg'))).toBeGreaterThan(lum(t('fg')));
+  });
+  it('texto principal AAA (≥ 7:1) sobre bg, surface y surface-2', () => {
+    for (const n of ['fg', 'muted']) for (const s of SURFACES) expect(contrast(t(n), t(s)), `${n} sobre ${s}`).toBeGreaterThanOrEqual(7);
+  });
+  it('estados (ámbar, rojo, verde azulado, sin datos) con texto ≥ 4.5:1 en todas las superficies y sobre sus fondos suaves', () => {
+    for (const n of ['accent', 'ok', 'calm', 'warn', 'crit', 'bad']) {
+      for (const s of SURFACES) expect(contrast(t(n), t(s)), `${n} sobre ${s}`).toBeGreaterThanOrEqual(4.5);
+    }
+    for (const n of ['warn', 'crit', 'calm', 'bad']) for (const s of ['bg', 'surface'] as const) expect(contrast(t(n), mix(t(n), t(s), 0.15)), `${n}/15 sobre ${s}`).toBeGreaterThanOrEqual(4.5);
+  });
+  it('texto claro sobre botones y insignias de ámbar/rojo; bordes y barras ≥ 3:1', () => {
+    for (const n of ['accent', 'crit']) expect(contrast(t('bg'), t(n))).toBeGreaterThanOrEqual(7);
+    expect(contrast(t('line'), t('bg'))).toBeGreaterThanOrEqual(3);
+    for (const n of ['calm-bar', 'crit']) expect(contrast(t(n), t('surface')), n).toBeGreaterThanOrEqual(3);
+  });
+});

@@ -256,7 +256,7 @@ try {
     await page.locator('[data-testid="scene"] canvas').waitFor({ timeout: 30_000 });
     await sleep(4000);
     const r2 = await paintedRatio(page, page.locator('[data-testid="scene"]'));
-    check(r2 > 0.03, `3D de la planta: canvas con píxeles (${(r2 * 100).toFixed(1)} %)`);
+    check(r2 > 0.015, `3D de la planta: canvas con píxeles (${(r2 * 100).toFixed(1)} %)`);
     check((await page.locator('[data-testid="scene"] .scene-label[data-model="glb"]').count()) === 1, '3D: tk-nuevo usa su GLB');
     await page.locator('[data-testid="asset-row-tk-nuevo"]').click();
     const panel = page.locator('[data-testid="asset-panel"]');

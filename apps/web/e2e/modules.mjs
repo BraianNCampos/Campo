@@ -8,7 +8,7 @@ const PORT = Number(process.env.E2E_MODULES_PORT ?? 3220);
 const { state, check } = createChecker();
 const { base: BASE, server } = await startApp(PORT);
 const browser = await launchBrowser();
-const shot = (page, name) => page.screenshot({ path: path.join(shots, `modules-${name}.png`) });
+const shot = (page, name) => page.screenshot({ path: path.join(shots, `modules-${name}.png`), timeout: 120_000 }); // WebGL por software: con la máquina cargada tarda
 const MODULES = ['tanks', 'climate', 'energy', 'gas', 'machines', 'flow', 'view3d'];
 const LABEL = { tanks: 'Tanques y llenado', climate: 'Temperatura y humedad', energy: 'Energía', gas: 'Consumo de gases', machines: 'Estado de máquinas', flow: 'Presión y caudal', view3d: 'Vista 3D' };
 
@@ -134,10 +134,38 @@ try {
     check(href === '/admin/rules?plant=demo&module=tanks', `tanques: pestaña Reglas enlaza a ${href}`);
     await shot(page, 'tanks-rules-desktop');
 
+    // Plantilla maestra: el pie global de alarmas está en todas las pantallas
+    for (const id of ['climate', 'view3d']) {
+      await page.locator(`[data-testid="sidebar"] [data-testid="module-nav-${id}"]`).click();
+      await page.locator(`[data-testid="module-screen"][data-module="${id}"]`).waitFor();
+      check((await count(page, '[data-testid="alarm-footer"]')) === 1 && (await count(page, 'header')) >= 1, `plantilla: ${id} hereda cabecera, navegación y pie de alarmas`);
+    }
+    const foot = await pollUntil(async () => (await count(page, '[data-testid="footer-alarm"]')) > 0, 60_000);
+    const ft = await page.locator('[data-testid="alarm-footer"]').textContent();
+    check(!!foot && /Críticas/.test(ft) && /Advertencias/.test(ft) && /límite/.test(ft), `plantilla: el pie muestra conteo por prioridad y alarmas con valor y límite (${ft.replace(/\s+/g, ' ').slice(0, 110)})`);
+    check((await page.locator('[data-testid="footer-all"]').getAttribute('href')) === '/alarmas', 'plantilla: el pie enlaza a la lista completa');
+    await openModule(page, 'tanks');
+    await shot(page, 'master-layout-desktop');
+
+    // Alto contraste para luz solar
+    await page.locator('[data-testid="theme-toggle"]').click();
+    check((await page.locator('html').getAttribute('data-theme')) === 'contrast', 'alto contraste: se activa desde el menú de usuario');
+    await page.locator('[data-testid^="asset-card-"]').first().waitFor();
+    await sleep(2500);
+    await shot(page, 'tanks-contrast-desktop');
+    const bgc = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+    check(bgc === 'rgb(255, 255, 255)', `alto contraste: fondo claro (${bgc})`);
+    await page.reload({ waitUntil: 'load' });
+    await page.locator('[data-testid="module-screen"]').waitFor();
+    check((await page.locator('html').getAttribute('data-theme')) === 'contrast', 'alto contraste: se recuerda tras recargar');
+    await audit(page, 'escritorio tanques (alto contraste)');
+    await page.locator('[data-testid="theme-toggle"]').click();
+    check((await page.locator('html').getAttribute('data-theme')) === null, 'alto contraste: se puede volver al tema oscuro');
+
     // Alarmas globales
     await page.locator('[data-testid="nav-alarms"]').click();
     await page.locator('h1', { hasText: 'Alarmas' }).waitFor();
-    check((await count(page, '[data-testid="alarm-item"]')) > 0, 'alarmas globales: lista de alarmas de la planta');
+    check(!!(await pollUntil(async () => (await count(page, '[data-testid="alarm-item"]')) > 0, 30_000)), 'alarmas globales: lista de alarmas de la planta');
 
     // Modo pared
     await page.locator('[data-testid="nav-wall"]').click();
@@ -264,6 +292,7 @@ try {
       await shot(page, `${id}-mobile`);
       await audit(page, `móvil ${id}`);
     }
+    check((await count(page, '[data-testid="alarm-footer"]')) === 1, 'móvil: pie global de alarmas fijo');
     await page.locator('[data-testid="nav-more"]').tap();
     await shot(page, 'more-sheet-mobile');
     await page.keyboard.press('Escape').catch(() => {});
@@ -277,8 +306,18 @@ try {
     await sleep(500);
     await shot(page, 'tanks-alarms-mobile');
     // modo pared en móvil (vertical)
+    await page.goto(`${BASE}/m/tanks`, { waitUntil: 'load' });
+    await page.locator('[data-testid="user-menu-button"]').tap();
+    await page.locator('#user-menu [data-testid="theme-toggle"]').tap();
+    await page.locator('[data-testid^="asset-card-"]').first().waitFor();
+    await sleep(2500);
+    await shot(page, 'tanks-contrast-mobile');
+    await audit(page, 'móvil tanques (alto contraste)');
+    await page.locator('[data-testid="user-menu-button"]').tap();
+    await page.locator('#user-menu [data-testid="theme-toggle"]').tap();
     await page.goto(`${BASE}/pared`, { waitUntil: 'load' });
     await page.locator('[data-testid^="wall-card-"]').first().waitFor({ timeout: 20_000 });
+    check((await count(page, '[data-testid="alarm-footer"]')) === 0 && (await count(page, 'header')) === 1, 'móvil pared: la plantilla se oculta a propósito (sólo la cabecera propia del modo pared)');
     await sleep(1500);
     await shot(page, 'wall-mobile');
     const ow = await overflow(page);

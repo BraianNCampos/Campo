@@ -32,7 +32,7 @@ export function ThemeToggle({ variant = 'menu', className = '' }: { variant?: 'm
       className={`${base} ${className}`}
     >
       <IconSun className={variant === 'menu' ? 'shrink-0 text-xl' : 'text-base'} />
-      <span className="flex-1">Alto contraste (luz solar)</span>
+      <span className={variant === 'menu' ? 'flex-1' : ''}>{variant === 'menu' ? 'Alto contraste (luz solar)' : 'Alto contraste'}</span>
       <span className="font-mono text-xs text-muted">{on ? 'Sí' : 'No'}</span>
     </button>
   );

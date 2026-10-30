@@ -132,10 +132,9 @@ describe('MockAdminApi: aislamiento entre clientes', () => {
 
   it('recursos con UUID: 404 si no existen, 403 si son de otro cliente', async () => {
     const api = tanques();
-    const demoRule = (await make('admin').listRules())[0]!;
-    expect((await err(api.updateRule(demoRule.id, { enabled: false }))).status).toBe(404); // la regla no existe en este mock
-    const demoRuleInPlatform = (await platform().listRules()).find((r) => r.plant === 'demo')!;
-    expect(demoRuleInPlatform).toBeDefined();
+    const demoRule = (await platform().listRules()).find((r) => r.plant === 'demo')!;
+    expect((await err(api.updateRule(demoRule.id, { enabled: false }))).status).toBe(403); // existe, pero es de otro cliente
+    expect((await err(api.deleteRule(demoRule.id))).status).toBe(403);
     expect((await err(api.updateRule('00000000-0000-4000-8000-0000000000ff', { enabled: false }))).status).toBe(404);
     const foreign = (await tanques().listUsers())[0]!;
     expect((await err(make('admin').updateUser(foreign.id, { active: false }))).status).toBe(403);

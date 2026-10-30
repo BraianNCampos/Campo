@@ -5,14 +5,21 @@ import { metricMeta } from '@/lib/metrics';
 import { readSeries } from '@/store/history';
 import { useAssetName } from './useAsset';
 
-const COLORS = {
-  line: '#4fd1a5',
-  fill: 'rgba(79,209,165,0.13)',
-  grid: 'rgba(163,179,198,0.16)',
-  text: '#a3b3c6',
-  crit: '#ff6b6b',
-  warn: '#fbbf24',
-};
+/** Colores de la curva: salen de los tokens del tema (oscuro o alto contraste) en cada dibujo. */
+function chartColors() {
+  const cs = getComputedStyle(document.documentElement);
+  const v = (name: string, fallback: string) => cs.getPropertyValue(name).trim() || fallback;
+  const light = document.documentElement.getAttribute('data-theme') === 'contrast';
+  const line = v('--color-calm-bar', '#4a9d8d');
+  return {
+    line,
+    fill: light ? 'rgba(29,122,105,0.16)' : 'rgba(79,209,165,0.13)',
+    grid: light ? 'rgba(6,18,27,0.22)' : 'rgba(163,179,198,0.16)',
+    text: v('--color-muted', '#a3b3c6'),
+    crit: v('--color-crit', '#ff6b6b'),
+    warn: v('--color-warn', '#fbbf24'),
+  };
+}
 const REDRAW_MS = 200;
 
 export function niceTicks(lo: number, hi: number, count = 4): number[] {
@@ -50,6 +57,7 @@ export function LineChart({
     if (!ctx) return;
 
     const draw = () => {
+      const COLORS = chartColors();
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
       const w = canvas.clientWidth;
       const h = canvas.clientHeight;

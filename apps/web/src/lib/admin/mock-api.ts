@@ -838,7 +838,6 @@ export class MockAdminApi implements AdminApi {
   listAudit(q: AuditQuery = {}) {
     return this.run(() => {
       this.require(...STAFF);
-      const me = this.meUser;
       const org = this.scopeOrg(q.orgId);
       const limit = Math.min(Math.max(q.limit ?? 50, 1), 200);
       const actor = q.actor?.trim().toLowerCase();

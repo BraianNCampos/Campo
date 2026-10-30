@@ -71,10 +71,10 @@ describe('MockAdminApi: modelos 3D', () => {
     expect((await api.uploadModel('demo', mk({ extensionsRequired: ['KHR_materials_unlit'] }), 'ok')).created).toBe(true);
   });
 
-  it('permisos: operator/viewer no suben ni borran (403); otra planta → 403/404', async () => {
+  it('permisos: operator/viewer no suben ni borran (403); otra planta o inexistente → 403 para un admin de cliente', async () => {
     expect((await err(make('operator').uploadModel('demo', sample('sample-tank'), 'x'))).kind).toBe('forbidden');
     expect((await err(make('operator').deleteModel('demo', 'x'))).kind).toBe('forbidden');
-    expect((await err(make().uploadModel('nada', sample('sample-tank'), 'x'))).kind).toBe('not_found');
+    expect((await err(make().uploadModel('nada', sample('sample-tank'), 'x'))).kind).toBe('forbidden');
     expect((await make('operator').listModels('demo'))).toEqual([]); // cualquier rol con acceso lista
   });
 

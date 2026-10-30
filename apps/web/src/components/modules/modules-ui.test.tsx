@@ -10,12 +10,17 @@ import { useSessionStore } from '@/store/session-store';
 import { AlarmList } from '../AlarmList';
 import { groupPlantsByOrg, PlantSelect } from '../PlantSelect';
 import { BottomBar } from '../shell/BottomBar';
+import { MasterLayout } from '../shell/MasterLayout';
+import { ThemeToggle } from '../ThemeToggle';
 import { Sidebar } from '../shell/Sidebar';
 import { ModuleCard } from './ModuleCard';
 import { ModuleRoute } from './ModuleRoute';
 
 let pathname = '/m/tanks';
+let mobile = false;
 vi.mock('next/navigation', () => ({ usePathname: () => pathname, useRouter: () => ({ replace: vi.fn(), push: vi.fn() }) }));
+
+vi.mock('../hooks', async (orig) => ({ ...(await orig<typeof import('../hooks')>()), useIsMobile: () => mobile }));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -30,6 +35,9 @@ beforeEach(() => {
   useSessionStore.getState().clear();
   usePlantStore.getState().reset();
   pathname = '/m/tanks';
+  mobile = false;
+  document.documentElement.removeAttribute('data-theme');
+  localStorage.clear();
 });
 afterEach(() => {
   act(() => root.unmount());
@@ -237,5 +245,102 @@ describe('alarmas: reconocer según el rol', () => {
     act(() => useLiveStore.getState().applyBatch(b));
     render(<AlarmList filter={(a) => a.asset === 'c1'} />);
     expect(host.querySelectorAll('[data-testid="alarm-item"]')).toHaveLength(1);
+  });
+});
+
+describe('plantilla maestra bloqueada', () => {
+  const content = <p data-testid="screen">contenido</p>;
+  const setupPlant = () => act(() => usePlantStore.getState().setPlants([{ id: 'demo', name: 'Demo', assets: 1, orgId: 'c' }]));
+
+  it('toda pantalla hereda cabecera, barra de navegación y pie global de alarmas', () => {
+    login(['tanks', 'energy']);
+    setupPlant();
+    for (const p of ['/m/tanks', '/m/energy', '/alarmas', '/']) {
+      pathname = p;
+      render(<MasterLayout>{content}</MasterLayout>);
+      expect(host.querySelector('header'), p).not.toBeNull();
+      expect(host.querySelector('[data-testid="sidebar"]'), p).not.toBeNull();
+      expect(host.querySelector('[data-testid="alarm-footer"]'), p).not.toBeNull();
+      expect(host.querySelector('main [data-testid="screen"]'), p).not.toBeNull();
+    }
+  });
+  it('la navegación sale sólo de los módulos del cliente (sin atajos extra)', () => {
+    login(['tanks', 'gas']);
+    setupPlant();
+    render(<MasterLayout>{content}</MasterLayout>);
+    const mods = [...host.querySelectorAll('a[href^="/m/"]')].map((a) => a.getAttribute('href'));
+    expect([...new Set(mods)]).toEqual(['/m/tanks', '/m/gas']);
+  });
+  it('con un solo módulo: sin barra lateral, pero con cabecera y pie', () => {
+    login(['tanks']);
+    setupPlant();
+    render(<MasterLayout>{content}</MasterLayout>);
+    expect(host.querySelector('[data-testid="sidebar"]')).toBeNull();
+    expect(host.querySelector('header')).not.toBeNull();
+    expect(host.querySelector('[data-testid="alarm-footer"]')).not.toBeNull();
+  });
+  it('en móvil: pie de alarmas y barra inferior', () => {
+    mobile = true;
+    login(['tanks', 'gas']);
+    setupPlant();
+    render(<MasterLayout>{content}</MasterLayout>);
+    expect(host.querySelector('[data-testid="alarm-footer"]')).not.toBeNull();
+    expect(host.querySelector('[data-testid="bottom-bar"]')).not.toBeNull();
+    expect(host.querySelector('[data-testid="sidebar"]')).toBeNull();
+  });
+  it('el modo pared oculta la plantilla a propósito', () => {
+    login(['tanks', 'gas']);
+    pathname = '/pared';
+    render(<MasterLayout>{content}</MasterLayout>);
+    expect(host.querySelector('[data-testid="screen"]')).not.toBeNull();
+    expect(host.querySelector('[data-testid="master-layout"]')).toBeNull();
+    expect(host.querySelector('[data-testid="alarm-footer"]')).toBeNull();
+    expect(host.querySelector('header')).toBeNull();
+  });
+  it('pie global: conteo por prioridad, las 3 más importantes con activo, valor y límite, y acceso a la lista completa', () => {
+    login(['tanks']);
+    setupPlant();
+    act(() => useLiveStore.getState().setCatalog([def('tk-01', 'tank', 'Tanque Norte'), def('tk-02', 'tank', 'Tanque Sur')]));
+    const b = emptyBatch();
+    b.alarms.push(
+      alarm({ id: 'a1', asset: 'tk-01', severity: 'critical', value: 95.2, threshold: 90, ts: 300 }),
+      alarm({ id: 'a2', asset: 'tk-02', severity: 'warning', value: 8.5, threshold: 10, ts: 200 }),
+      alarm({ id: 'a3', asset: 'tk-02', severity: 'warning', ts: 100 }),
+      alarm({ id: 'a4', asset: 'tk-02', severity: 'warning', ts: 50 }),
+    );
+    act(() => useLiveStore.getState().applyBatch(b));
+    render(<MasterLayout>{content}</MasterLayout>);
+    const f = host.querySelector('[data-testid="alarm-footer"]')!;
+    expect(f.querySelector('[data-testid="footer-critical"]')?.textContent).toContain('1');
+    expect(f.querySelector('[data-testid="footer-warning"]')?.textContent).toContain('3');
+    const entries = [...f.querySelectorAll('[data-testid="footer-alarm"]')];
+    expect(entries).toHaveLength(3);
+    expect(entries[0]?.getAttribute('data-severity')).toBe('critical');
+    expect(entries[0]?.textContent).toContain('Tanque Norte');
+    expect(entries[0]?.textContent).toContain('95.2 %');
+    expect(entries[0]?.textContent).toContain('límite 90.0 %');
+    expect(f.querySelector('[data-testid="footer-all"]')?.getAttribute('href')).toBe('/alarmas');
+    expect(f.querySelector('[data-testid="footer-all"]')?.textContent).toContain('(4)');
+  });
+  it('sin alarmas el pie lo dice', () => {
+    login(['tanks']);
+    setupPlant();
+    render(<MasterLayout>{content}</MasterLayout>);
+    expect(host.querySelector('[data-testid="footer-empty"]')?.textContent).toContain('Sin alarmas activas');
+  });
+});
+
+describe('interruptor de alto contraste', () => {
+  it('activa el tema claro, lo recuerda y se puede apagar', () => {
+    render(<ThemeToggle />);
+    const btn = () => host.querySelector<HTMLElement>('[data-testid="theme-toggle"]')!;
+    expect(btn().getAttribute('aria-checked')).toBe('false');
+    act(() => btn().click());
+    expect(document.documentElement.getAttribute('data-theme')).toBe('contrast');
+    expect(localStorage.getItem('campo.theme')).toBe('contrast');
+    expect(btn().getAttribute('aria-checked')).toBe('true');
+    expect(btn().textContent).toContain('Sí');
+    act(() => btn().click());
+    expect(document.documentElement.hasAttribute('data-theme')).toBe(false);
   });
 });
