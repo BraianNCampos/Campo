@@ -42,6 +42,19 @@
 		-X-Powered-By
 	}
 
+	# Subida de modelos 3D (GLB crudo, hasta 10 MB; la API aplica el límite exacto y valida el archivo).
+	# Debe ir antes que /api/*: los `handle` se evalúan en orden.
+	@model_upload {
+		method POST
+		path_regexp ^/api/plants/[a-z0-9_-]+/models$
+	}
+	handle @model_upload {
+		request_body {
+			max_size 11MB
+		}
+		reverse_proxy api:3001
+	}
+
 	handle /api/* {
 		request_body {
 			max_size 1MB
