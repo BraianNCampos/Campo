@@ -128,7 +128,7 @@ try {
         for (let gx = 0.1; gx <= 0.9; gx += 0.05) {
           await page.mouse.click(box.x + box.width * gx, box.y + box.height * gy);
           await sleep(60);
-          const t = (await page.locator('[data-testid="asset-panel"] h2').first().textContent().catch(() => null)) ?? null;
+          const t = (await page.locator('[data-testid="asset-panel"] h2').first().textContent({ timeout: 400 }).catch(() => null)) ?? null;
           if (t && t !== titleBefore) {
             picked = t.trim();
             break outer;

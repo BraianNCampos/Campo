@@ -316,7 +316,7 @@ try {
     await page.locator('#user-menu [data-testid="theme-toggle"]').tap(); // el menú sigue abierto: se vuelve al tema oscuro
     await page.goto(`${BASE}/pared`, { waitUntil: 'load' });
     await page.locator('[data-testid^="wall-card-"]').first().waitFor({ timeout: 20_000 });
-    check((await count(page, '[data-testid="alarm-footer"]')) === 0 && (await count(page, 'header')) === 1, 'móvil pared: la plantilla se oculta a propósito (sólo la cabecera propia del modo pared)');
+    check((await count(page, '[data-testid="alarm-footer"]')) === 0 && (await count(page, '[data-testid="master-layout"]')) === 0 && (await count(page, '[data-testid="wall"] > header')) === 1, 'móvil pared: la plantilla se oculta a propósito (sólo la cabecera propia del modo pared)');
     await sleep(1500);
     await shot(page, 'wall-mobile');
     const ow = await overflow(page);
