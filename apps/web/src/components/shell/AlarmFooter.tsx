@@ -22,13 +22,15 @@ function Entry({ a, first }: { a: AlarmEvent; first: boolean }) {
       className={`${first ? 'flex' : 'hidden md:flex'} min-w-0 flex-1 items-center gap-2 rounded-md border px-2 py-1 text-[13px] ${crit ? 'border-crit/70 text-crit' : 'border-warn/60 text-warn'} ${a.acknowledged ? 'opacity-70' : ''}`}
     >
       <Icon className="shrink-0 text-base" />
-      <span className="min-w-0 truncate text-fg">
-        <span className="font-semibold">{name}</span>
-        <span className="font-mono tabular-nums">
-          {' · '}{fmtNum(a.value, m.decimals)} {m.unit}
-        </span>
-        <span className="text-muted">
-          {' · límite '}{fmtNum(a.threshold, m.decimals)} {m.unit}
+      <span className="flex min-w-0 flex-col leading-tight text-fg md:block md:truncate">
+        <span className="truncate font-semibold max-md:text-[13px]">{name}</span>
+        <span className="truncate text-[12px] md:text-[13px]">
+          <span className="font-mono tabular-nums">
+            <span className="hidden md:inline">{' · '}</span>{fmtNum(a.value, m.decimals)} {m.unit}
+          </span>
+          <span className="text-muted">
+            {' · límite '}{fmtNum(a.threshold, m.decimals)} {m.unit}
+          </span>
         </span>
       </span>
     </li>
