@@ -3,7 +3,7 @@
 import { useMemo } from 'react';
 import { ASSET_KINDS, METRICS, type AssetDef, type AssetState, type Limit, type Severity } from '@campo/shared';
 import { resolveScale, type Scale } from '@/lib/modules/scale';
-import { cardStatus, type CardStatus } from '@/lib/modules/status';
+import { cardStatus, setpointOf, type CardStatus } from '@/lib/modules/status';
 import { assetLabel } from '@/lib/assets';
 import { useLiveStore } from '@/store/live-store';
 
@@ -21,6 +21,8 @@ export interface CardData {
   /** límites de la métrica primaria */
   limits: Limit[];
   value: number | undefined;
+  /** setpoint de la métrica principal (`metadata.setpoints` o telemetría `sp`) */
+  setpoint: number | undefined;
   unit: string;
   decimals: number;
 }
@@ -47,6 +49,7 @@ export function useCardData(id: string): CardData {
       scale: resolveScale(def, metric, limits),
       limits,
       value: state?.values[metric],
+      setpoint: setpointOf(def, state?.values, metric),
       unit: m?.unit ?? '',
       decimals: m?.decimals ?? 1,
     };

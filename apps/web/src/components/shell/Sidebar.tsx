@@ -12,6 +12,7 @@ import { IconBell, IconLogout, IconMonitor, IconSettings, IconUser } from '../ic
 import { useModuleBadges } from '../modules/derived';
 import { MODULE_ICON } from '../modules/module-meta';
 import { canLogout } from '../UserMenu';
+import { ThemeToggle } from '../ThemeToggle';
 import { ViewAsSelect } from '../ViewAsSelect';
 import { NavBadge } from './NavBadge';
 
@@ -64,6 +65,7 @@ export function Sidebar({ moduleIds }: { moduleIds: readonly ModuleId[] }) {
       </nav>
       <div className="flex flex-col gap-0.5 border-t border-line p-3">
         <ViewAsSelect className="mb-2" />
+        <ThemeToggle />
         {showAdminLink(me?.role) && (
           <Link prefetch={false} href="/admin" className={item(false)}>
             <IconSettings className="shrink-0 text-xl" /> Administración

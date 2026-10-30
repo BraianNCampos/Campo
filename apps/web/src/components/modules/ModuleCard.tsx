@@ -110,7 +110,7 @@ function ModuleCardBase({ id }: { id: string }) {
           </div>
           {!isMachine && d.scale && (
             <div className="mt-3">
-              <RangeBar value={d.value} scale={d.scale} limits={d.limits} color={color} label={`${metricMeta(d.metric).label} de ${d.name}`} unit={d.unit} />
+              <RangeBar value={d.value} scale={d.scale} limits={d.limits} color={color} label={`${metricMeta(d.metric).label} de ${d.name}`} unit={d.unit} setpoint={d.setpoint} />
             </div>
           )}
           {!isMachine && (

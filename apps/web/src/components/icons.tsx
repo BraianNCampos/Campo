@@ -295,6 +295,12 @@ export const IconExternal = (p: P) => (
     <path d="M13 5h6v6M19 5l-8 8M18 14v4.500a1.5 1.5 0 0 1-1.5 1.500h-10A1.5 1.5 0 0 1 5 18.500v-10A1.5 1.5 0 0 1 6.5 7H11" />
   </Svg>
 );
+export const IconSun = (p: P) => (
+  <Svg {...p}>
+    <circle cx="12" cy="12" r="4" />
+    <path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.600 5.600 7 7M17 17l1.400 1.400M5.600 18.400 7 17M17 7l1.400-1.400" />
+  </Svg>
+);
 export const IconPlay = (p: P) => (
   <Svg {...p}>
     <path d="M7 4.500v15l12-7.500L7 4.500Z" />

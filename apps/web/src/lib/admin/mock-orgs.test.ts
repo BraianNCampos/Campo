@@ -111,9 +111,46 @@ describe('MockAdminApi: aislamiento entre clientes', () => {
     expect((await err(api.updateUser(demoAdmin.id, { active: false }))).kind).toBe('forbidden');
     expect((await err(api.revokeUserSessions(demoAdmin.id))).kind).toBe('forbidden');
     expect((await err(api.setUserPlants(demoAdmin.id, []))).kind).toBe('forbidden');
-    expect((await err(api.listUsers({ orgId: 'campos-demo' }))).kind).toBe('forbidden');
-    expect((await err(api.listPlants({ orgId: 'campos-demo' }))).kind).toBe('forbidden');
-    expect((await err(api.listAudit({ orgId: 'campos-demo' }))).kind).toBe('forbidden');
+  });
+
+  it('un admin de cliente ignora el filtro ?orgId= de otro cliente (sólo ve lo suyo)', async () => {
+    const api = tanques();
+    expect((await api.listUsers({ orgId: 'campos-demo' })).every((u) => u.org?.id === 'cliente-tanques')).toBe(true);
+    expect((await api.listPlants({ orgId: 'campos-demo' })).map((p) => p.id)).toEqual(['tanques']);
+    const audit = await api.listAudit({ orgId: 'campos-demo', limit: 200 });
+    expect(audit.length).toBeGreaterThan(0);
+    expect(audit.every((e) => e.orgId === 'cliente-tanques')).toBe(true);
+  });
+
+  it('planta ajena o inexistente: el mismo 403 para un admin de cliente (nunca 404); 404 sólo para platform_admin', async () => {
+    const api = tanques();
+    expect((await err(api.listAssets('demo'))).status).toBe(403);
+    expect((await err(api.listAssets('no-existe'))).status).toBe(403);
+    expect((await err(api.listLimits('no-existe'))).status).toBe(403);
+    expect((await err(platform().listAssets('no-existe'))).status).toBe(404);
+  });
+
+  it('recursos con UUID: 404 si no existen, 403 si son de otro cliente', async () => {
+    const api = tanques();
+    const demoRule = (await make('admin').listRules())[0]!;
+    expect((await err(api.updateRule(demoRule.id, { enabled: false }))).status).toBe(404); // la regla no existe en este mock
+    const demoRuleInPlatform = (await platform().listRules()).find((r) => r.plant === 'demo')!;
+    expect(demoRuleInPlatform).toBeDefined();
+    expect((await err(api.updateRule('00000000-0000-4000-8000-0000000000ff', { enabled: false }))).status).toBe(404);
+    const foreign = (await tanques().listUsers())[0]!;
+    expect((await err(make('admin').updateUser(foreign.id, { active: false }))).status).toBe(403);
+    expect((await err(api.updateUser('00000000-0000-4000-8000-0000000000ff', { active: false }))).status).toBe(404);
+  });
+
+  it('borrar una planta borra también sus reglas; PATCH de usuario con orgId → 400 para un admin', async () => {
+    const plat = platform();
+    await plat.createPlant({ id: 'nueva', name: 'Nueva', orgId: 'campos-demo' });
+    await plat.createRule({ plant: 'nueva', asset: '*', metric: 'level', operator: 'gt', threshold: 1, severity: 'warning', forSeconds: 0, hysteresis: 0, enabled: true });
+    await plat.deletePlant('nueva');
+    expect((await plat.listRules()).some((r) => r.plant === 'nueva')).toBe(false);
+    const api = tanques();
+    const op = (await api.listUsers()).find((u) => u.role === 'operator')!;
+    expect((await err(api.updateUser(op.id, { orgId: 'campos-demo' } as never))).status).toBe(400);
   });
 
   it('no puede asignar plantas de otro cliente ni otorgar platform_admin ni crear en otro cliente', async () => {

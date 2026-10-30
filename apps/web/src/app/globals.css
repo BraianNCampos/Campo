@@ -27,6 +27,28 @@ html {
   background: var(--color-bg);
 }
 
+/*
+ * Modo de alto contraste para luz solar: tema claro, texto principal AAA (≥ 7:1) y estados que nunca dependen sólo
+ * del color (icono + texto + color). Se activa con data-theme="contrast" en <html> (menú de usuario, recordado en
+ * localStorage). Las razones de contraste las verifica src/app/tokens.test.ts.
+ */
+html[data-theme='contrast'] {
+  color-scheme: light;
+  --color-bg: #ffffff;
+  --color-surface: #f1f5f8;
+  --color-surface-2: #e0e8ee;
+  --color-line: #5a6b78;
+  --color-fg: #06121b;
+  --color-muted: #33434f;
+  --color-accent: #6b4c00;
+  --color-ok: #075a4a;
+  --color-calm: #075a4a;
+  --color-calm-bar: #1d7a69;
+  --color-warn: #6b4c00;
+  --color-crit: #9c1a06;
+  --color-bad: #3f4f5c;
+}
+
 body {
   margin: 0;
   background: var(--color-bg);

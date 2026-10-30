@@ -41,7 +41,7 @@ describe('MockAdminApi: plantas y activos', () => {
     expect((await err(api.deletePlant('demo'))).kind).toBe('conflict');
     await api.createPlant({ id: 'norte', name: 'Norte' });
     await api.deletePlant('norte');
-    expect((await err(api.deletePlant('norte'))).kind).toBe('not_found');
+    expect((await err(api.deletePlant('norte'))).kind).toBe('forbidden');
   });
 
   it('activos: alta, 409 duplicado, edición sin cambiar id, borrado con affectedRules', async () => {
@@ -53,7 +53,7 @@ describe('MockAdminApi: plantas y activos', () => {
     await api.createRule({ plant: 'demo', asset: 'tk-05', metric: 'level', operator: 'gt', threshold: 1, severity: 'warning', forSeconds: 0, hysteresis: 0, enabled: true });
     expect(await api.deleteAsset('demo', 'tk-05')).toEqual({ affectedRules: 1 });
     expect((await err(api.deleteAsset('demo', 'tk-05'))).kind).toBe('not_found');
-    expect((await err(api.createAsset('nada', { id: 'a', name: 'a', type: 'tank' }))).kind).toBe('not_found');
+    expect((await err(api.createAsset('nada', { id: 'a', name: 'a', type: 'tank' }))).kind).toBe('forbidden'); // un admin de cliente nunca recibe 404 por una planta
   });
 
   it('403 por rol y por planta', async () => {

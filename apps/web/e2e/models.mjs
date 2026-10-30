@@ -180,7 +180,7 @@ try {
     await dlg.getByLabel('Escala').fill('99');
     check(await vis(dlg.getByText(/Escala: entre 0,05 y 50/)), 'form: la escala fuera de rango se marca en el campo');
     await dlg.getByRole('button', { name: 'Crear activo' }).click();
-    check(await vis(dlg.getByText('Revisa la disposición')), 'form: no guarda con valores no válidos');
+    check(await vis(dlg.getByText('Revisá la disposición')), 'form: no guarda con valores no válidos');
     await dlg.getByLabel('Escala').fill('3,5');
     await shot(page, 'asset-form-desktop');
     await dlg.getByRole('button', { name: 'Crear activo' }).click();

@@ -1,37 +1,52 @@
 import { describe, expect, it } from 'vitest';
 import type { Limit } from '@campo/shared';
 import { resolveScale } from './scale';
-import { beyondLimit, cardStatus, isNearLimit, needsAttention } from './status';
+import { beyondLimit, cardStatus, isNearLimit, needsAttention, setpointOf } from './status';
 
 const L = (operator: Limit['operator'], threshold: number, severity: Limit['severity'] = 'warning', metric = 'level'): Limit => ({ asset: 'a', metric, operator, threshold, severity });
 const S = { min: 0, max: 100 };
 
-describe('isNearLimit (a menos del 10 % de la escala, en la dirección peligrosa)', () => {
-  const rows: [string, number, Limit[], { min: number; max: number } | undefined, boolean][] = [
-    ['gt: 85 con límite 90 → cerca (5 < 10)', 85, [L('gt', 90)], S, true],
-    ['gt: 80 con límite 90 → no (10 no es < 10)', 80, [L('gt', 90)], S, false],
-    ['gt: 80.1 → cerca', 80.1, [L('gt', 90)], S, true],
-    ['gt: 50 → lejos', 50, [L('gt', 90)], S, false],
-    ['gt: ya pasó el límite → no es «cerca» (es alarma)', 95, [L('gt', 90)], S, false],
-    ['gt: justo en el umbral no lo cruza ni está cerca', 90, [L('gt', 90)], S, true],
-    ['gte: en el umbral ya lo cruzó', 90, [L('gte', 90)], S, false],
-    ['lt: 15 con límite 10 → cerca', 15, [L('lt', 10)], S, true],
-    ['lt: 25 con límite 10 → no', 25, [L('lt', 10)], S, false],
-    ['lt: por debajo del límite → no (es alarma)', 5, [L('lt', 10)], S, false],
-    ['lte: en el umbral ya lo cruzó', 10, [L('lte', 10)], S, false],
-    ['lte: 12 → cerca', 12, [L('lte', 10)], S, true],
-    ['dos límites: cerca del bajo', 14, [L('gt', 90), L('lt', 10)], S, true],
-    ['dos límites: cerca del alto', 86, [L('gt', 90), L('lt', 10)], S, true],
-    ['dos límites: en el medio', 50, [L('gt', 90), L('lt', 10)], S, false],
-    ['varios gt (advertencia 198 / crítica 220), escala 0-242: 190 cerca del primero', 190, [L('gt', 198), L('gt', 220, 'critical')], { min: 0, max: 242 }, true],
-    ['activo sin límites', 99, [], S, false],
-    ['escala ausente: no se puede decidir', 89, [L('gt', 90)], undefined, false],
-    ['escala degenerada', 89, [L('gt', 90)], { min: 5, max: 5 }, false],
-    ['valor no finito', NaN, [L('gt', 90)], S, false],
-    ['escala no estándar: -10…50, límite 30, valor 26 (6 % cerca; 10 % = 6)', 24.5, [L('gt', 30)], { min: -10, max: 50 }, true],
+describe('isNearLimit (ámbar al llegar al 90 % de la distancia setpoint → límite)', () => {
+  // [descripción, valor, límites, escala, setpoint, esperado]
+  const rows: [string, number, Limit[], { min: number; max: number } | undefined, number | undefined, boolean][] = [
+    // sin setpoint: la distancia va desde el mínimo de la escala (límite superior) o su máximo (inferior)
+    ['gt sin SP: 81 = 90 % de 0→90 → cerca', 81, [L('gt', 90)], S, undefined, true],
+    ['gt sin SP: 80.9 → aún no', 80.9, [L('gt', 90)], S, undefined, false],
+    ['gt sin SP: 50 → lejos', 50, [L('gt', 90)], S, undefined, false],
+    ['gt sin SP: ya pasó el límite → no es «cerca» (es alarma)', 95, [L('gt', 90)], S, undefined, false],
+    ['gt sin SP: justo en el umbral (no lo cruza) → cerca', 90, [L('gt', 90)], S, undefined, true],
+    ['gte: en el umbral ya lo cruzó', 90, [L('gte', 90)], S, undefined, false],
+    ['lt sin SP: 19 = 90 % de 100→10 → cerca', 19, [L('lt', 10)], S, undefined, true],
+    ['lt sin SP: 19.1 → aún no', 19.1, [L('lt', 10)], S, undefined, false],
+    ['lt sin SP: por debajo del límite → no (es alarma)', 5, [L('lt', 10)], S, undefined, false],
+    ['lte: en el umbral ya lo cruzó', 10, [L('lte', 10)], S, undefined, false],
+    ['lte sin SP: 12 → cerca', 12, [L('lte', 10)], S, undefined, true],
+    // con setpoint
+    ['gt con SP 50: 90 % de 50→90 = 86 → cerca', 86, [L('gt', 90)], S, 50, true],
+    ['gt con SP 50: 85.9 → aún no', 85.9, [L('gt', 90)], S, 50, false],
+    ['gt con SP 50: 81 (cerca sin SP) ya no lo es con SP', 81, [L('gt', 90)], S, 50, false],
+    ['lt con SP 50: 90 % de 50→10 = 14 → cerca', 14, [L('lt', 10)], S, 50, true],
+    ['lt con SP 50: 15 → aún no', 15, [L('lt', 10)], S, 50, false],
+    ['SP del lado equivocado del límite se ignora (cae a la escala)', 81, [L('gt', 90)], S, 95, true],
+    ['SP igual al límite se ignora', 81, [L('gt', 90)], S, 90, true],
+    // varios límites
+    ['dos límites: cerca del bajo', 19, [L('gt', 90), L('lt', 10)], S, undefined, true],
+    ['dos límites: cerca del alto', 82, [L('gt', 90), L('lt', 10)], S, undefined, true],
+    ['dos límites: en el medio', 50, [L('gt', 90), L('lt', 10)], S, undefined, false],
+    ['advertencia 198 / crítica 220, escala 0-242: 180 ya está al 90 % de la primera', 180, [L('gt', 198), L('gt', 220, 'critical')], { min: 0, max: 242 }, undefined, true],
+    ['advertencia 198 / crítica 220: 170 lejos de ambas', 170, [L('gt', 198), L('gt', 220, 'critical')], { min: 0, max: 242 }, undefined, false],
+    ['SP 150 con límites 198/220: 193.2 = 90 % de 150→198', 193.2, [L('gt', 198), L('gt', 220, 'critical')], { min: 0, max: 242 }, 150, true],
+    // casos límite
+    ['activo sin límites', 99, [], S, undefined, false],
+    ['escala ausente y sin SP: no se puede decidir', 89, [L('gt', 90)], undefined, undefined, false],
+    ['escala ausente pero con SP: se decide por el SP', 86, [L('gt', 90)], undefined, 50, true],
+    ['escala degenerada y sin SP', 89, [L('gt', 90)], { min: 90, max: 90 }, undefined, false],
+    ['valor no finito', NaN, [L('gt', 90)], S, undefined, false],
+    ['escala -10…50, límite 30: 90 % de -10→30 = 26', 26, [L('gt', 30)], { min: -10, max: 50 }, undefined, true],
+    ['escala -10…50, límite 30: 25.9', 25.9, [L('gt', 30)], { min: -10, max: 50 }, undefined, false],
   ];
-  it.each(rows)('%s', (_n, v, limits, scale, expected) => {
-    expect(isNearLimit(v, limits, scale)).toBe(expected);
+  it.each(rows)('%s', (_n, v, limits, scale, sp, expected) => {
+    expect(isNearLimit(v, limits, scale, sp)).toBe(expected);
   });
 
   it('beyondLimit respeta cada operador', () => {
@@ -39,6 +54,18 @@ describe('isNearLimit (a menos del 10 % de la escala, en la dirección peligrosa
     expect(beyondLimit(90, L('gte', 90))).toBe(true);
     expect(beyondLimit(10, L('lt', 10))).toBe(false);
     expect(beyondLimit(10, L('lte', 10))).toBe(true);
+  });
+
+  it('setpointOf: metadata.setpoints[métrica] o la métrica sp de la telemetría (sólo la principal)', () => {
+    const tank = { type: 'tank' as const, metadata: { setpoints: { level: 55, temp: 20 } } };
+    expect(setpointOf(tank, {}, 'level')).toBe(55);
+    expect(setpointOf(tank, {}, 'temp')).toBe(20);
+    const bare = { type: 'tank' as const, metadata: {} };
+    expect(setpointOf(bare, { level: 40, sp: 60 }, 'level')).toBe(60);
+    expect(setpointOf(bare, { level: 40, sp: 60 }, 'temp')).toBeUndefined();
+    expect(setpointOf(bare, { level: 40 }, 'level')).toBeUndefined();
+    expect(setpointOf({ type: 'tank', metadata: { setpoints: { level: 'x' } } }, {}, 'level')).toBeUndefined();
+    expect(setpointOf(undefined, { sp: 1 }, 'level')).toBeUndefined();
   });
 });
 
@@ -72,8 +99,11 @@ describe('cardStatus', () => {
     ['sin telemetría → Sin datos', { ...base, state: undefined }, 'nodata'],
     ['calidad mala → Sin datos', { ...base, state: state({ level: 50 }, 'bad') }, 'nodata'],
     ['en rango', { ...base, state: state({ level: 50 }) }, 'ok'],
-    ['cerca del límite alto', { ...base, state: state({ level: 85 }) }, 'near'],
-    ['cerca del límite bajo', { ...base, state: state({ level: 14 }) }, 'near'],
+    ['cerca del límite alto (≥81 sin setpoint)', { ...base, state: state({ level: 85 }) }, 'near'],
+    ['a 80 todavía en rango', { ...base, state: state({ level: 80 }) }, 'ok'],
+    ['con setpoint en metadata, 85 ya no es cerca (90 % de 50→90 = 86)', { ...base, def: { type: 'tank' as const, metadata: { setpoints: { level: 50 } } }, state: state({ level: 85 }) }, 'ok'],
+    ['con setpoint en la telemetría (sp), 87 es cerca', { ...base, state: state({ level: 87, sp: 50 }) }, 'near'],
+    ['cerca del límite bajo (≤19 sin setpoint)', { ...base, state: state({ level: 14 }) }, 'near'],
     ['ya cruzó el límite pero la alarma aún no llegó → cerca/en el límite', { ...base, state: state({ level: 93 }) }, 'near'],
     ['alarma activa manda', { ...base, state: state({ level: 50 }), alarmSeverity: 'critical' }, 'alarm'],
     ['sin límites nunca es «cerca»', { ...base, limits: [], state: state({ level: 99 }) }, 'ok'],

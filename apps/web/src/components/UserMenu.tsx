@@ -8,6 +8,7 @@ import { getToken } from '@/lib/auth';
 import { config } from '@/lib/env';
 import { signOut, useSessionStore } from '@/store/session-store';
 import { IconLogout, IconMonitor, IconSettings, IconUser } from './icons';
+import { ThemeToggle } from './ThemeToggle';
 import { ViewAsSelect } from './ViewAsSelect';
 
 const itemCls = 'flex min-h-11 items-center gap-3 rounded-lg px-3 text-sm font-semibold hover:bg-surface-2';
@@ -31,6 +32,7 @@ export function UserLinks() {
   return (
     <nav aria-label="Cuenta" className="hidden items-center gap-2 md:flex">
       {config.mock && <ViewAsSelect className="w-52 [&>span]:sr-only" />}
+      <ThemeToggle variant="button" />
       <Link prefetch={false} href="/pared" className={linkCls}>
         <IconMonitor className="text-base" /> Modo pared
       </Link>
@@ -102,6 +104,7 @@ export function UserMenu() {
             </p>
           )}
           {config.mock && <ViewAsSelect className="px-2 pb-2" />}
+          <ThemeToggle />
           <Link prefetch={false} href="/pared" className={itemCls} onClick={() => setOpen(false)}>
             <IconMonitor className="text-xl" /> Modo pared
           </Link>

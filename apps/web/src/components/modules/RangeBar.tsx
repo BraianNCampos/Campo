@@ -23,7 +23,7 @@ export function labelledLimits(limits: readonly Limit[], scale: Scale, edge = 6,
  * van en tono neutro: el color lo pone el estado (relleno), no la barra.
  */
 export function RangeBar({
-  value, scale, limits, color, label, unit = '', height = 10, big = false,
+  value, scale, limits, color, label, unit = '', height = 10, big = false, setpoint,
 }: {
   value: number | undefined;
   scale: Scale;
@@ -33,6 +33,8 @@ export function RangeBar({
   unit?: string;
   height?: number;
   big?: boolean;
+  /** setpoint: se dibuja como un rombo bajo la barra */
+  setpoint?: number;
 }) {
   const pct = value === undefined ? 0 : scalePct(value, scale);
   const labelled = big ? labelledLimits(limits, scale, 14, 18) : labelledLimits(limits, scale);
@@ -49,6 +51,15 @@ export function RangeBar({
         style={{ height }}
       >
         <div className="h-full rounded-[2px]" style={{ width: `${pct}%`, background: color, transition: 'width 400ms ease-out' }} />
+        {setpoint !== undefined && (
+          <span
+            data-testid="setpoint-mark"
+            title={`Setpoint ${fmt(setpoint)} ${unit}`.trim()}
+            className="absolute bottom-0 size-[7px] -translate-x-1/2 translate-y-1/2 rotate-45 bg-muted"
+            style={{ left: `${scalePct(setpoint, scale)}%` }}
+            aria-hidden="true"
+          />
+        )}
         {limits.map((l, i) => (
           <span
             key={`${l.operator}${l.threshold}${i}`}

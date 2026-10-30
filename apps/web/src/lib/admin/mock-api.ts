@@ -136,9 +136,13 @@ export class MockAdminApi implements AdminApi {
   private plantAccess(plant: string) {
     const me = this.meUser;
     const p = this.plants.get(plant);
-    if (me.role === 'platform_admin' || me.role === 'admin') {
+    if (me.role === 'platform_admin') {
       if (!p) this.fail(404, 'La planta no existe');
-      this.sameOrg(p.orgId);
+      return;
+    }
+    // un administrador de cliente recibe el MISMO 403 para una planta ajena o inexistente (nunca 404)
+    if (me.role === 'admin') {
+      if (!p || p.orgId !== me.orgId) this.fail(403, 'No tenés acceso a esta planta');
       return;
     }
     if (!p || p.orgId !== me.orgId || !me.plants.includes(plant)) this.fail(403, 'No tenés acceso a esta planta');
@@ -445,10 +449,10 @@ export class MockAdminApi implements AdminApi {
     return { id, name: p.name, assets: this.assets.filter((a) => a.plant === id).length, orgId: p.orgId };
   }
 
-  /** `orgId` pedido en un listado: un administrador de cliente sólo puede pedir el suyo (403). */
+  /** `orgId` pedido en un listado: un administrador de cliente siempre ve sólo su cliente (se ignora lo que pida). */
   private scopeOrg(orgId: string | undefined): string | undefined {
     const me = this.meUser;
-    if (me.role !== 'platform_admin' && orgId && orgId !== me.orgId) this.fail(403, 'No tenés acceso a este recurso');
+    if (me.role !== 'platform_admin') return me.orgId ?? undefined; // el filtro de otro cliente se ignora: sólo ve lo suyo
     return orgId || undefined;
   }
 
@@ -497,6 +501,7 @@ export class MockAdminApi implements AdminApi {
       const orgId = this.orgOfPlant(id);
       this.plants.delete(id);
       for (const [mid, m] of this.models) if (m.info.plant === id) this.models.delete(mid);
+      this.rules = this.rules.filter((r) => r.plant !== id); // también se borran sus reglas (y alarmas)
       for (const u of this.users) u.plants = u.plants.filter((p) => p !== id);
       this.record('plant.delete', `plant:${id}`, {}, this.now(), this.meUser, orgId);
       this.changed(id);
@@ -708,6 +713,7 @@ export class MockAdminApi implements AdminApi {
         this.fail(400, 'Nada que modificar (role, active o password)');
       }
       const u = this.userOrFail(id);
+      if ('orgId' in patch && me.role !== 'platform_admin') this.fail(400, 'orgId should not exist: un usuario no cambia de cliente');
       const errs: string[] = [];
       if (patch.role !== undefined && !ROLES.includes(patch.role)) errs.push(`role must be one of the following values: ${ROLES.join(', ')}`);
       if (patch.password !== undefined) errs.push(...this.passwordErrors(patch.password, 'password'));
@@ -833,7 +839,7 @@ export class MockAdminApi implements AdminApi {
     return this.run(() => {
       this.require(...STAFF);
       const me = this.meUser;
-      const org = me.role === 'platform_admin' ? q.orgId || undefined : (this.scopeOrg(q.orgId), me.orgId);
+      const org = this.scopeOrg(q.orgId);
       const limit = Math.min(Math.max(q.limit ?? 50, 1), 200);
       const actor = q.actor?.trim().toLowerCase();
       const action = q.action?.trim().toLowerCase();
