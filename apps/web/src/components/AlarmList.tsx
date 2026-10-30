@@ -1,12 +1,12 @@
 'use client';
 
 import { useMemo } from 'react';
-import { assetLabel } from '@/lib/assets';
 import { formatAgo } from '@/lib/math';
 import { metricMeta } from '@/lib/metrics';
 import { acknowledgeAlarm } from '@/live/alarm-actions';
 import { sortAlarms, useLiveStore } from '@/store/live-store';
 import { IconCheck, IconCritical, IconWarning } from './icons';
+import { AssetName } from './AssetName';
 import { useNow } from './hooks';
 
 /** Lista de alarmas activas con botón de reconocimiento (≥44 px de alto). */
@@ -55,7 +55,7 @@ export function AlarmList({ onSelect }: { onSelect?: (assetId: string) => void }
                     onClick={() => onSelect?.(a.asset)}
                     className="mt-0.5 block min-h-6 text-left text-base font-semibold hover:underline"
                   >
-                    {assetLabel(a.asset)}
+                    <AssetName id={a.asset} />
                   </button>
                   <p className="text-sm text-muted">{a.message || `${metricMeta(a.metric).label} fuera de límite`}</p>
                   <p className="mt-1 font-mono text-sm tabular-nums">

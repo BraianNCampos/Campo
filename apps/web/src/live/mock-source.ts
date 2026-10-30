@@ -10,6 +10,7 @@ export const MOCK_TICK_MS = 250;
  */
 export function startMockSource(emit: (m: ServerMessage) => void, plant = 'demo'): () => void {
   const sim = new PlantSimulator(plant, Math.floor(Math.random() * 1e6));
+  const offCatalog = watchCatalog(emit, plant);
   emit(sim.snapshot(Date.now()));
   let last = Date.now();
   const id = setInterval(() => {
@@ -18,7 +19,15 @@ export function startMockSource(emit: (m: ServerMessage) => void, plant = 'demo'
     last = now;
     for (const m of sim.step(dt, now)) emit(m);
   }, MOCK_TICK_MS);
-  return () => clearInterval(id);
+  return () => {
+    clearInterval(id);
+    offCatalog();
+  };
+}
+
+/** En demo, cada edición del catálogo/modelos (API en memoria) avisa como lo haría la API real por WebSocket. */
+function watchCatalog(emit: (m: ServerMessage) => void, plant: string): () => void {
+  return getAdminApi().onCatalogChange?.((p) => p === plant && emit({ type: 'catalog', plant })) ?? (() => {});
 }
 
 /**
@@ -28,6 +37,7 @@ export function startMockSource(emit: (m: ServerMessage) => void, plant = 'demo'
 export function startCatalogSource(emit: (m: ServerMessage) => void, plant: string): () => void {
   let stopped = false;
   let timer: ReturnType<typeof setInterval> | null = null;
+  const offCatalog = watchCatalog(emit, plant);
   void getAdminApi()
     .listAssets(plant)
     .then((assets) => {
@@ -54,6 +64,7 @@ export function startCatalogSource(emit: (m: ServerMessage) => void, plant: stri
     .catch(() => emit({ type: 'snapshot', plant, assets: {} }));
   return () => {
     stopped = true;
+    offCatalog();
     if (timer) clearInterval(timer);
   };
 }

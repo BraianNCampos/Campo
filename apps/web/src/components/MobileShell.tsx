@@ -6,6 +6,7 @@ import { useUiStore, type MobileTab } from '@/store/ui-store';
 import { AlarmList } from './AlarmList';
 import { AssetCard } from './AssetCard';
 import { AssetPanel } from './AssetPanel';
+import { EmptyAssets } from './EmptyAssets';
 import { Header } from './Header';
 import { IconBell, IconCube, IconGrid } from './icons';
 import { OfflineBanner } from './OfflineBanner';
@@ -35,7 +36,7 @@ export function MobileShell() {
       <main className="min-h-0 flex-1 overflow-y-auto overscroll-contain" id="main">
         {tab === 'summary' && (
           <section aria-label="Resumen de activos" className="grid grid-cols-1 gap-3 p-3 min-[600px]:grid-cols-2">
-            {ids.length === 0 && <p className="p-4 text-muted">Esperando datos…</p>}
+            {ids.length === 0 && <EmptyAssets className="min-[600px]:col-span-2" />}
             {ids.map((id) => (
               <AssetCard key={id} id={id} />
             ))}

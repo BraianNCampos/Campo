@@ -6,14 +6,14 @@ import * as THREE from 'three';
 import { clamp, damp } from '@/lib/math';
 import { formatMetric } from '@/lib/metrics';
 import { assetStatus, STATUS_META } from '@/lib/status';
-import { Equipment } from './Equipment';
-import { PIPE_Y, type Vec3 } from './layout';
+import { Equipment, type AssetNodeProps } from './Equipment';
+import { PIPE_Y } from './layout';
 import { useAssetTarget } from './useAssetTarget';
 
 const steel = { color: '#8fa3b8', metalness: 0.15, roughness: 0.38 } as const;
 
 /** Válvula de bola: la palanca gira de 90° (cerrada, transversal) a 0° (abierta, alineada con la tubería). */
-export function Valve({ id, position }: { id: string; position: Vec3 }) {
+export function Valve({ id, name, placement }: AssetNodeProps) {
   const target = useAssetTarget(id);
   const lever = useRef<THREE.Group>(null);
   const leverMat = useRef<THREE.MeshStandardMaterial>(null);
@@ -44,7 +44,7 @@ export function Valve({ id, position }: { id: string; position: Vec3 }) {
   });
 
   return (
-    <Equipment id={id} position={position} ringRadius={0.95} labelPos={[0, 2.0, 0]} valueRef={valueEl}>
+    <Equipment id={id} name={name} type="valve" placement={placement} ringRadius={0.95} labelPos={[0, 2.0, 0]} valueRef={valueEl}>
       <mesh position-y={0.35}>
         <boxGeometry args={[0.5, 0.7, 0.5]} />
         <meshStandardMaterial color="#334155" roughness={0.8} />

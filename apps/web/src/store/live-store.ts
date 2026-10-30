@@ -1,7 +1,7 @@
 import { create } from 'zustand';
-import type { AlarmEvent, AssetState, Severity } from '@campo/shared';
+import type { AlarmEvent, AssetDef, AssetState, Severity } from '@campo/shared';
 import type { Batch } from '@/lib/batcher';
-import { sortAssetIds } from '@/lib/assets';
+import { catalogMap, mergeAssetIds, sameCatalog } from '@/lib/catalog';
 import { maxSeverity } from '@/lib/status';
 import { pushAssetValues } from './history';
 
@@ -18,7 +18,13 @@ export interface LiveData {
   /** true si los datos vienen de la caché local y aún no ha llegado un snapshot */
   fromCache: boolean;
   assets: Record<string, AssetState>;
-  /** ids ordenados; la referencia sólo cambia si cambia el conjunto */
+  /** catálogo de la planta (`GET /api/plants/:plant/assets`) por id */
+  catalog: Record<string, AssetDef>;
+  /** true cuando el catálogo ya se ha cargado al menos una vez */
+  catalogReady: boolean;
+  /** la última carga del catálogo falló */
+  catalogError: boolean;
+  /** catálogo ∪ telemetría, ordenados; la referencia sólo cambia si cambia el conjunto */
   assetIds: string[];
   /** alarmas activas por id */
   alarms: Record<string, AlarmEvent>;
@@ -31,6 +37,8 @@ export interface LiveActions {
   setConnection(connection: ConnectionStatus, attempt?: number): void;
   setMode(mode: DataMode, plant: string): void;
   hydrate(assets: Record<string, AssetState>): void;
+  setCatalog(list: readonly AssetDef[]): void;
+  setCatalogError(failed: boolean): void;
   ackLocal(id: string): void;
   setNotice(msg: string | null): void;
   reset(): void;
@@ -46,6 +54,9 @@ export const initialLiveData = (): LiveData => ({
   lastMessageAt: null,
   fromCache: false,
   assets: {},
+  catalog: {},
+  catalogReady: false,
+  catalogError: false,
   assetIds: [],
   alarms: {},
   alarmSeverityByAsset: {},
@@ -66,7 +77,7 @@ export function severityByAsset(alarms: Record<string, AlarmEvent>): Record<stri
 
 /** Reductor puro: aplica un lote al estado. Devuelve sólo los campos que cambian. */
 export function reduceBatch(
-  s: Pick<LiveData, 'assets' | 'assetIds' | 'alarms' | 'alarmSeverityByAsset'>,
+  s: Pick<LiveData, 'assets' | 'catalog' | 'assetIds' | 'alarms' | 'alarmSeverityByAsset'>,
   batch: Batch,
 ): Partial<LiveData> {
   const patch: Partial<LiveData> = {};
@@ -94,7 +105,7 @@ export function reduceBatch(
   }
   if (copied) {
     patch.assets = assets;
-    const ids = sortAssetIds(Object.keys(assets));
+    const ids = mergeAssetIds(s.catalog, assets);
     if (!sameIds(ids, s.assetIds)) patch.assetIds = ids;
   }
 
@@ -142,7 +153,22 @@ export const useLiveStore = create<LiveStore>()((set, get) => ({
 
   hydrate(assets) {
     if (Object.keys(get().assets).length > 0) return;
-    set({ assets, assetIds: sortAssetIds(Object.keys(assets)), fromCache: true });
+    set({ assets, assetIds: mergeAssetIds(get().catalog, assets), fromCache: true });
+  },
+
+  setCatalog(list) {
+    const s = get();
+    const catalog = catalogMap(list);
+    if (s.catalogReady && sameCatalog(s.catalog, catalog)) {
+      if (s.catalogError) set({ catalogError: false });
+      return;
+    }
+    const ids = mergeAssetIds(catalog, s.assets);
+    set({ catalog, catalogReady: true, catalogError: false, ...(sameIds(ids, s.assetIds) ? {} : { assetIds: ids }) });
+  },
+
+  setCatalogError(catalogError) {
+    if (get().catalogError !== catalogError) set({ catalogError });
   },
 
   ackLocal(id) {

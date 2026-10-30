@@ -1,9 +1,9 @@
 'use client';
 
-import { assetLabel } from '@/lib/assets';
 import { metricMeta } from '@/lib/metrics';
 import { useLiveStore } from '@/store/live-store';
 import { useUiStore } from '@/store/ui-store';
+import { AssetName } from './AssetName';
 import { LineChart } from './LineChart';
 
 const WINDOWS = [
@@ -23,7 +23,7 @@ export function ChartsStrip() {
     <section aria-label="Curvas en tiempo real" className="flex h-full min-h-0 flex-col rounded-2xl border border-line bg-surface p-3">
       <header className="mb-2 flex items-center justify-between gap-3">
         <h2 className="text-sm font-semibold">
-          Curvas en tiempo real{id && <span className="ml-2 font-normal text-muted">{assetLabel(id)}</span>}
+          Curvas en tiempo real{id && <span className="ml-2 font-normal text-muted"><AssetName id={id} /></span>}
         </h2>
         <div role="group" aria-label="Ventana de tiempo" className="flex overflow-hidden rounded-lg border border-line">
           {WINDOWS.map((w) => (

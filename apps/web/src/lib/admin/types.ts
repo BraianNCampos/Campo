@@ -1,6 +1,6 @@
-import type { AssetDef, AssetType, AuditEntry, ManagedUser, Me, Plant, Role, Severity } from '@campo/shared';
+import type { AssetDef, AssetType, AuditEntry, ManagedUser, Me, ModelInfo, Plant, Role, Severity } from '@campo/shared';
 
-export type { AssetDef, AssetType, AuditEntry, ManagedUser, Me, Plant, Role, Severity };
+export type { AssetDef, AssetType, AuditEntry, ManagedUser, Me, ModelInfo, Plant, Role, Severity };
 
 export type Operator = 'gt' | 'lt' | 'gte' | 'lte';
 export const OPERATORS: readonly Operator[] = ['gt', 'lt', 'gte', 'lte'];
@@ -36,6 +36,19 @@ export interface AssetInput {
 }
 /** El id no se cambia. */
 export type AssetPatch = Partial<Omit<AssetInput, 'id'>>;
+/** Respuesta de alta/edición: la API puede añadir avisos no bloqueantes (p. ej. `connectsTo` hacia un activo inexistente). */
+export type AssetResult = AssetDef & { warnings?: string[] };
+
+export interface ModelUploadOptions {
+  /** Bytes enviados / totales (sólo si el navegador conoce el total) */
+  onProgress?: (loaded: number, total: number) => void;
+  signal?: AbortSignal;
+}
+/** `created` = false si la API devolvió el modelo ya existente (mismo contenido, 200). */
+export interface ModelUploadResult {
+  model: ModelInfo;
+  created: boolean;
+}
 
 export interface UserInput {
   email: string;
@@ -69,9 +82,20 @@ export interface AdminApi {
   deletePlant(id: string): Promise<void>;
 
   listAssets(plant: string): Promise<AssetDef[]>;
-  createAsset(plant: string, input: AssetInput): Promise<AssetDef>;
-  updateAsset(plant: string, id: string, patch: AssetPatch): Promise<AssetDef>;
+  createAsset(plant: string, input: AssetInput): Promise<AssetResult>;
+  updateAsset(plant: string, id: string, patch: AssetPatch): Promise<AssetResult>;
   deleteAsset(plant: string, id: string): Promise<{ affectedRules: number }>;
+
+  // Modelos 3D (docs/architecture.md §10.2)
+  listModels(plant: string): Promise<ModelInfo[]>;
+  /** Sube un GLB crudo (`model/gltf-binary`). */
+  uploadModel(plant: string, file: Blob, name: string, opts?: ModelUploadOptions): Promise<ModelUploadResult>;
+  /** 409 (`ModelInUseError`) con la lista de activos si está referenciado. */
+  deleteModel(plant: string, id: string): Promise<void>;
+  /** Descarga el binario del modelo (`GET /api/models/:id`, con Bearer). */
+  downloadModel(id: string): Promise<ArrayBuffer>;
+  /** Avisa cuando cambian activos o modelos de una planta (sólo el mock: la API real lo hace por WebSocket). */
+  onCatalogChange?(listener: (plant: string) => void): () => void;
 
   listUsers(): Promise<ManagedUser[]>;
   createUser(input: UserInput): Promise<ManagedUser>;

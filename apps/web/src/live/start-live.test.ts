@@ -111,7 +111,7 @@ describe('startLive: cambio de planta', () => {
     const stop = startLive('norte', { createSocket: factory });
     FakeWs.all[0]!.send(snap('norte', 'tk-91', 1));
     await new Promise((r) => setTimeout(r, 20));
-    const url = (vi.mocked(fetch).mock.calls[0]![0] as string);
+    const url = vi.mocked(fetch).mock.calls.map((c) => String(c[0])).find((u) => u.includes('/api/alarms'))!;
     expect(url).toContain('state=active');
     expect(url).toContain('plant=norte');
     stop();

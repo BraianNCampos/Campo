@@ -1,15 +1,18 @@
 'use client';
 
-import { assetKind, assetLabel, kindLabel, primaryMetric, type AssetKind } from '@/lib/assets';
+import { useMemo } from 'react';
+import { kindLabel, kindPlural, primaryMetric, resolveKind, type AssetKind } from '@/lib/assets';
 import { formatMetric } from '@/lib/metrics';
 import { STATUS_META } from '@/lib/status';
 import { useLiveStore } from '@/store/live-store';
 import { useUiStore } from '@/store/ui-store';
+import { EmptyAssets } from './EmptyAssets';
 import { KIND_ICON, STATUS_ICON } from './icons';
+import { UncatalogedTag } from './StatusBadge';
 import { useAsset } from './useAsset';
 
 function Row({ id }: { id: string }) {
-  const { state, kind, status } = useAsset(id);
+  const { state, kind, status, name, uncataloged } = useAsset(id);
   const selected = useUiStore((s) => s.selectedId === id);
   const select = useUiStore((s) => s.select);
   const KIcon = KIND_ICON[kind];
@@ -29,15 +32,20 @@ function Row({ id }: { id: string }) {
       >
         <KIcon className="shrink-0 text-xl text-muted" />
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm font-semibold">{assetLabel(id)}</span>
-          <span className={`flex items-center gap-1 text-xs font-medium ${m.text}`}>
-            <SIcon className="text-sm" />
-            {m.label}
+          <span className="block truncate text-sm font-semibold">{name}</span>
+          <span className={`flex flex-wrap items-center gap-x-1.5 text-xs font-medium ${m.text}`}>
+            <span className="flex items-center gap-1" data-testid={`row-status-${id}`}>
+              <SIcon className="text-sm" />
+              {m.label}
+            </span>
+            {uncataloged && <UncatalogedTag />}
           </span>
         </span>
-        <span data-testid={`row-value-${id}`} className="font-mono text-sm font-semibold tabular-nums">
-          {formatMetric(metric, state?.values[metric])}
-        </span>
+        {status !== 'nodata' && (
+          <span data-testid={`row-value-${id}`} className="font-mono text-sm font-semibold tabular-nums">
+            {formatMetric(metric, state?.values[metric])}
+          </span>
+        )}
       </button>
     </li>
   );
@@ -46,19 +54,24 @@ function Row({ id }: { id: string }) {
 /** Lista de activos agrupada por tipo (escritorio). */
 export function AssetList() {
   const ids = useLiveStore((s) => s.assetIds);
-  const groups = new Map<AssetKind, string[]>();
-  for (const id of ids) {
-    const k = assetKind(id, useLiveStore.getState().assets[id]?.values);
-    groups.set(k, [...(groups.get(k) ?? []), id]);
-  }
+  const catalog = useLiveStore((s) => s.catalog);
+  const groups = useMemo(() => {
+    const out = new Map<AssetKind, string[]>();
+    const { assets } = useLiveStore.getState(); // el tipo sólo se deduce de los valores para activos fuera del catálogo
+    for (const id of ids) {
+      const k = resolveKind(id, assets[id]?.values, catalog[id]?.type);
+      out.set(k, [...(out.get(k) ?? []), id]);
+    }
+    return out;
+  }, [ids, catalog]);
   return (
     <nav aria-label="Activos" className="flex h-full min-h-0 flex-col rounded-2xl border border-line bg-surface">
       <h2 className="px-4 pt-3 pb-1 text-sm font-semibold">Activos</h2>
       <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
-        {ids.length === 0 && <p className="px-2 py-4 text-sm text-muted">Esperando datos…</p>}
+        {ids.length === 0 && <EmptyAssets />}
         {[...groups.entries()].map(([kind, list]) => (
           <section key={kind} aria-label={kindLabel(kind)}>
-            <h3 className="px-2 pt-2 pb-1 text-xs font-semibold tracking-wide text-muted uppercase">{kindLabel(kind)}s</h3>
+            <h3 className="px-2 pt-2 pb-1 text-xs font-semibold tracking-wide text-muted uppercase">{kindPlural(kind)}</h3>
             <ul className="flex flex-col gap-0.5">
               {list.map((id) => (
                 <Row key={id} id={id} />

@@ -1,8 +1,8 @@
-import type { AssetState } from '@campo/shared';
+import type { AssetState, AssetType } from '@campo/shared';
 
-export type AssetKind = 'tank' | 'pump' | 'valve' | 'other';
+export type AssetKind = 'tank' | 'pump' | 'valve' | 'sensor' | 'other';
 
-const KIND_ORDER: Record<AssetKind, number> = { tank: 0, pump: 1, valve: 2, other: 3 };
+const KIND_ORDER: Record<AssetKind, number> = { tank: 0, pump: 1, valve: 2, sensor: 3, other: 4 };
 
 export function assetKind(id: string, values?: Record<string, number>): AssetKind {
   if (/^(tk|tank|tanque)/i.test(id)) return 'tank';
@@ -20,10 +20,24 @@ const KIND_LABEL: Record<AssetKind, string> = {
   tank: 'Tanque',
   pump: 'Bomba',
   valve: 'Válvula',
+  sensor: 'Sensor',
   other: 'Equipo',
+};
+const KIND_PLURAL: Record<AssetKind, string> = {
+  tank: 'Tanques',
+  pump: 'Bombas',
+  valve: 'Válvulas',
+  sensor: 'Sensores',
+  other: 'Equipos',
 };
 
 export const kindLabel = (k: AssetKind) => KIND_LABEL[k];
+export const kindPlural = (k: AssetKind) => KIND_PLURAL[k];
+
+/** Tipo efectivo: el del catálogo manda; sin catálogo se deduce del id y de las métricas. */
+export function resolveKind(id: string, values?: Record<string, number>, type?: AssetType): AssetKind {
+  return type ?? assetKind(id, values);
+}
 
 /** tk-01 → "Tanque 01"; ids desconocidos se devuelven tal cual. */
 export function assetLabel(id: string): string {
@@ -37,10 +51,11 @@ export function primaryMetric(kind: AssetKind): string {
   return kind === 'tank' ? 'level' : kind === 'pump' ? 'rpm' : kind === 'valve' ? 'position' : 'value';
 }
 
-/** Orden estable: tanques, bombas, válvulas, otros; luego natural por id. */
-export function sortAssetIds(ids: string[]): string[] {
+/** Orden estable: tanques, bombas, válvulas, sensores, otros; luego natural por id. `typeOf` aporta el tipo del catálogo. */
+export function sortAssetIds(ids: string[], typeOf?: (id: string) => AssetType | undefined): string[] {
+  const kind = (id: string) => resolveKind(id, undefined, typeOf?.(id));
   return [...ids].sort((a, b) => {
-    const d = KIND_ORDER[assetKind(a)] - KIND_ORDER[assetKind(b)];
+    const d = KIND_ORDER[kind(a)] - KIND_ORDER[kind(b)];
     return d !== 0 ? d : a.localeCompare(b, 'en', { numeric: true });
   });
 }
@@ -49,8 +64,8 @@ export const RUNNING_RPM = 50;
 export const pumpRunning = (values: Record<string, number> | undefined): boolean =>
   (values?.rpm ?? 0) > RUNNING_RPM;
 
-export function primaryValue(id: string, state: AssetState | undefined): number | undefined {
+export function primaryValue(id: string, state: AssetState | undefined, type?: AssetType): number | undefined {
   if (!state) return undefined;
-  const key = primaryMetric(assetKind(id, state.values));
+  const key = primaryMetric(resolveKind(id, state.values, type));
   return state.values[key] ?? Object.values(state.values)[0];
 }

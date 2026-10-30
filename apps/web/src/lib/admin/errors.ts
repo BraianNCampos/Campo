@@ -6,6 +6,7 @@ export type ApiErrorKind =
   | 'forbidden'
   | 'not_found'
   | 'conflict'
+  | 'too_large'
   | 'network'
   | 'server'
   | 'unknown';
@@ -102,6 +103,8 @@ const ENGLISH_DEFAULTS = new Set([
   'internal server error',
   'too many requests',
   'service unavailable',
+  'payload too large',
+  'request entity too large',
   'bad gateway',
   'gateway timeout',
 ]);
@@ -112,6 +115,7 @@ const DEFAULT_TEXT: Record<number, string> = {
   403: 'No tienes permisos para realizar esta acción.',
   404: 'No se encontró el recurso solicitado.',
   409: 'La operación entra en conflicto con el estado actual.',
+  413: 'El archivo supera el tamaño máximo permitido (10 MB).',
   429: 'Demasiadas peticiones. Espera un momento y reinténtalo.',
 };
 
@@ -122,6 +126,7 @@ export function kindForStatus(status: number): ApiErrorKind {
   if (status === 403) return 'forbidden';
   if (status === 404) return 'not_found';
   if (status === 409) return 'conflict';
+  if (status === 413) return 'too_large';
   if (status >= 500) return 'server';
   return 'unknown';
 }
@@ -136,7 +141,7 @@ export function errorFromResponse(status: number, body: unknown): AdminApiError 
   );
 
   if (kind === 'validation') {
-    const parsed = messages.map(humanizeValidation);
+    const parsed = messages.filter((m) => !ENGLISH_DEFAULTS.has(m.trim().toLowerCase())).map(humanizeValidation); // «Bad Request» a secas no dice nada
     const details = parsed.length > 0 ? parsed.map((p) => p.text) : [DEFAULT_TEXT[400]!];
     const fields: Record<string, string> = {};
     for (const p of parsed) if (p.field && !fields[p.field]) fields[p.field] = p.text;
@@ -152,6 +157,36 @@ export function errorFromResponse(status: number, body: unknown): AdminApiError 
         ? first
         : (DEFAULT_TEXT[status] ?? `Error inesperado (${status}).`);
   return new AdminApiError(text, status, kind);
+}
+
+/** 409 al borrar un modelo que usan activos. El contrato no fija la forma del cuerpo: se aceptan varias. */
+export class ModelInUseError extends AdminApiError {
+  constructor(readonly assets: string[]) {
+    const list = assets.length > 0 ? `: ${assets.join(', ')}` : '';
+    super(
+      `El modelo está en uso por ${assets.length === 1 ? 'el activo' : assets.length > 1 ? `${assets.length} activos` : 'uno o más activos'}${list}. Cambia su modelo 3D antes de borrarlo.`,
+      409,
+      'conflict',
+    );
+    this.name = 'ModelInUseError';
+  }
+}
+
+const USED_BY_KEYS = ['assets', 'usedBy', 'referencedBy', 'assetIds'] as const;
+
+/** Extrae los ids de activo del cuerpo de un 409 (`{assets:[...]}`, `{usedBy:[{id}]}`…). */
+export function assetsFromConflict(body: unknown): string[] {
+  if (typeof body !== 'object' || body === null) return [];
+  const rec = body as Record<string, unknown>;
+  for (const key of USED_BY_KEYS) {
+    const v = rec[key];
+    if (!Array.isArray(v)) continue;
+    const ids = v
+      .map((x) => (typeof x === 'string' ? x : typeof x === 'object' && x !== null ? ((x as { id?: unknown; asset?: unknown }).id ?? (x as { asset?: unknown }).asset) : undefined))
+      .filter((x): x is string => typeof x === 'string' && x !== '');
+    if (ids.length > 0) return [...new Set(ids)];
+  }
+  return [];
 }
 
 export const networkError = () =>

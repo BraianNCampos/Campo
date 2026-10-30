@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect } from 'react';
-import { assetKind } from '@/lib/assets';
+import { resolveKind } from '@/lib/assets';
 import { useLiveStore } from '@/store/live-store';
 import { useUiStore } from '@/store/ui-store';
 import { AlarmList } from './AlarmList';
@@ -16,7 +16,7 @@ import { PlantView } from './PlantView';
 export function DesktopShell() {
   const selectedId = useUiStore((s) => s.selectedId);
   const select = useUiStore((s) => s.select);
-  const firstTank = useLiveStore((s) => s.assetIds.find((id) => assetKind(id) === 'tank') ?? s.assetIds[0]);
+  const firstTank = useLiveStore((s) => s.assetIds.find((id) => resolveKind(id, undefined, s.catalog[id]?.type) === 'tank') ?? s.assetIds[0]);
 
   // selección inicial para que las curvas no arranquen vacías
   useEffect(() => {

@@ -3,10 +3,17 @@
 import { useEffect, useRef, type ReactNode, type RefObject } from 'react';
 import { Html } from '@react-three/drei';
 import type * as THREE from 'three';
-import { assetKind, assetLabel } from '@/lib/assets';
+import type { AssetType } from '@campo/shared';
 import { useUiStore } from '@/store/ui-store';
 import { labelPortalRef } from './label-portal';
-import type { Vec3 } from './layout';
+import type { Placement, Vec3 } from './layout';
+
+/** Props comunes de los componentes de activo (procedurales y GLB). */
+export interface AssetNodeProps {
+  id: string;
+  name: string;
+  placement: Placement;
+}
 
 function SelectionRing({ id, radius }: { id: string; radius: number }) {
   const ref = useRef<THREE.Mesh>(null);
@@ -28,14 +35,18 @@ function SelectionRing({ id, radius }: { id: string; radius: number }) {
 /** Contenedor común: posición, clic de selección, anillo de selección y etiqueta HTML ligera. */
 export function Equipment({
   id,
-  position,
+  name,
+  type,
+  placement,
   ringRadius,
   labelPos,
   valueRef,
   children,
 }: {
   id: string;
-  position: Vec3;
+  name: string;
+  type: AssetType;
+  placement: Placement;
   ringRadius: number;
   labelPos: Vec3;
   valueRef: RefObject<HTMLElement | null>;
@@ -43,7 +54,9 @@ export function Equipment({
 }) {
   return (
     <group
-      position={position}
+      position={placement.position}
+      rotation-y={placement.rotY}
+      scale={placement.scale}
       onClick={(e) => {
         e.stopPropagation();
         const ui = useUiStore.getState();
@@ -60,8 +73,8 @@ export function Equipment({
       {children}
       <SelectionRing id={id} radius={ringRadius} />
       <Html position={labelPos} center zIndexRange={[20, 0]} portal={labelPortalRef} style={{ pointerEvents: 'none' }}>
-        <div className="scene-label" data-minor={assetKind(id) === 'tank' ? undefined : ''}>
-          {assetLabel(id)}
+        <div className="scene-label" data-minor={type === 'tank' ? undefined : ''}>
+          {name}
           <b ref={valueRef as RefObject<HTMLElement>}>—</b>
         </div>
       </Html>

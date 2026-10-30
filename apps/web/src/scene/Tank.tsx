@@ -6,8 +6,7 @@ import * as THREE from 'three';
 import { clamp, damp } from '@/lib/math';
 import { formatMetric } from '@/lib/metrics';
 import { assetStatus, STATUS_META } from '@/lib/status';
-import { Equipment } from './Equipment';
-import type { Vec3 } from './layout';
+import { Equipment, type AssetNodeProps } from './Equipment';
 import { useAssetTarget } from './useAssetTarget';
 
 export const TANK_R = 1.4;
@@ -16,7 +15,7 @@ const BASE = 0.15;
 
 const steel = { color: '#8fa3b8', metalness: 0.15, roughness: 0.4 } as const;
 
-export function Tank({ id, position }: { id: string; position: Vec3 }) {
+export function Tank({ id, name, placement }: AssetNodeProps) {
   const target = useAssetTarget(id);
   const liquid = useRef<THREE.Mesh>(null);
   const liquidMat = useRef<THREE.MeshStandardMaterial>(null);
@@ -53,7 +52,7 @@ export function Tank({ id, position }: { id: string; position: Vec3 }) {
   });
 
   return (
-    <Equipment id={id} position={position} ringRadius={TANK_R + 0.35} labelPos={[0, TANK_H + 0.75, 0]} valueRef={valueEl}>
+    <Equipment id={id} name={name} type="tank" placement={placement} ringRadius={TANK_R + 0.35} labelPos={[0, TANK_H + 0.75, 0]} valueRef={valueEl}>
       {/* zócalo */}
       <mesh position-y={BASE / 2}>
         <cylinderGeometry args={[TANK_R + 0.12, TANK_R + 0.18, BASE, 40]} />
@@ -84,7 +83,7 @@ export function Tank({ id, position }: { id: string; position: Vec3 }) {
         </mesh>
       ))}
       {/* toma lateral hacia la tubería (origen: lado +x; destino: lado -x) */}
-      <mesh position={[position[0] < 0 ? TANK_R : -TANK_R, 0.8, 0]} rotation-z={Math.PI / 2}>
+      <mesh position={[placement.position[0] < 0 ? TANK_R : -TANK_R, 0.8, 0]} rotation-z={Math.PI / 2}>
         <cylinderGeometry args={[0.2, 0.2, 0.25, 16]} />
         <meshStandardMaterial {...steel} />
       </mesh>

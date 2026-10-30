@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   describeRule,
+  emptyLayoutForm,
   emptyRuleForm,
   parseMetadata,
   passwordStrength,
@@ -74,7 +75,7 @@ describe('parseMetadata y validateAssetForm', () => {
     }
     expect(parseMetadata('{"a":{"b":1}}')).toEqual({ ok: true, value: { a: { b: 1 } } });
   });
-  const form = { id: 'tk-05', name: 'Tanque 05', type: 'tank' as const, model3dRef: '', metadataText: '' };
+  const form = { id: 'tk-05', name: 'Tanque 05', type: 'tank' as const, model3dRef: '', layout: emptyLayoutForm(), connectsTo: [] as string[], metadataText: '' };
   it('activo válido y errores de campo', () => {
     expect(validateAssetForm(form).value).toEqual({ id: 'tk-05', name: 'Tanque 05', type: 'tank', model3dRef: null, metadata: {} });
     expect(validateAssetForm({ ...form, id: 'TK 05' }).errors.id).toBeDefined();

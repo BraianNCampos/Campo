@@ -16,3 +16,16 @@ export function StatusBadge({ status, size = 'md', label }: { status: AssetStatu
     </span>
   );
 }
+
+/** Marca de un activo que envía telemetría pero no está en el catálogo. */
+export function UncatalogedTag({ className = '' }: { className?: string }) {
+  return (
+    <span
+      data-testid="uncataloged"
+      title="Envía telemetría pero no figura en el catálogo de la planta"
+      className={`inline-flex items-center rounded-full border border-warn/50 px-1.5 text-[11px] leading-5 font-semibold whitespace-nowrap text-warn ${className}`}
+    >
+      No catalogado
+    </span>
+  );
+}

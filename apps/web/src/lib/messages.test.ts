@@ -48,3 +48,12 @@ describe('alarmas REST (AlarmEvent + clearedAt/acknowledgedBy/…)', () => {
     expect(m).toMatchObject({ id: 'a1', acknowledged: true });
   });
 });
+
+describe('mensaje catalog', () => {
+  it('{type:"catalog", plant} es válido y exige la planta', () => {
+    expect(parseServerMessage({ type: 'catalog', plant: 'demo' })).toEqual({ type: 'catalog', plant: 'demo' });
+    expect(parseServerMessage('{"type":"catalog","plant":"norte"}')).toEqual({ type: 'catalog', plant: 'norte' });
+    expect(parseServerMessage({ type: 'catalog' })).toBeNull();
+    expect(parseServerMessage({ type: 'catalog', plant: '' })).toBeNull();
+  });
+});

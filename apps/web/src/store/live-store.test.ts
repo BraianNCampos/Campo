@@ -115,7 +115,7 @@ describe('useLiveStore.applyBatch', () => {
 
 describe('helpers', () => {
   it('reduceBatch es puro (no muta el estado anterior)', () => {
-    const state = { assets: {}, assetIds: [], alarms: {}, alarmSeverityByAsset: {} };
+    const state = { assets: {}, catalog: {}, assetIds: [], alarms: {}, alarmSeverityByAsset: {} };
     const b = emptyBatch();
     b.telemetry.a = { ts: 1, quality: 'good', values: { v: 1 } };
     b.alarms = [alarm({})];

@@ -7,7 +7,7 @@ import { lineFlow } from './Pipes';
 describe('layout', () => {
   it('todas las bombas de las tuberías existen en LINES y en LAYOUT', () => {
     const pumps = new Set(LINES.map((l) => l.pump));
-    for (const p of PIPES) for (const pump of p.pumps) expect(pumps.has(pump)).toBe(true);
+    for (const p of PIPES) for (const pump of p.sources) expect(pumps.has(pump)).toBe(true);
     for (const l of LINES) {
       expect(LAYOUT[l.pump]).toBeDefined();
       expect(LAYOUT[l.valve]).toBeDefined();

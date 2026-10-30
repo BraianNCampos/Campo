@@ -205,17 +205,43 @@ export const IconHome = (p: P) => (
   </Svg>
 );
 
+export const IconNoData = (p: P) => (
+  <Svg {...p}>
+    <circle cx="12" cy="12" r="9" strokeDasharray="3 3" />
+    <path d="M8.5 12h7" />
+  </Svg>
+);
+export const IconSensor = (p: P) => (
+  <Svg {...p}>
+    <circle cx="12" cy="9" r="3" />
+    <path d="M6.5 5.5a8 8 0 0 0 0 7M17.5 5.5a8 8 0 0 1 0 7M12 12v8.5M9 20.5h6" />
+  </Svg>
+);
+export const IconUpload = (p: P) => (
+  <Svg {...p}>
+    <path d="M12 16V5M7.5 9 12 4.5 16.5 9M5 20h14" />
+  </Svg>
+);
+export const IconEye = (p: P) => (
+  <Svg {...p}>
+    <path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z" />
+    <circle cx="12" cy="12" r="2.8" />
+  </Svg>
+);
+
 export const STATUS_ICON: Record<AssetStatus, (p: P) => React.JSX.Element> = {
   ok: IconCheck,
   warning: IconWarning,
   critical: IconCritical,
   uncertain: IconQuestion,
   bad: IconOffline,
+  nodata: IconNoData,
 };
 
 export const KIND_ICON: Record<AssetKind, (p: P) => React.JSX.Element> = {
   tank: IconTank,
   pump: IconPump,
   valve: IconValve,
+  sensor: IconSensor,
   other: IconGrid,
 };

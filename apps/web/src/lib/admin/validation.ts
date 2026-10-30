@@ -1,5 +1,6 @@
-import { ID_PATTERN } from '@campo/shared';
-import type { Role } from '@campo/shared';
+import { ID_PATTERN, MODEL_REF_PATTERN } from '@campo/shared';
+import type { AssetLayout, Role } from '@campo/shared';
+import { LAYOUT_LIMITS, parseConnectsTo, parseLayout } from '@/lib/catalog';
 import { ASSET_TYPES, OPERATORS, ROLES, SEVERITIES } from './types';
 import type { AlarmRuleInput, AssetInput, AssetType, Operator, Severity } from './types';
 
@@ -107,12 +108,145 @@ export function parseMetadata(text: string): { ok: true; value: Record<string, u
   return { ok: true, value: parsed as Record<string, unknown> };
 }
 
+/** Campos de `metadata.layout` como texto (lo que se escribe en los inputs). */
+export interface LayoutForm {
+  x: string;
+  z: string;
+  y: string;
+  rotY: string;
+  scale: string;
+}
+export const emptyLayoutForm = (): LayoutForm => ({ x: '', z: '', y: '', rotY: '', scale: '' });
+
 export interface AssetForm {
   id: string;
   name: string;
   type: AssetType | '';
+  /** '' = modelo procedural según el tipo; `model:<uuid>` = modelo GLB de la planta */
   model3dRef: string;
+  layout: LayoutForm;
+  connectsTo: string[];
   metadataText: string;
+}
+
+const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+
+/** Número desde texto de formulario (admite coma decimal). `undefined` si está vacío, `NaN` si no es un número. */
+export function parseNum(s: string): number | undefined {
+  const t = s.trim().replace(',', '.');
+  if (t === '') return undefined;
+  return /^[+-]?(\d+\.?\d*|\.\d+)(e[+-]?\d+)?$/i.test(t) ? Number(t) : NaN;
+}
+
+const LAYOUT_FIELDS: { key: keyof LayoutForm; label: string; min?: number; max?: number }[] = [
+  { key: 'x', label: 'Posición X', min: -LAYOUT_LIMITS.pos, max: LAYOUT_LIMITS.pos },
+  { key: 'z', label: 'Posición Z', min: -LAYOUT_LIMITS.pos, max: LAYOUT_LIMITS.pos },
+  { key: 'y', label: 'Altura Y', min: -LAYOUT_LIMITS.pos, max: LAYOUT_LIMITS.pos },
+  { key: 'rotY', label: 'Rotación' },
+  { key: 'scale', label: 'Escala', min: LAYOUT_LIMITS.scaleMin, max: LAYOUT_LIMITS.scaleMax },
+];
+const fmt = (n: number) => String(n).replace('.', ',');
+
+/**
+ * Valida los campos de disposición. `value`: `null` si están todos vacíos (sin layout propio) o el layout
+ * listo para guardar. Los errores se indexan como `layout` (conjunto) o `layoutX`, `layoutZ`, `layoutY`, `layoutRotY`, `layoutScale`.
+ */
+export function validateLayoutForm(f: LayoutForm): { errors: FieldErrors; value?: AssetLayout | null } {
+  const errors: FieldErrors = {};
+  const nums: Partial<Record<keyof LayoutForm, number>> = {};
+  for (const { key, label, min, max } of LAYOUT_FIELDS) {
+    const v = parseNum(f[key]);
+    if (v === undefined) continue;
+    const name = `layout${key[0]!.toUpperCase()}${key.slice(1)}`;
+    if (!Number.isFinite(v)) errors[name] = `${label}: introduce un número.`;
+    else if (min !== undefined && max !== undefined && (v < min || v > max)) errors[name] = `${label}: entre ${fmt(min)} y ${fmt(max)}.`;
+    else nums[key] = v;
+  }
+  if (hasErrors(errors)) return { errors };
+  const any = Object.keys(nums).length > 0;
+  if (!any) return { errors, value: null };
+  if (nums.x === undefined || nums.z === undefined) {
+    errors[nums.x === undefined ? 'layoutX' : 'layoutZ'] = 'Indica X y Z para colocar el activo (o vacía todos los campos para usar la posición automática).';
+    return { errors };
+  }
+  const layout: AssetLayout = { x: nums.x, z: nums.z };
+  if (nums.y !== undefined) layout.y = nums.y;
+  if (nums.rotY !== undefined) layout.rotY = nums.rotY;
+  if (nums.scale !== undefined) layout.scale = nums.scale;
+  return { errors, value: layout };
+}
+
+/** Texto de los campos a partir de `metadata.layout` (si es válido o, al menos, numérico). */
+export function layoutFormFrom(metadata: unknown): LayoutForm {
+  const raw = isObj(metadata) && isObj(metadata.layout) ? metadata.layout : undefined;
+  const out = emptyLayoutForm();
+  if (!raw) return out;
+  for (const { key } of LAYOUT_FIELDS) {
+    const v = raw[key];
+    if (typeof v === 'number' && Number.isFinite(v)) out[key] = String(v);
+  }
+  return out;
+}
+
+/** Problemas de `metadata.layout` y `metadata.connectsTo` (mismos límites que la API, §10.3). Vacío = correcto. */
+export function validateMetadataLayout(metadata: unknown, selfId?: string): string[] {
+  if (!isObj(metadata)) return [];
+  const out: string[] = [];
+  if (metadata.layout !== undefined) {
+    const l = metadata.layout;
+    if (!isObj(l)) out.push('layout debe ser un objeto {x, z, y?, rotY?, scale?}.');
+    else if (!parseLayout(metadata)) {
+      out.push(
+        `layout no es válido: x y z son obligatorios (|valor| ≤ ${LAYOUT_LIMITS.pos}), y también |y| ≤ ${LAYOUT_LIMITS.pos}, rotY en grados y escala entre ${LAYOUT_LIMITS.scaleMin} y ${LAYOUT_LIMITS.scaleMax}.`,
+      );
+    }
+  }
+  const c = metadata.connectsTo;
+  if (c !== undefined) {
+    if (!Array.isArray(c) || c.some((x) => typeof x !== 'string' || !ID_PATTERN.test(x))) out.push('connectsTo debe ser una lista de ids de activo.');
+    else {
+      if (c.length > LAYOUT_LIMITS.maxConnections) out.push(`connectsTo admite como máximo ${LAYOUT_LIMITS.maxConnections} activos.`);
+      if (new Set(c).size !== c.length) out.push('connectsTo no admite ids repetidos.');
+      if (selfId && c.includes(selfId)) out.push('connectsTo no puede incluir al propio activo.');
+    }
+  }
+  return out;
+}
+
+/**
+ * Escribe `layout` y `connectsTo` en una copia de los metadatos SIN tocar el resto de claves.
+ * `layout`: `undefined` = no tocar, `null` = quitar. `connectsTo`: `undefined` = no tocar, `[]` = quitar.
+ */
+export function mergeLayoutIntoMetadata(
+  meta: Record<string, unknown>,
+  layout: AssetLayout | null | undefined,
+  connectsTo: readonly string[] | undefined,
+): Record<string, unknown> {
+  const out = { ...meta };
+  if (layout === null) delete out.layout;
+  else if (layout) out.layout = layout;
+  if (connectsTo && connectsTo.length === 0) delete out.connectsTo;
+  else if (connectsTo) out.connectsTo = [...connectsTo];
+  return out;
+}
+
+/** Reescribe el JSON avanzado con la disposición de los campos; `null` si el JSON actual no es válido (no se toca). */
+export function syncMetadataText(
+  text: string,
+  layout: AssetLayout | null | undefined,
+  connectsTo: readonly string[] | undefined,
+): string | null {
+  const parsed = parseMetadata(text);
+  if (!parsed.ok) return null;
+  const merged = mergeLayoutIntoMetadata(parsed.value, layout, connectsTo);
+  return Object.keys(merged).length === 0 ? '' : JSON.stringify(merged, null, 2);
+}
+
+/** Campos estructurados a partir del JSON avanzado; `null` si no es válido. */
+export function fieldsFromMetadataText(text: string): { layout: LayoutForm; connectsTo: string[] } | null {
+  const parsed = parseMetadata(text);
+  if (!parsed.ok) return null;
+  return { layout: layoutFormFrom(parsed.value), connectsTo: parseConnectsTo(parsed.value) };
 }
 
 export function validateAssetForm(v: AssetForm, opts: { editing?: boolean } = {}): { errors: FieldErrors; value?: AssetInput } {
@@ -127,11 +261,20 @@ export function validateAssetForm(v: AssetForm, opts: { editing?: boolean } = {}
   else if (name.length > 100) errors.name = 'Máximo 100 caracteres.';
   if (!ASSET_TYPES.includes(v.type as AssetType)) errors.type = 'Elige un tipo.';
   const ref = v.model3dRef.trim();
-  if (ref.length > 200) errors.model3dRef = 'Máximo 200 caracteres.';
+  if (ref && !MODEL_REF_PATTERN.test(ref)) errors.model3dRef = 'Elige un modelo de la lista (model:<uuid>) o déjalo en «Procedural».';
   const meta = parseMetadata(v.metadataText);
   if (!meta.ok) errors.metadata = meta.error;
-  if (hasErrors(errors) || !meta.ok) return { errors };
-  return { errors, value: { id, name, type: v.type as AssetType, model3dRef: ref || null, metadata: meta.value } };
+  else {
+    const problems = validateMetadataLayout(meta.value, id || undefined);
+    if (problems.length > 0) errors.metadata = problems.join(' ');
+  }
+  const layout = validateLayoutForm(v.layout);
+  Object.assign(errors, layout.errors);
+  if (v.connectsTo.length > LAYOUT_LIMITS.maxConnections) errors.connectsTo = `Como máximo ${LAYOUT_LIMITS.maxConnections} conexiones.`;
+  else if (id && v.connectsTo.includes(id)) errors.connectsTo = 'Un activo no puede conectarse consigo mismo.';
+  if (hasErrors(errors) || !meta.ok || layout.value === undefined) return { errors };
+  const metadata = mergeLayoutIntoMetadata(meta.value, layout.value, v.connectsTo);
+  return { errors, value: { id, name, type: v.type as AssetType, model3dRef: ref || null, metadata } };
 }
 
 // ── Reglas de alarma ──

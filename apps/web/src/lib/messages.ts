@@ -65,6 +65,8 @@ export function parseServerMessage(raw: unknown, now = Date.now()): ServerMessag
       if (typeof data.acknowledged === 'boolean') ev.acknowledged = data.acknowledged;
       return ev;
     }
+    case 'catalog':
+      return isStr(data.plant) ? { type: 'catalog', plant: data.plant } : null;
     default:
       return null;
   }

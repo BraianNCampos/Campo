@@ -63,7 +63,7 @@ describe('assets', () => {
 describe('status / metrics', () => {
   const st = (quality: 'good' | 'uncertain' | 'bad') => ({ ts: 1, quality, values: {} });
   it('prioridad: sin dato > alarma > calidad', () => {
-    expect(assetStatus(undefined)).toBe('bad');
+    expect(assetStatus(undefined)).toBe('nodata');
     expect(assetStatus(st('bad'), 'critical')).toBe('bad');
     expect(assetStatus(st('good'), 'critical')).toBe('critical');
     expect(assetStatus(st('good'), 'warning')).toBe('warning');

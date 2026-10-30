@@ -1,9 +1,9 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import { assetLabel } from '@/lib/assets';
 import { metricMeta } from '@/lib/metrics';
 import { readSeries } from '@/store/history';
+import { useAssetName } from './useAsset';
 
 const COLORS = {
   line: '#38bdf8',
@@ -41,6 +41,7 @@ export function LineChart({
 }) {
   const ref = useRef<HTMLCanvasElement>(null);
   const meta = metricMeta(metric);
+  const name = useAssetName(asset);
 
   useEffect(() => {
     const canvas = ref.current;
@@ -185,7 +186,7 @@ export function LineChart({
     <canvas
       ref={ref}
       role="img"
-      aria-label={`Curva de ${meta.label.toLowerCase()} de ${assetLabel(asset)}`}
+      aria-label={`Curva de ${meta.label.toLowerCase()} de ${name}`}
       data-testid={`chart-${asset}-${metric}`}
       className="block w-full"
       style={{ height }}

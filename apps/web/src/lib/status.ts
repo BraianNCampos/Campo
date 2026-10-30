@@ -1,6 +1,6 @@
 import type { AssetState, Severity } from '@campo/shared';
 
-export type AssetStatus = 'ok' | 'warning' | 'critical' | 'uncertain' | 'bad';
+export type AssetStatus = 'ok' | 'warning' | 'critical' | 'uncertain' | 'bad' | 'nodata';
 
 export interface StatusMeta {
   label: string;
@@ -18,11 +18,14 @@ export const STATUS_META: Record<AssetStatus, StatusMeta> = {
   critical: { label: 'Crítica', text: 'text-crit', soft: 'bg-crit/15', border: 'border-crit/80', hex: '#ff4d4d' },
   uncertain: { label: 'Dato dudoso', text: 'text-warn', soft: 'bg-warn/15', border: 'border-warn/70', hex: '#c9a227' },
   bad: { label: 'Sin señal', text: 'text-bad', soft: 'bg-bad/15', border: 'border-bad/60', hex: '#6b7a8c' },
+  /** Activo del catálogo del que aún no ha llegado telemetría. */
+  nodata: { label: 'Sin datos', text: 'text-bad', soft: 'bg-bad/10', border: 'border-bad/40', hex: '#6b7a8c' },
 };
 
-/** Estado de un activo: alarma activa > calidad del dato > normal. */
+/** Estado de un activo: sin telemetría > alarma activa > calidad del dato > normal. */
 export function assetStatus(state: AssetState | undefined, alarmSeverity?: Severity): AssetStatus {
-  if (!state || state.quality === 'bad') return 'bad';
+  if (!state) return 'nodata';
+  if (state.quality === 'bad') return 'bad';
   if (alarmSeverity === 'critical') return 'critical';
   if (alarmSeverity === 'warning') return 'warning';
   if (state.quality === 'uncertain') return 'uncertain';

@@ -7,15 +7,15 @@ import { RUNNING_RPM } from '@/lib/assets';
 import { damp } from '@/lib/math';
 import { formatMetric } from '@/lib/metrics';
 import { assetStatus, STATUS_META } from '@/lib/status';
-import { Equipment } from './Equipment';
-import { PIPE_Y, type Vec3 } from './layout';
+import { Equipment, type AssetNodeProps } from './Equipment';
+import { PIPE_Y } from './layout';
 import { useAssetTarget } from './useAssetTarget';
 
 /** Factor visual: 1450 rpm → ~1 vuelta/s en pantalla (proporcional a rpm). */
 export const VISUAL_RPM_FACTOR = 0.04;
 const steel = { color: '#8fa3b8', metalness: 0.15, roughness: 0.38 } as const;
 
-export function Pump({ id, position }: { id: string; position: Vec3 }) {
+export function Pump({ id, name, placement }: AssetNodeProps) {
   const target = useAssetTarget(id);
   const fan = useRef<THREE.Group>(null);
   const motorMat = useRef<THREE.MeshStandardMaterial>(null);
@@ -45,7 +45,7 @@ export function Pump({ id, position }: { id: string; position: Vec3 }) {
   });
 
   return (
-    <Equipment id={id} position={position} ringRadius={1.5} labelPos={[0, 3.6, 0]} valueRef={valueEl}>
+    <Equipment id={id} name={name} type="pump" placement={placement} ringRadius={1.5} labelPos={[0, 3.6, 0]} valueRef={valueEl}>
       {/* bancada */}
       <mesh position-y={0.07}>
         <boxGeometry args={[2.6, 0.14, 1.3]} />
