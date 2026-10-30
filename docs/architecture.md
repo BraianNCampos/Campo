@@ -172,3 +172,42 @@ Pantallas de administración en la web (`/admin`) sobre la API. Los endpoints ya
 
 - `layout: {x, z, y?, rotY?, scale?}` — posición en metros (|x|,|z|,|y| ≤ 1000), rotación Y en grados, escala 0.05–50. Sin `layout`: el activo `demo` conocido usa su posición hecha a mano; los demás, una cuadrícula automática.
 - `connectsTo: string[]` — ids de activos de la misma planta (≤ 32, sin duplicados ni a sí mismo): la web dibuja una tubería entre ambos (ortogonal, con partículas de flujo cuando el origen es una bomba en marcha o una válvula abierta). Sin `connectsTo` en ningún activo de la planta: se mantienen las tuberías manuales de `demo` o ninguna.
+
+## 11. Clientes y módulos (Fase 6)
+
+Campo es un producto de **Campos Ingeniería** que se entrega a **clientes**; cada cliente tiene su propio espacio y solo ve los **módulos** que contrató. Si un cliente solo quiere medir tanques, la plataforma solo muestra tanques; sumar un módulo es activarlo y conectar los sensores.
+
+### 11.1 Clientes (organizaciones) y aislamiento
+
+- Tabla `organizations(id, name, modules text[], active, created_at)` (`id` con `ID_PATTERN`). `plants.org_id` (NOT NULL) y `users.org_id` (NULL = personal de Campos Ingeniería). Los ids de planta siguen siendo únicos globalmente (los tópicos MQTT no cambian).
+- Roles: **`platform_admin`** (personal de Campos Ingeniería; `org_id` nulo; gestiona clientes y ve todo), **`admin`** (administrador del cliente), `engineer`, `operator`, `viewer`. Sustituye a §8.1: `admin` ve **todas las plantas de su cliente**; `platform_admin` todas; el resto solo las asignadas (que deben pertenecer a su cliente).
+- **Regla de oro (aislamiento):** todo recurso (plantas, activos, modelos, reglas, alarmas, auditoría, usuarios) se filtra por cliente en el servidor. Un `admin` no puede: ver ni tocar recursos de otro cliente, asignar plantas de otro cliente, crear/editar clientes, ni otorgar `platform_admin`. Un id de otro cliente responde **403 genérico** (igual que una planta ajena hoy). El WebSocket verifica además que el cliente esté `active`. Un cliente `active=false` no puede iniciar sesión (401) y sus sockets se cierran (4401).
+- Auditoría: los `admin` ven solo la auditoría de su cliente (`audit_log.org_id`); `platform_admin` ve todo y puede filtrar por cliente.
+- API de plataforma (solo `platform_admin`): `GET/POST /api/orgs`, `GET/PATCH /api/orgs/:id` (`name`, `modules`, `active`), `DELETE /api/orgs/:id` (409 si tiene plantas o usuarios), `POST /api/orgs/:id/admins` (`{email,password}` crea el primer administrador del cliente). `GET /api/orgs` devuelve `Org[]` con contadores.
+- Crear plantas, usuarios y activos: un `admin` lo hace siempre en su cliente; un `platform_admin` debe indicar `orgId` (400 si falta). `Plant` incluye `orgId`.
+- `GET /api/me` añade `org: {id,name,modules} | null`. `POST /api/auth/login` devuelve el mismo `user`.
+- `ADMIN_EMAIL`/`ADMIN_PASSWORD` siembran un **`platform_admin`** (sin cliente). Migración `060_orgs.sql`: crea el cliente `campos-demo` ("Agroindustria Ejemplo", todos los módulos), le asigna las plantas y usuarios existentes (los `admin` existentes siguen siendo `admin` de ese cliente; el sembrado por `ADMIN_EMAIL` pasa a `platform_admin`), y siembra el cliente `cliente-tanques` ("Cliente Solo Tanques", módulo `tanks`) para demostrar la adaptación.
+
+### 11.2 Módulos y tipos de activo
+
+- Registro compartido (`packages/shared`: `MODULES`, `ASSET_KINDS`, `METRICS`). Módulos: `tanks` (Tanques y llenado: `tank`, `pump`, `valve`), `climate` (Temperatura y humedad: `climate`), `energy` (Energía: `energy`), `gas` (Consumo de gases: `gas`), `machines` (Estado de máquinas: `machine`), `flow` (Presión y caudal: `pressure`, `flow`), `view3d` (Vista 3D y modelos). Siempre activos (núcleo): alarmas, administración, mi cuenta, modo pared. `sensor` es genérico (sin módulo).
+- Tipos nuevos de activo: `climate`, `energy`, `gas`, `machine`, `pressure`, `flow`. Métricas: `level` (%), `temp` (°C), `humidity` (%), `rpm`, `current` (A), `position` (%), `kw`, `kwh` (contador acumulado), `pf` (cos φ), `flow` (m³/h), `total` (m³, contador), `pressure` (bar), `state` (0 = detenida, 1 = en marcha).
+- Crear un activo cuyo tipo pertenece a un módulo **no contratado** por el cliente → **403** `{error:"module_disabled", module}`. Crear/editar un cliente con un módulo desconocido → 400. Desactivar un módulo no borra datos: la web oculta sus pantallas y los activos siguen en la API (límite documentado).
+- Metadatos de dominio (opcionales, validados): `capacityM3` (tanques, número > 0), `contractedKw` (energía, número > 0), `scale: {[métrica]: {min,max}}` (rango de la barra; si falta, el registro `METRICS` da uno por defecto).
+- **Límites visibles para todos los roles:** `GET /api/plants/:plant/limits` → `Limit[]` `{asset, metric, operator, threshold, severity}` resueltos desde las reglas de alarma activas (los patrones se expanden a ids de activos existentes). La web los usa para dibujar las barras de rango y calcular "cerca del límite".
+
+### 11.3 Semillas (desarrollo/pruebas)
+
+- Cliente `campos-demo`, planta `demo`: los 8 activos actuales (con `capacityM3: 60` en los tanques) más `clima-01`, `clima-02` (climate), `en-linea1`, `en-compresores`, `en-clima`, `en-calderas` (energy, con `contractedKw`), `gas-01` (gas), `maq-01`, `maq-02`, `maq-03` (machine), `pres-01` (pressure), `cau-01` (flow). Reglas de ejemplo para los tipos nuevos (temp > 30, humedad > 80, kw cerca de la contratada, presión > 8 crítica).
+- Cliente `cliente-tanques`, planta `tanques`: `tk-a`, `tk-b` (tank, `capacityM3: 40`) con reglas de nivel alto/bajo.
+- No se siembran usuarios con contraseña (excepto `platform_admin` por variables de entorno).
+- El simulador (`apps/ingest/cmd/simulator`) emite telemetría para ambas plantas: `-plants demo,tanques` (por defecto) y genera las métricas de arriba para los tipos nuevos.
+
+### 11.4 Web: pantallas por módulo (lenguaje de diseño de Campo)
+
+- Navegación **dirigida por módulos** (`me.org.modules`; `platform_admin` ve el módulo según la planta elegida): una sección por módulo activo (`/m/tanks`, `/m/climate`, `/m/energy`, `/m/gas`, `/m/machines`, `/m/flow`, `/m/view3d`). Cada pantalla de módulo tiene pestañas **En vivo · Alarmas · Reglas**. Un cliente con un solo módulo no ve selector de secciones, solo su pantalla.
+- **En vivo:** franja de resumen (números grandes, p. ej. Tanques: cantidad y capacidad total; en alarma; fuera o cerca del límite; nivel más bajo), filtros **Todos / Requieren atención**, y tarjetas por activo con: nombre, estado (**En rango / Cerca del límite / Alarma / Sin datos**), valor grande con unidad, barra con la escala y los límites, tendencia (**estable / subiendo / bajando** con la tasa por hora) y mini-curva. "Cerca del límite" = a menos del 10 % de la escala de un límite de alarma. Color solo cuando importa: normal en verde azulado atenuado, ámbar = atención, rojo = alarma.
+- **Modo pared** (`/pared`): pantalla completa para TVs de planta, sin menús, números grandes, rotación automática entre los módulos activos, reloj, reconexión y *wake lock*; se sale con Esc o un toque largo.
+- **Alarmas** (pestaña): activas con reconocer (si el rol puede), filtradas a los activos del módulo. **Reglas** (pestaña): enlace a `/admin/rules?plant=&module=`, que respeta esos parámetros.
+- Administración de plataforma (`platform_admin`): sección **Clientes** (`/admin/orgs`): alta/edición, módulos con interruptores y descripciones, activar/desactivar, crear el primer administrador. Los `admin` de un cliente ven en "Mi cuenta" los módulos contratados ("Para sumar más, contactá a Campos Ingeniería").
+- Textos en **voseo rioplatense** ("Contactá", "Elegí", "Querés"), claros y sin jerga. Identidad: ver `apps/web/src/components/Brand.tsx` y los *tokens* de `globals.css` (azul noche, blanco frío, ámbar; Barlow y JetBrains Mono).
