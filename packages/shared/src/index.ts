@@ -55,7 +55,7 @@ export interface SnapshotMessage {
 }
 
 /** Mensajes servidor → cliente por WebSocket */
-export type ServerMessage = SnapshotMessage | TelemetryEvent | AlarmEvent;
+export type ServerMessage = SnapshotMessage | TelemetryEvent | AlarmEvent | CatalogMessage;
 
 export const redisKeys = {
   state: (plant: string) => `campo:state:${plant}`,
@@ -115,3 +115,29 @@ export interface AuditEntry {
   target: string; // p.ej. "user:<id>", "asset:demo/tk-01"
   detail: Record<string, unknown>; // sin secretos
 }
+
+// ---- Catálogo vivo y modelos 3D (docs/architecture.md §10) ----
+export interface ModelInfo {
+  id: string;
+  plant: string;
+  name: string;
+  size: number; // bytes
+  sha256: string;
+  createdAt: number; // epoch ms
+}
+
+export interface AssetLayout {
+  x: number;
+  z: number;
+  y?: number;
+  rotY?: number; // grados
+  scale?: number;
+}
+
+/** Mensaje servidor → cliente: el catálogo de la planta cambió; vuelve a pedirlo. */
+export interface CatalogMessage {
+  type: 'catalog';
+  plant: string;
+}
+
+export const MODEL_REF_PATTERN = /^model:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;

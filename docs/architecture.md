@@ -139,3 +139,33 @@ Pantallas de administración en la web (`/admin`) sobre la API. Los endpoints ya
 - `/admin` con navegación por rol: **Usuarios** (admin), **Plantas y activos** (admin y engineer), **Reglas de alarma** (admin y engineer), **Auditoría** (admin) y **Mi cuenta** (todos; cambio de contraseña). operator/viewer solo ven Mi cuenta.
 - Cliente tipado `AdminApi` con dos implementaciones: HTTP y un mock en memoria (modo demo), de modo que todo se pueda probar sin backend.
 - Todas las acciones destructivas piden confirmación; los errores de la API (400/403/409) se muestran en español junto al formulario; usable en móvil (tablas → tarjetas).
+
+## 10. Catálogo vivo y modelos 3D (Fase 5)
+
+### 10.1 Catálogo como fuente de la lista en vivo
+
+- La web construye la lista de activos (y el 3D) desde el **catálogo** (`GET /api/plants/:plant/assets`), no desde la telemetría recibida. Un activo del catálogo sin datos aún se muestra con estado **"Sin datos"** (gris, icono distinto, sin valores); un activo que envía telemetría pero no está en el catálogo se muestra como *no catalogado* (como hoy).
+- WebSocket: nuevo mensaje servidor → cliente `{type:"catalog", plant}` (en `ServerMessage`). La API lo envía a los clientes de esa planta cuando cambian activos o modelos (a partir de `campo:catalog:changed`, que ahora también se publica al crear/borrar modelos y plantas). El cliente vuelve a pedir el catálogo (con *debounce*) al recibirlo.
+- En modo demo el catálogo es el de los 8 activos de `demo`.
+
+### 10.2 Modelos glTF por activo
+
+- Formato: **GLB (glTF 2.0 binario) autocontenido** (texturas y buffers embebidos). Se rechazan URIs externas, Draco y meshopt (`KHR_draco_mesh_compression`, `EXT_meshopt_compression`) y cualquier extensión requerida fuera de esta lista: `KHR_materials_unlit`, `KHR_materials_emissive_strength`, `KHR_materials_pbrSpecularGlossiness`, `KHR_texture_transform`, `KHR_mesh_quantization`. Tamaño máximo 10 MB; máximo 200 000 vértices en total (suma de `count` de los accesores `POSITION`) y 2 000 nodos.
+- Subida: `POST /api/plants/:plant/models?name=<nombre>` con el GLB **crudo** en el cuerpo (`Content-Type: model/gltf-binary`, sin multipart) → `ModelInfo` (201). Roles `admin` y `engineer` con acceso a la planta. Deduplica por `sha256` dentro de la planta (si ya existe, devuelve la existente con 200). 400 con mensaje claro si no es un GLB válido o incumple los límites; 413 si supera el tamaño.
+- `GET /api/plants/:plant/models` → `ModelInfo[]` (cualquier rol con acceso a la planta). `GET /api/models/:id` → binario (`model/gltf-binary`), exige autenticación y acceso a la planta del modelo (403 si no), con `ETag` = sha256 y `Cache-Control: private, max-age=31536000, immutable` (el id es inmutable). `DELETE /api/plants/:plant/models/:id` (admin/engineer) → 409 con la lista de activos que lo usan si está referenciado.
+- Referencia desde el activo: `model3dRef` es `null` (modelo procedural según el tipo) o `"model:<uuid>"` de un modelo **de la misma planta** (400 si no existe o es de otra planta).
+- Auditoría: `model.upload` y `model.delete` (sin contenido del archivo).
+- **Convenciones de animación** (nombres de nodo, insensibles a mayúsculas, y también cuentan los hijos con ese prefijo):
+  - `campo_level*`: se escala en Y de `0` a `1` según la métrica `level` (0–100 %) respecto a su posición original (el origen del nodo debe estar en su base).
+  - `campo_rotor*`: gira sobre su eje Y proporcionalmente a `rpm` (1500 rpm ≈ 1 vuelta/s visual).
+  - `campo_gate*`: rota/desplaza según `position` (0–100 %); sin convención más estricta, la web aplica una rotación de 0° a 90° sobre Z.
+  - El resto de mallas se tiñen (emisivo) según el estado del activo: normal sin cambios, advertencia ámbar, crítica rojo, sin datos gris.
+  - Ejemplos generados por `node scripts/make-sample-glb.mjs` (`examples/models/*.glb`).
+- Normalización: la web ajusta cada modelo a su caja envolvente (escala unitaria configurable `layout.scale`), apoyado en el suelo (y=0).
+
+### 10.3 Disposición en planta (metadata del activo)
+
+`AssetDef.metadata` admite (todo opcional, validado en la API):
+
+- `layout: {x, z, y?, rotY?, scale?}` — posición en metros (|x|,|z|,|y| ≤ 1000), rotación Y en grados, escala 0.05–50. Sin `layout`: el activo `demo` conocido usa su posición hecha a mano; los demás, una cuadrícula automática.
+- `connectsTo: string[]` — ids de activos de la misma planta (≤ 32, sin duplicados ni a sí mismo): la web dibuja una tubería entre ambos (ortogonal, con partículas de flujo cuando el origen es una bomba en marcha o una válvula abierta). Sin `connectsTo` en ningún activo de la planta: se mantienen las tuberías manuales de `demo` o ninguna.
