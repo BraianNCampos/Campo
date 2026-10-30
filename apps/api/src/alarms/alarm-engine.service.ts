@@ -2,11 +2,12 @@ import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nest
 import { AlarmEvent, redisKeys } from '@campo/shared';
 import type Redis from 'ioredis';
 import { Subscription, filter } from 'rxjs';
+import { PlantCatalog } from '../auth/plant-catalog';
 import { APP_CONFIG, AppConfig } from '../config/app-config';
 import { RealtimeBus } from '../redis/realtime-bus';
 import { REDIS } from '../redis/tokens';
 import { AlarmEvaluator } from './alarm-evaluator';
-import { activeField } from './alarm.types';
+import { AlarmRecord, activeField } from './alarm.types';
 import { AlarmRulesRepository } from './alarm-rules.repository';
 import { AlarmsRepository } from './alarms.repository';
 
@@ -31,6 +32,7 @@ export class AlarmEngine implements OnModuleInit, OnModuleDestroy {
     private readonly bus: RealtimeBus,
     @Inject(REDIS) private readonly redis: Redis,
     @Inject(APP_CONFIG) private readonly cfg: AppConfig,
+    private readonly catalog: PlantCatalog,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -80,8 +82,23 @@ export class AlarmEngine implements OnModuleInit, OnModuleDestroy {
     this.evaluator.markAcknowledged(id);
   }
 
+  /**
+   * Al arrancar restaura las alarmas activas de la base. Una alarma de una planta que ya no está registrada
+   * (sin cliente propietario) se cierra en vez de restaurarse: ni se republica ni queda "activa" para nadie.
+   */
   private async restoreActive(): Promise<void> {
-    const persisted = await this.alarms.findActive();
+    const persisted: AlarmRecord[] = [];
+    const owned = new Map<string, boolean>();
+    let unowned = 0;
+    for (const a of await this.alarms.findActive()) {
+      if (!owned.has(a.plant)) owned.set(a.plant, (await this.catalog.orgOf(a.plant)) !== null);
+      if (owned.get(a.plant)) persisted.push(a);
+      else {
+        unowned++;
+        await this.safe('cerrar alarma sin planta', () => this.alarms.markCleared(a.id, Date.now()));
+      }
+    }
+    if (unowned > 0) this.log.warn({ msg: 'alarmas de plantas sin cliente cerradas', count: unowned });
     const orphans = this.evaluator.restore(persisted, Date.now());
     this.restored = true;
     for (const a of persisted) {

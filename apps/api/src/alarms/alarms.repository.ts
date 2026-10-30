@@ -1,14 +1,15 @@
 import { Inject, Injectable } from '@nestjs/common';
 import type { AlarmEvent } from '@campo/shared';
 import type { Pool } from 'pg';
+import type { PlantScope } from '../auth/plant-access';
 import { PG_POOL } from '../database/tokens';
 import type { AlarmRecord } from './alarm.types';
 
 export interface ListAlarmsFilter {
   state?: 'active' | 'cleared';
   plant?: string;
-  /** Restringe a estas plantas (autorización). undefined = sin restricción (admin); [] = ninguna. */
-  plants?: string[];
+  /** Autorización: cliente y/o plantas permitidas (`{}` = sin restricción, sólo platform_admin). */
+  scope: PlantScope;
   limit: number;
 }
 
@@ -132,8 +133,9 @@ export class PgAlarmsRepository extends AlarmsRepository {
       `SELECT ${COLUMNS} FROM alarms
         WHERE ($1::text IS NULL OR state = $1) AND ($2::text IS NULL OR plant = $2)
           AND ($4::text[] IS NULL OR plant = ANY($4))
+          AND ($5::text IS NULL OR plant IN (SELECT id FROM plants WHERE org_id = $5))
         ORDER BY triggered_at DESC LIMIT $3`,
-      [f.state ?? null, f.plant ?? null, f.limit, f.plants ?? null],
+      [f.state ?? null, f.plant ?? null, f.limit, f.scope.plants ?? null, f.scope.orgId ?? null],
     );
     return rows.map(toRecord);
   }

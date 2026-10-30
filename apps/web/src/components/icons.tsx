@@ -229,6 +229,78 @@ export const IconEye = (p: P) => (
   </Svg>
 );
 
+export const IconThermo = (p: P) => (
+  <Svg {...p}>
+    <path d="M10 14.5V5a2 2 0 1 1 4 0v9.5a4 4 0 1 1-4 0Z" />
+    <path d="M12 9v7" />
+  </Svg>
+);
+export const IconBolt = (p: P) => (
+  <Svg {...p}>
+    <path d="M13 3 5 13.5h6L10 21l8-10.5h-6L13 3Z" />
+  </Svg>
+);
+export const IconFlame = (p: P) => (
+  <Svg {...p}>
+    <path d="M12 21c-3.6 0-6-2.4-6-5.6 0-3 2.2-4.6 3.4-6.9.6 1.2 1.1 1.8 1.9 2.2C11 7.6 12.3 5.2 13 3c3.6 2.2 5 5.4 5 8.4 0 1.1-.2 1.9-.4 2.6" />
+    <path d="M12 21c2.4 0 4-1.5 4-3.7 0-1.4-.9-2.4-2-3.3-.5 1-1.1 1.5-2 1.8-.9-.6-1.5-1.4-1.8-2.5-1 1.2-1.6 2.4-1.6 3.7 0 2.3 1.5 4 3.4 4Z" />
+  </Svg>
+);
+export const IconGear = (p: P) => (
+  <Svg {...p}>
+    <circle cx="12" cy="12" r="3.2" />
+    <path d="M12 3.5v2.600M12 17.900v2.600M3.5 12h2.600M17.9 12h2.600M6 6l1.8 1.800M16.2 16.2 18 18M6 18l1.8-1.800M16.2 7.8 18 6" />
+    <circle cx="12" cy="12" r="6.6" />
+  </Svg>
+);
+export const IconGauge = (p: P) => (
+  <Svg {...p}>
+    <path d="M4.5 17.500a8.5 8.5 0 1 1 15 0" />
+    <path d="M12 13.5 15.5 8.500M12 17.500v.1M6 14l.1.1M18 14l-.1.1M12 7.500v.1" />
+  </Svg>
+);
+export const IconDroplet = (p: P) => (
+  <Svg {...p}>
+    <path d="M12 3.500c3.4 4 5.5 6.8 5.5 9.800a5.5 5.5 0 0 1-11 0c0-3 2.1-5.8 5.5-9.800Z" />
+    <path d="M9.5 14a2.6 2.6 0 0 0 2.3 2.3" />
+  </Svg>
+);
+export const IconMonitor = (p: P) => (
+  <Svg {...p}>
+    <rect x="3" y="4.5" width="18" height="12" rx="1.5" />
+    <path d="M8.5 20h7M12 16.500V20" />
+  </Svg>
+);
+export const IconNear = (p: P) => (
+  <Svg {...p}>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M12 7.500v5" />
+    <path d="M12 16.200v.1" />
+  </Svg>
+);
+export const IconTrendUp = (p: P) => (
+  <Svg {...p}>
+    <path d="m4 16 5.5-5.5 3.5 3.500L20 7M14.5 7H20v5.5" />
+  </Svg>
+);
+export const IconMore = (p: P) => (
+  <Svg {...p}>
+    <circle cx="6" cy="12" r="1.3" />
+    <circle cx="12" cy="12" r="1.3" />
+    <circle cx="18" cy="12" r="1.3" />
+  </Svg>
+);
+export const IconExternal = (p: P) => (
+  <Svg {...p}>
+    <path d="M13 5h6v6M19 5l-8 8M18 14v4.500a1.5 1.5 0 0 1-1.5 1.500h-10A1.5 1.5 0 0 1 5 18.500v-10A1.5 1.5 0 0 1 6.5 7H11" />
+  </Svg>
+);
+export const IconPlay = (p: P) => (
+  <Svg {...p}>
+    <path d="M7 4.500v15l12-7.500L7 4.500Z" />
+  </Svg>
+);
+
 export const STATUS_ICON: Record<AssetStatus, (p: P) => React.JSX.Element> = {
   ok: IconCheck,
   warning: IconWarning,
@@ -243,5 +315,11 @@ export const KIND_ICON: Record<AssetKind, (p: P) => React.JSX.Element> = {
   pump: IconPump,
   valve: IconValve,
   sensor: IconSensor,
+  climate: IconThermo,
+  energy: IconBolt,
+  gas: IconFlame,
+  machine: IconGear,
+  pressure: IconGauge,
+  flow: IconDroplet,
   other: IconGrid,
 };

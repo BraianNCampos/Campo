@@ -5,7 +5,7 @@ import * as bcrypt from 'bcryptjs';
 import { APP_CONFIG, AppConfig } from '../config/app-config';
 import type { LoginResponse } from '@campo/shared';
 import { JwtPayload, ROLES, TokenClaims } from './auth.types';
-import { toAuthUser } from './plant-access';
+import { AccessService } from './access.service';
 import { User, UsersRepository } from './users.repository';
 
 @Injectable()
@@ -16,6 +16,7 @@ export class AuthService {
   constructor(
     private readonly users: UsersRepository,
     private readonly jwt: JwtService,
+    private readonly access: AccessService,
     @Inject(APP_CONFIG) private readonly cfg: AppConfig,
   ) {}
 
@@ -32,12 +33,14 @@ export class AuthService {
     // Siempre se ejecuta un compare para que el tiempo no revele si el usuario existe.
     const hash = user?.passwordHash ?? (await this.getDummyHash());
     const ok = await bcrypt.compare(password, hash);
-    if (!user || !ok || !user.active) {
+    // Un usuario inactivo o de un cliente desactivado no entra (mismo 401 que una contraseña errónea).
+    const authUser = user && ok ? await this.access.project(user) : null;
+    if (!user || !authUser) {
       this.log.warn({ msg: 'login fallido', email: email.trim().toLowerCase() });
       throw new UnauthorizedException('Credenciales inválidas');
     }
     this.log.log({ msg: 'login ok', userId: user.id, role: user.role });
-    return { accessToken: await this.signToken(user), user: toAuthUser(user) };
+    return { accessToken: await this.signToken(user), user: authUser };
   }
 
   /** Emite un JWT con la versión de sesión ACTUAL del usuario (`tv`). */

@@ -4,17 +4,26 @@ import {
   type AlarmEvent,
   type AuditEntry,
   type ModelInfo,
+  type Org,
   type Plant,
 } from '@campo/shared';
 import type Redis from 'ioredis';
+import type { PlantScope } from '../../src/auth/plant-access';
+import { OrgDeleteResult, OrgPatch, OrgRecord, OrgsRepository } from '../../src/orgs/orgs.repository';
 import type { AlarmRecord, AlarmRule, AlarmRuleInput } from '../../src/alarms/alarm.types';
 import { AlarmRulesRepository } from '../../src/alarms/alarm-rules.repository';
 import { AlarmsRepository, ListAlarmsFilter } from '../../src/alarms/alarms.repository';
 import { AuditRepository, AuditQuery, NewAuditEntry } from '../../src/audit/audit.repository';
 import { ModelsRepository, NewModel } from '../../src/models/models.repository';
 import { Asset, AssetPatch, AssetsRepository } from '../../src/plants/assets.repository';
-import { PlantsRepository, RemoveResult } from '../../src/plants/plants.repository';
-import { UpdateResult, User, UserPatch, UsersRepository } from '../../src/auth/users.repository';
+import { PlantFilter, PlantsRepository, RemoveResult } from '../../src/plants/plants.repository';
+import {
+  NewUser,
+  UpdateResult,
+  User,
+  UserPatch,
+  UsersRepository,
+} from '../../src/auth/users.repository';
 import { PlantCatalog } from '../../src/auth/plant-catalog';
 import { HistoryPlan } from '../../src/history/history.planner';
 import { HistoryPoint, HistoryRepository } from '../../src/history/history.repository';
@@ -35,11 +44,13 @@ export class MemoryUsersRepository extends UsersRepository {
     return Promise.resolve(this.users.find((u) => u.id === id) ?? null);
   }
 
-  list(): Promise<User[]> {
-    return Promise.resolve([...this.users]);
+  list(filter: { orgId?: string } = {}): Promise<User[]> {
+    return Promise.resolve(
+      this.users.filter((u) => filter.orgId === undefined || u.orgId === filter.orgId),
+    );
   }
 
-  create(input: { email: string; passwordHash: string; role: User['role'] }): Promise<User | null> {
+  create(input: NewUser): Promise<User | null> {
     if (this.users.some((u) => u.email.toLowerCase() === input.email.toLowerCase())) {
       return Promise.resolve(null);
     }
@@ -59,8 +70,14 @@ export class MemoryUsersRepository extends UsersRepository {
     if (!cur) return Promise.resolve({ status: 'not_found' });
     const role = patch.role ?? cur.role;
     const active = patch.active ?? cur.active;
-    if (cur.role === 'admin' && cur.active && !(role === 'admin' && active)) {
-      const others = this.users.filter((u) => u.id !== id && u.role === 'admin' && u.active);
+    if (
+      (cur.role === 'admin' || cur.role === 'platform_admin') &&
+      cur.active &&
+      !(role === cur.role && active)
+    ) {
+      const others = this.users.filter(
+        (u) => u.id !== id && u.role === cur.role && u.active && u.orgId === cur.orgId,
+      );
       if (others.length === 0) return Promise.resolve({ status: 'last_admin' });
     }
     Object.assign(cur, {
@@ -77,6 +94,80 @@ export class MemoryUsersRepository extends UsersRepository {
     if (!cur) return Promise.resolve(null);
     cur.plants = [...new Set(plants)].sort();
     return Promise.resolve(cur);
+  }
+
+  idsByOrg(orgId: string): Promise<string[]> {
+    return Promise.resolve(this.users.filter((u) => u.orgId === orgId).map((u) => u.id));
+  }
+
+  revokeByOrg(orgId: string): Promise<string[]> {
+    const mine = this.users.filter((u) => u.orgId === orgId);
+    for (const u of mine) u.tokenVersion++;
+    return Promise.resolve(mine.map((u) => u.id));
+  }
+
+  promoteToPlatformAdmin(id: string): Promise<User | null> {
+    const cur = this.users.find((u) => u.id === id);
+    if (!cur) return Promise.resolve(null);
+    if (cur.role !== 'platform_admin') {
+      Object.assign(cur, { role: 'platform_admin', orgId: null, plants: [] });
+      cur.tokenVersion++;
+    }
+    return Promise.resolve(cur);
+  }
+}
+
+export class MemoryOrgsRepository extends OrgsRepository {
+  readonly orgs = new Map<string, OrgRecord>();
+
+  constructor(
+    private readonly plants: () => MemoryPlantsRepository,
+    private readonly users: MemoryUsersRepository,
+  ) {
+    super();
+  }
+
+  findById(id: string): Promise<OrgRecord | null> {
+    const o = this.orgs.get(id);
+    return Promise.resolve(o ? { ...o, modules: [...o.modules] } : null);
+  }
+
+  list(): Promise<Org[]> {
+    return Promise.resolve(
+      [...this.orgs.values()]
+        .sort((a, b) => (a.id < b.id ? -1 : 1))
+        .map((o) => ({
+          ...o,
+          modules: [...o.modules],
+          plants: this.plants().plantsOf(o.id).length,
+          users: this.users.users.filter((u) => u.orgId === o.id).length,
+        })),
+    );
+  }
+
+  create(org: Omit<OrgRecord, 'createdAt'>): Promise<OrgRecord | null> {
+    if (this.orgs.has(org.id)) return Promise.resolve(null);
+    const rec = { ...org, createdAt: Date.now() };
+    this.orgs.set(org.id, rec);
+    return Promise.resolve({ ...rec });
+  }
+
+  update(id: string, patch: OrgPatch): Promise<OrgRecord | null> {
+    const cur = this.orgs.get(id);
+    if (!cur) return Promise.resolve(null);
+    const defined = Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined));
+    const next = { ...cur, ...defined };
+    this.orgs.set(id, next);
+    return Promise.resolve({ ...next });
+  }
+
+  delete(id: string): Promise<OrgDeleteResult> {
+    if (!this.orgs.has(id)) return Promise.resolve('not_found');
+    if (this.plants().plantsOf(id).length > 0 || this.users.users.some((u) => u.orgId === id)) {
+      return Promise.resolve('has_children');
+    }
+    this.orgs.delete(id);
+    return Promise.resolve('ok');
   }
 }
 
@@ -114,9 +205,12 @@ export class MemoryAssetsRepository extends AssetsRepository {
   }
 }
 
-/** Tabla `plants` en memoria; las plantas con activos cuentan como registradas (como en SQL). */
+/** Tabla `plants` en memoria (cada planta pertenece a un cliente). */
 export class MemoryPlantsRepository extends PlantsRepository {
   readonly names = new Map<string, string>();
+  readonly orgs = new Map<string, string>();
+  /** Lo que en SQL borra la transacción de `remove` (reglas, alarmas, modelos): se engancha en test-app. */
+  readonly onRemoved: ((id: string) => void)[] = [];
 
   constructor(
     private readonly assets: MemoryAssetsRepository,
@@ -129,13 +223,32 @@ export class MemoryPlantsRepository extends PlantsRepository {
     return this.assets.assets.filter((a) => a.plant === id).length;
   }
 
-  list(ids?: string[]): Promise<Plant[]> {
-    const all = new Set([...this.names.keys(), ...this.assets.assets.map((a) => a.plant)]);
+  plantsOf(orgId: string): string[] {
+    return [...this.orgs].filter(([, o]) => o === orgId).map(([id]) => id);
+  }
+
+  orgOf(id: string): string | null {
+    return this.orgs.get(id) ?? null;
+  }
+
+  /** Registra una planta ya existente de un cliente (fixtures). */
+  register(id: string, orgId: string, name = id): void {
+    this.names.set(id, name);
+    this.orgs.set(id, orgId);
+  }
+
+  list(filter: PlantFilter = {}): Promise<Plant[]> {
     return Promise.resolve(
-      [...all]
-        .filter((id) => !ids || ids.includes(id))
+      [...this.names.keys()]
+        .filter((id) => !filter.ids || filter.ids.includes(id))
+        .filter((id) => filter.orgId === undefined || this.orgs.get(id) === filter.orgId)
         .sort()
-        .map((id) => ({ id, name: this.names.get(id) ?? id, assets: this.count(id) })),
+        .map((id) => ({
+          id,
+          name: this.names.get(id) ?? id,
+          assets: this.count(id),
+          orgId: this.orgs.get(id) as string,
+        })),
     );
   }
 
@@ -143,54 +256,60 @@ export class MemoryPlantsRepository extends PlantsRepository {
     return Promise.resolve(this.names.has(id) || this.count(id) > 0);
   }
 
-  async create(id: string, name: string): Promise<boolean> {
+  async create(id: string, name: string, orgId: string): Promise<boolean> {
     if (await this.isRegistered(id)) return false;
-    this.names.set(id, name);
+    this.register(id, orgId, name);
     return true;
   }
 
-  rename(id: string, name: string): Promise<Plant> {
+  async rename(id: string, name: string): Promise<Plant | null> {
+    if (!this.names.has(id)) return null;
     this.names.set(id, name);
-    return Promise.resolve({ id, name, assets: this.count(id) });
+    return (await this.list({ ids: [id] }))[0] ?? null;
   }
 
   remove(id: string): Promise<RemoveResult> {
     if (this.count(id) > 0) return Promise.resolve({ status: 'has_assets' });
+    if (!this.names.delete(id)) return Promise.resolve({ status: 'not_found' });
+    this.orgs.delete(id);
     const unassigned = this.users.users.filter((u) => u.plants.includes(id));
-    if (!this.names.delete(id) && unassigned.length === 0) {
-      return Promise.resolve({ status: 'not_found' });
-    }
     for (const u of unassigned) u.plants = u.plants.filter((p) => p !== id);
+    for (const hook of this.onRemoved) hook(id);
     return Promise.resolve({ status: 'ok', unassignedUserIds: unassigned.map((u) => u.id) });
   }
 }
 
-/** Existe si está registrada (plants/activos) o tiene estado vivo en Redis. */
 export class MemoryPlantCatalog extends PlantCatalog {
   constructor(
-    private readonly plants: PlantsRepository,
+    private readonly plants: MemoryPlantsRepository,
     private readonly redis: Redis,
   ) {
     super();
   }
 
-  async exists(plant: string): Promise<boolean> {
-    return (
-      (await this.plants.isRegistered(plant)) ||
-      (await this.redis.exists(redisKeys.state(plant))) > 0
-    );
+  orgOf(plant: string): Promise<string | null> {
+    return Promise.resolve(this.plants.orgOf(plant));
+  }
+
+  async isLive(plant: string): Promise<boolean> {
+    return (await this.redis.exists(redisKeys.state(plant))) > 0;
   }
 }
 
 export class MemoryAuditRepository extends AuditRepository {
   readonly entries: AuditEntry[] = [];
+  /** Cliente de cada entrada (`AuditEntry` del contrato no lo expone). */
+  readonly orgOfEntry = new Map<string, string | null>();
   /** Para simular un fallo de la tabla de auditoría. */
   failWith?: Error;
   private seq = 0;
 
   insert(e: NewAuditEntry): Promise<void> {
     if (this.failWith) return Promise.reject(this.failWith);
-    this.entries.push({ ...e, id: String(++this.seq), ts: Date.now() });
+    const { orgId, ...entry } = e;
+    const id = String(++this.seq);
+    this.orgOfEntry.set(id, orgId);
+    this.entries.push({ ...entry, id, ts: Date.now() });
     return Promise.resolve();
   }
 
@@ -200,6 +319,7 @@ export class MemoryAuditRepository extends AuditRepository {
       this.entries
         .filter(
           (e) =>
+            (q.orgId === undefined || this.orgOfEntry.get(e.id) === q.orgId) &&
             (!q.before || Number(e.id) < Number(q.before)) &&
             (!actor ||
               e.actorId?.toLowerCase() === actor ||
@@ -212,13 +332,22 @@ export class MemoryAuditRepository extends AuditRepository {
   }
 }
 
+/** Mismo criterio que el SQL: `scope.plants` = lista permitida, `scope.orgId` = plantas de ese cliente. */
+const inScope = (scope: PlantScope, plant: string, orgOf: (p: string) => string | null): boolean =>
+  (!scope.plants || scope.plants.includes(plant)) &&
+  (scope.orgId === undefined || orgOf(plant) === scope.orgId);
+
 export class MemoryAlarmRulesRepository extends AlarmRulesRepository {
   readonly rules = new Map<string, AlarmRule>();
 
-  list(plant?: string, plants?: string[]): Promise<AlarmRule[]> {
+  constructor(private readonly orgOf: (plant: string) => string | null = () => null) {
+    super();
+  }
+
+  list(plant?: string, scope: PlantScope = {}): Promise<AlarmRule[]> {
     return Promise.resolve(
       [...this.rules.values()].filter(
-        (r) => (!plant || r.plant === plant) && (!plants || plants.includes(r.plant)),
+        (r) => (!plant || r.plant === plant) && inScope(scope, r.plant, this.orgOf),
       ),
     );
   }
@@ -250,6 +379,10 @@ export class MemoryAlarmRulesRepository extends AlarmRulesRepository {
 
 export class MemoryAlarmsRepository extends AlarmsRepository {
   readonly alarms = new Map<string, AlarmRecord>();
+
+  constructor(private readonly orgOf: (plant: string) => string | null = () => null) {
+    super();
+  }
 
   insert(a: AlarmEvent): Promise<void> {
     this.alarms.set(a.id, { ...a, state: 'active', acknowledged: false });
@@ -289,7 +422,7 @@ export class MemoryAlarmsRepository extends AlarmsRepository {
           (a) =>
             (!f.state || a.state === f.state) &&
             (!f.plant || a.plant === f.plant) &&
-            (!f.plants || f.plants.includes(a.plant)),
+            inScope(f.scope, a.plant, this.orgOf),
         )
         .sort((a, b) => b.ts - a.ts)
         .slice(0, f.limit),

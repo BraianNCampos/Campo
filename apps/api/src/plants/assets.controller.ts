@@ -1,6 +1,6 @@
 import { Body, Controller, Delete, HttpCode, Param, Patch, Post, UseGuards } from '@nestjs/common';
 import type { AuthUser } from '../auth/auth.types';
-import { CurrentUser, Roles } from '../auth/decorators';
+import { CurrentUser, PlantOrgId, Roles } from '../auth/decorators';
 import { PlantAccessGuard } from '../auth/plant-access.guard';
 import { AssetParams, PlantParams } from '../common/params';
 import { AssetResult, AssetsService } from './assets.service';
@@ -21,8 +21,9 @@ export class AssetsController {
     @Param() p: PlantParams,
     @Body() dto: CreateAssetDto,
     @CurrentUser() actor: AuthUser,
+    @PlantOrgId() orgId: string | null,
   ): Promise<AssetResult> {
-    return this.assets.create(p.plant, dto, actor);
+    return this.assets.create(p.plant, orgId, dto, actor);
   }
 
   @Patch(':asset')
@@ -30,8 +31,9 @@ export class AssetsController {
     @Param() p: AssetParams,
     @Body() dto: UpdateAssetDto,
     @CurrentUser() actor: AuthUser,
+    @PlantOrgId() orgId: string | null,
   ): Promise<AssetResult> {
-    return this.assets.update(p.plant, p.asset, dto, actor);
+    return this.assets.update(p.plant, orgId, p.asset, dto, actor);
   }
 
   @Delete(':asset')
@@ -39,7 +41,8 @@ export class AssetsController {
   remove(
     @Param() p: AssetParams,
     @CurrentUser() actor: AuthUser,
+    @PlantOrgId() orgId: string | null,
   ): Promise<{ deleted: true; affectedRules: number }> {
-    return this.assets.remove(p.plant, p.asset, actor);
+    return this.assets.remove(p.plant, orgId, p.asset, actor);
   }
 }

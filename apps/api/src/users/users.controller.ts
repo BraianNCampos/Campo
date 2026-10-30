@@ -1,19 +1,29 @@
-import { Body, Controller, Get, HttpCode, Param, Patch, Post, Put } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  Param,
+  Patch,
+  Post,
+  Put,
+  Query,
+} from '@nestjs/common';
 import type { ManagedUser } from '@campo/shared';
 import type { AuthUser } from '../auth/auth.types';
 import { CurrentUser, Roles } from '../auth/decorators';
-import { CreateUserDto, SetPlantsDto, UpdateUserDto, UserIdParam } from './dto';
+import { CreateUserDto, SetPlantsDto, UpdateUserDto, UserIdParam, UserListQuery } from './dto';
 import { UsersService } from './users.service';
 
-/** Administración de usuarios: sólo admin. */
+/** Administración de usuarios: admin (sólo de su cliente) y platform_admin. */
 @Controller('users')
 @Roles('admin')
 export class UsersController {
   constructor(private readonly users: UsersService) {}
 
   @Get()
-  list(): Promise<ManagedUser[]> {
-    return this.users.list();
+  list(@Query() q: UserListQuery, @CurrentUser() actor: AuthUser): Promise<ManagedUser[]> {
+    return this.users.list(actor, q.orgId);
   }
 
   @Post()

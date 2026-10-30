@@ -46,7 +46,7 @@ describe('useSessionStore.load', () => {
   it('clear borra caché, plantas y usuario', async () => {
     await useSessionStore.getState().load(new MockAdminApi());
     useSessionStore.getState().clear();
-    expect(localStorage.getItem('campo.session.v1')).toBeNull();
+    expect(localStorage.getItem('campo.session.v2')).toBeNull();
     expect(usePlantStore.getState().plants).toEqual([]);
     expect(useSessionStore.getState().me).toBeNull();
   });

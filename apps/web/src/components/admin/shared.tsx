@@ -1,11 +1,13 @@
 'use client';
 
-import type { Plant, Role } from '@campo/shared';
+import { MODULES } from '@campo/shared';
+import type { ModuleId, OrgSummary, Plant, Role } from '@campo/shared';
 import { passwordStrength } from '@/lib/admin/validation';
 import { Badge } from './ui';
 import { IconCheck, IconCritical, IconWarning } from '../icons';
 
 export const ROLE_LABEL: Record<Role, string> = {
+  platform_admin: 'Campos Ingeniería',
   admin: 'Administrador',
   engineer: 'Ingeniero',
   operator: 'Operador',
@@ -13,14 +15,44 @@ export const ROLE_LABEL: Record<Role, string> = {
 };
 
 export const ROLE_HELP: Record<Role, string> = {
-  admin: 'Acceso total: usuarios, plantas, reglas y auditoría.',
+  platform_admin: 'Personal de Campos Ingeniería: gestiona los clientes y ve todo.',
+  admin: 'Administra su cliente: usuarios, plantas, reglas y auditoría.',
   engineer: 'Gestiona activos y reglas de las plantas asignadas.',
   operator: 'Ve las plantas asignadas y reconoce alarmas.',
-  viewer: 'Sólo lectura de las plantas asignadas.',
+  viewer: 'Sólo puede mirar las plantas asignadas.',
 };
 
 export function RoleBadge({ role }: { role: Role }) {
-  return <Badge tone={role === 'admin' ? 'info' : 'neutral'}>{ROLE_LABEL[role]}</Badge>;
+  return <Badge tone={role === 'admin' || role === 'platform_admin' ? 'info' : 'neutral'}>{ROLE_LABEL[role]}</Badge>;
+}
+
+export const moduleLabel = (id: ModuleId) => MODULES.find((m) => m.id === id)?.label ?? id;
+
+/** Módulos como chips discretos: neutros, con un punto verde azulado (el color queda para lo que avisa). */
+export function ModuleChips({ modules, empty = 'Sin módulos' }: { modules: readonly ModuleId[]; empty?: string }) {
+  if (modules.length === 0) return <span className="text-sm text-muted">{empty}</span>;
+  return (
+    <ul className="flex flex-wrap gap-1.5" aria-label="Módulos">
+      {MODULES.filter((m) => modules.includes(m.id)).map((m) => (
+        <li key={m.id} className="inline-flex min-h-6 items-center gap-1.5 rounded-full border border-line bg-surface-2 px-2.5 text-xs font-semibold whitespace-nowrap">
+          <span aria-hidden="true" className="size-1.5 rounded-full bg-ok/80" />
+          {m.label}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** Nombre del cliente (y su id en tipografía técnica); «Campos Ingeniería» si no tiene cliente. */
+export function OrgName({ org, orgId }: { org?: Pick<OrgSummary, 'id' | 'name'> | null; orgId?: string | null }) {
+  const id = org?.id ?? orgId ?? null;
+  if (!id) return <span className="text-muted">Campos Ingeniería</span>;
+  return (
+    <span className="block min-w-0">
+      <span className="block font-semibold">{org?.name ?? id}</span>
+      <span className="block font-mono text-xs text-muted">{id}</span>
+    </span>
+  );
 }
 
 export function ActiveBadge({ active }: { active: boolean }) {
@@ -36,7 +68,7 @@ export function ActiveBadge({ active }: { active: boolean }) {
 }
 
 export function PlantChips({ role, plants }: { role: Role; plants: string[] }) {
-  if (role === 'admin') return <Badge tone="info">Todas</Badge>;
+  if (role === 'admin' || role === 'platform_admin') return <Badge tone="info">Todas</Badge>;
   if (plants.length === 0) return <span className="text-sm text-muted">Sin plantas</span>;
   return (
     <span className="flex flex-wrap gap-1">
@@ -49,14 +81,17 @@ export function PlantChips({ role, plants }: { role: Role; plants: string[] }) {
   );
 }
 
-/** Indicador de longitud mínima de contraseña (texto + barra; el color nunca es la única señal). */
+/** Indicador de fortaleza: tres tramos + texto (el color nunca es la única señal). */
 export function PasswordMeter({ value }: { value: string }) {
   const s = passwordStrength(value);
+  const filled = s.ok ? s.level : Math.floor(s.ratio * 3); // sin llegar al mínimo: avance hacia los 12 caracteres
   return (
     <span className="flex items-center gap-2">
       {s.ok ? <IconCheck className="shrink-0 text-ok" /> : <IconCritical className="shrink-0 text-warn" />}
-      <span className="relative h-1.5 w-16 shrink-0 overflow-hidden rounded-full bg-line" aria-hidden="true">
-        <span className={`absolute inset-y-0 left-0 ${s.ok ? 'bg-ok' : 'bg-warn'}`} style={{ width: `${s.ratio * 100}%` }} />
+      <span className="flex w-16 shrink-0 gap-0.5" aria-hidden="true">
+        {[1, 2, 3].map((n) => (
+          <span key={n} className={`h-1.5 flex-1 rounded-full ${filled >= n ? (s.ok ? 'bg-ok' : 'bg-warn') : 'bg-line'}`} />
+        ))}
       </span>
       <span className={s.ok ? 'text-ok' : 'text-muted'}>{s.text}</span>
     </span>

@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo } from 'react';
+import type { AlarmEvent } from '@campo/shared';
 import { formatAgo } from '@/lib/math';
 import { metricMeta } from '@/lib/metrics';
 import { acknowledgeAlarm } from '@/live/alarm-actions';
@@ -10,10 +11,22 @@ import { AssetName } from './AssetName';
 import { useNow } from './hooks';
 
 /** Lista de alarmas activas con botón de reconocimiento (≥44 px de alto). */
-export function AlarmList({ onSelect }: { onSelect?: (assetId: string) => void }) {
+export function AlarmList({
+  onSelect,
+  filter,
+  canAck = true,
+  emptyText = 'Todos los equipos están dentro de sus límites.',
+}: {
+  onSelect?: (assetId: string) => void;
+  /** sólo las alarmas que cumplen (p. ej. los activos de un módulo) */
+  filter?: (a: AlarmEvent) => boolean;
+  /** el rol puede reconocer alarmas */
+  canAck?: boolean;
+  emptyText?: string;
+}) {
   const alarmsMap = useLiveStore((s) => s.alarms);
   const notice = useLiveStore((s) => s.notice);
-  const alarms = useMemo(() => sortAlarms(alarmsMap), [alarmsMap]);
+  const alarms = useMemo(() => sortAlarms(alarmsMap).filter((a) => !filter || filter(a)), [alarmsMap, filter]);
   const now = useNow(1000);
 
   if (alarms.length === 0) {
@@ -21,7 +34,7 @@ export function AlarmList({ onSelect }: { onSelect?: (assetId: string) => void }
       <div className="flex flex-col items-center gap-2 rounded-2xl border border-line bg-surface px-4 py-8 text-center">
         <IconCheck className="text-4xl text-ok" />
         <p className="font-semibold">Sin alarmas activas</p>
-        <p className="text-sm text-muted">Todos los equipos dentro de sus límites.</p>
+        <p className="text-sm text-muted">{emptyText}</p>
       </div>
     );
   }
@@ -63,6 +76,7 @@ export function AlarmList({ onSelect }: { onSelect?: (assetId: string) => void }
                   </p>
                 </div>
               </div>
+              {canAck ? (
               <button
                 type="button"
                 disabled={a.acknowledged}
@@ -76,6 +90,9 @@ export function AlarmList({ onSelect }: { onSelect?: (assetId: string) => void }
                 <IconCheck className="text-lg" />
                 {a.acknowledged ? 'Reconocida' : 'Reconocer'}
               </button>
+              ) : (
+                a.acknowledged && <p className="mt-2 text-sm font-semibold text-muted">Reconocida</p>
+              )}
             </li>
           );
         })}

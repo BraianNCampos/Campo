@@ -77,7 +77,7 @@ export function ApiErrorAlert({ error, className }: { error: unknown; className?
   const e = error instanceof AdminApiError ? error : null;
   return (
     <Alert tone="error" className={className}>
-      <p>{e ? e.message : 'Ha ocurrido un error inesperado.'}</p>
+      <p>{e ? e.message : 'Ocurrió un error inesperado.'}</p>
       {e && e.details.length > 1 && (
         <ul className="mt-1 list-disc space-y-0.5 pl-5 font-normal">
           {e.details.map((d) => (

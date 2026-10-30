@@ -1,11 +1,12 @@
 import { Inject, Injectable } from '@nestjs/common';
 import type { Pool } from 'pg';
+import type { PlantScope } from '../auth/plant-access';
 import { PG_POOL } from '../database/tokens';
 import type { AlarmRule, AlarmRuleInput } from './alarm.types';
 
 export abstract class AlarmRulesRepository {
-  /** `plants` restringe a esas plantas (undefined = sin restricción; [] = ninguna). */
-  abstract list(plant?: string, plants?: string[]): Promise<AlarmRule[]>;
+  /** `scope` restringe por cliente y/o plantas (ver PlantScope; `{}` = sin restricción, sólo uso interno y platform_admin). */
+  abstract list(plant?: string, scope?: PlantScope): Promise<AlarmRule[]>;
   abstract get(id: string): Promise<AlarmRule | null>;
   abstract create(input: AlarmRuleInput): Promise<AlarmRule>;
   abstract update(id: string, patch: Partial<AlarmRuleInput>): Promise<AlarmRule | null>;
@@ -64,12 +65,13 @@ export class PgAlarmRulesRepository extends AlarmRulesRepository {
     super();
   }
 
-  async list(plant?: string, plants?: string[]): Promise<AlarmRule[]> {
+  async list(plant?: string, scope: PlantScope = {}): Promise<AlarmRule[]> {
     const { rows } = await this.pool.query<RuleRow>(
       `SELECT ${COLUMNS} FROM alarm_rules
         WHERE ($1::text IS NULL OR plant = $1) AND ($2::text[] IS NULL OR plant = ANY($2))
+          AND ($3::text IS NULL OR plant IN (SELECT id FROM plants WHERE org_id = $3))
         ORDER BY plant, asset, metric, created_at`,
-      [plant ?? null, plants ?? null],
+      [plant ?? null, scope.plants ?? null, scope.orgId ?? null],
     );
     return rows.map(toRule);
   }

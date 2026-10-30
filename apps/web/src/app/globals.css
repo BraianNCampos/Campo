@@ -10,8 +10,13 @@
   --color-muted: #a3b4c0;
   --color-accent: #e5b000;
   --color-ok: #4fd1a5;
+  /* Normal = verde azulado atenuado (texto y barras); el color fuerte queda para lo que requiere atención.
+     --color-calm sobre surface: 8.3:1 (texto); --color-calm-bar sobre surface: 5.2:1 (elementos gráficos, mínimo 3:1). */
+  --color-calm: #7fc4b3;
+  --color-calm-bar: #4a9d8d;
   --color-warn: #e5b000;
-  --color-crit: #f0563a;
+  /* Rojo de alarma aclarado de #f0563a: sobre surface-2 pasaba de 4,22:1 (AA exige 4,5:1) a 4,89:1 */
+  --color-crit: #f56a50;
   --color-bad: #7f92a3;
   --font-sans: 'Barlow', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace;

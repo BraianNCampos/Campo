@@ -1,17 +1,20 @@
 import { create } from 'zustand';
-import type { Me, Plant } from '@campo/shared';
+import type { Me, OrgSummary, Plant } from '@campo/shared';
 import { getAdminApi } from '@/lib/admin';
 import { clearToken } from '@/lib/auth';
 import { AdminApiError, errorMessage } from '@/lib/admin/errors';
 import type { AdminApi } from '@/lib/admin/types';
+import { config } from '@/lib/env';
+import { demoPlants, loadOrgSummaries, withDemoOrg } from '@/lib/orgs';
 import { usePlantStore } from './plant-store';
 
 export type SessionStatus = 'idle' | 'loading' | 'ready' | 'error';
 
-const CACHE_KEY = 'campo.session.v1';
+const CACHE_KEY = 'campo.session.v2';
 interface Cached {
   me: Me;
   plants: Plant[];
+  orgs?: OrgSummary[];
 }
 
 function readCache(): Cached | null {
@@ -40,6 +43,8 @@ export function clearSessionCache() {
 
 interface SessionState {
   me: Me | null;
+  /** clientes y módulos (sólo para el personal de plataforma) */
+  orgs: OrgSummary[];
   status: SessionStatus;
   error: string | null;
   /** true si los datos salen de la caché local porque no hay red */
@@ -54,6 +59,7 @@ interface SessionState {
 
 export const useSessionStore = create<SessionState>()((set) => ({
   me: null,
+  orgs: [],
   status: 'idle',
   error: null,
   stale: false,
@@ -61,15 +67,19 @@ export const useSessionStore = create<SessionState>()((set) => ({
   async load(api = getAdminApi()) {
     set({ status: 'loading', error: null });
     try {
-      const [me, plants] = await Promise.all([api.me(), api.listPlants()]);
-      writeCache({ me, plants });
+      const [rawMe, rawPlants] = await Promise.all([api.me(), api.listPlants()]);
+      // demo: el cliente sale de `getDemoOrgId()` y sólo se ven las plantas de ese cliente
+      const me = config.mock ? withDemoOrg(rawMe) : rawMe;
+      const plants = config.mock ? demoPlants(rawPlants) : rawPlants;
+      const orgs = await loadOrgSummaries(me);
+      writeCache({ me, plants, orgs });
       usePlantStore.getState().setPlants(plants);
-      set({ me, status: 'ready', stale: false });
+      set({ me, orgs, status: 'ready', stale: false });
     } catch (e) {
       const cached = e instanceof AdminApiError && e.kind === 'network' ? readCache() : null;
       if (cached) {
         usePlantStore.getState().setPlants(cached.plants);
-        set({ me: cached.me, status: 'ready', stale: true });
+        set({ me: cached.me, orgs: cached.orgs ?? [], status: 'ready', stale: true });
       } else {
         set({ status: 'error', error: errorMessage(e) });
       }
@@ -78,7 +88,8 @@ export const useSessionStore = create<SessionState>()((set) => ({
 
   async refreshPlants(api = getAdminApi()) {
     try {
-      usePlantStore.getState().setPlants(await api.listPlants());
+      const plants = await api.listPlants();
+      usePlantStore.getState().setPlants(config.mock ? demoPlants(plants) : plants);
     } catch {
       /* se conserva la lista actual */
     }
@@ -93,7 +104,7 @@ export const useSessionStore = create<SessionState>()((set) => ({
   clear() {
     clearSessionCache();
     usePlantStore.getState().reset();
-    set({ me: null, status: 'idle', error: null, stale: false });
+    set({ me: null, orgs: [], status: 'idle', error: null, stale: false });
   },
 }));
 

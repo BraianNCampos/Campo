@@ -12,7 +12,7 @@ import { Subscription } from 'rxjs';
 import { WebSocket } from 'ws';
 import { AccessService } from '../auth/access.service';
 import { AuthService } from '../auth/auth.service';
-import { canAccessPlant } from '../auth/plant-access';
+import { TenantScope } from '../auth/tenant-scope';
 import { APP_CONFIG, AppConfig } from '../config/app-config';
 import { StateService } from '../plants/state.service';
 import { BusMessage, RealtimeBus } from '../redis/realtime-bus';
@@ -47,6 +47,7 @@ export class LiveGateway
   private readonly catalogCoalescer: CatalogCoalescer;
   private sub?: Subscription;
   private invalidationSub?: Subscription;
+  private orgInvalidationSub?: Subscription;
   private revalidation?: NodeJS.Timeout;
   private heartbeat?: NodeJS.Timeout;
   readonly stats = { telemetrySent: 0, telemetrySkipped: 0, alarmsSent: 0 };
@@ -55,6 +56,7 @@ export class LiveGateway
     private readonly bus: RealtimeBus,
     private readonly auth: AuthService,
     private readonly access: AccessService,
+    private readonly tenant: TenantScope,
     private readonly state: StateService,
     @Inject(APP_CONFIG) private readonly cfg: AppConfig,
   ) {
@@ -74,6 +76,8 @@ export class LiveGateway
     // Revocación en vivo: un cambio hecho en este proceso cierra al instante; los hechos en otras réplicas
     // (o si se pierde el aviso) se detectan en la revalidación periódica (<= TTL de la caché).
     this.invalidationSub = this.access.invalidations$.subscribe((id) => void this.revalidate([id]));
+    // Un cambio de cliente (desactivado, módulos...) afecta a todos sus usuarios: se revalidan todos los sockets.
+    this.orgInvalidationSub = this.access.orgInvalidations$.subscribe(() => void this.revalidate());
     this.revalidation = setInterval(
       () => void this.revalidate(undefined, true),
       this.cfg.wsRevalidateMs,
@@ -84,6 +88,7 @@ export class LiveGateway
   onModuleDestroy(): void {
     this.sub?.unsubscribe();
     this.invalidationSub?.unsubscribe();
+    this.orgInvalidationSub?.unsubscribe();
     if (this.heartbeat) clearInterval(this.heartbeat);
     if (this.revalidation) clearInterval(this.revalidation);
     this.coalescer.dispose();
@@ -104,10 +109,10 @@ export class LiveGateway
       if (!ID_PATTERN.test(plant)) return socket.close(WS_CLOSE.badRequest, 'invalid plant');
       const claims = token ? await this.auth.verifyToken(token) : null;
       if (!claims) return this.deny(socket, WS_CLOSE.unauthorized, 'unauthorized', plant);
-      // Rol, estado activo y plantas vigentes de la base (no los del token).
+      // Rol, cliente (activo), estado y plantas vigentes de la base (no los del token).
       const user = await this.access.getAccess(claims.id, { tv: claims.tv });
       if (!user) return this.deny(socket, WS_CLOSE.unauthorized, 'unauthorized', plant, claims.id);
-      if (!canAccessPlant(user, plant)) {
+      if (!(await this.tenant.canAccessPlant(user, plant))) {
         return this.deny(socket, WS_CLOSE.forbidden, 'forbidden', plant, user.id);
       }
       if (socket.readyState !== WebSocket.OPEN) return;
@@ -151,12 +156,13 @@ export class LiveGateway
 
   /**
    * Comprueba contra la base (usuario activo y acceso a la planta) los sockets abiertos de `userIds`
-   * (o de todos) y cierra los que ya no corresponden: 4401 (inactivo/inexistente o token revocado: su
+   * (o de todos) y cierra los que ya no corresponden: 4401 (inactivo/inexistente, cliente desactivado o token revocado: su
    * `tv` ya no es el vigente) o 4403 (sin acceso). `fresh` salta la caché para acotar la revocación al
    * intervalo de revalidación (sólo en la primera lectura de cada usuario). Visible para tests.
    */
   async revalidate(userIds?: string[], fresh = false): Promise<void> {
     const ids = new Set(userIds ?? [...this.clients.values()].map((c) => c.userId));
+    const orgs = new Map<string, string | null>(); // cliente de cada planta, consultado una vez por pasada
     for (const userId of ids) {
       try {
         let refresh = fresh;
@@ -165,7 +171,7 @@ export class LiveGateway
           const user = await this.access.getAccess(userId, { fresh: refresh, tv: client.tv });
           refresh = false; // las lecturas siguientes del mismo usuario salen de la caché recién refrescada
           if (!user) this.revoke(client, WS_CLOSE.unauthorized, 'unauthorized');
-          else if (!canAccessPlant(user, client.plant)) {
+          else if (!(await this.tenant.canAccessPlant(user, client.plant, orgs))) {
             this.revoke(client, WS_CLOSE.forbidden, 'forbidden');
           }
         }

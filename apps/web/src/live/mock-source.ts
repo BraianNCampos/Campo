@@ -1,23 +1,48 @@
-import type { ServerMessage } from '@campo/shared';
+import type { AssetDef, ServerMessage } from '@campo/shared';
 import { getAdminApi } from '@/lib/admin';
+import { DEMO_ASSETS } from '@/lib/demo-seed';
 import { PlantSimulator } from './simulator';
+import { SeedSimulator } from './seed-simulator';
 
 export const MOCK_TICK_MS = 250;
+/** Ritmo de la planta demo: más lento que el de los tests para que los caudales y tasas sean creíbles. */
+export const DEMO_PLANT_SPEED = 0.2;
+
+/** Tanques, bombas y válvulas de `demo` que ya mueve `PlantSimulator`. */
+const isCoreDemoAsset = (plant: string, def: AssetDef) => plant === 'demo' && ['tank', 'pump', 'valve'].includes(def.type);
+
+interface Source {
+  snapshot(now: number): ServerMessage;
+  step(dt: number, now: number): ServerMessage[];
+}
+
+/** Combina `PlantSimulator` (tanques/bombas/válvulas de demo) y `SeedSimulator` (resto de activos sembrados). */
+function buildSources(plant: string): Source[] {
+  const seed = Math.floor(Math.random() * 1e6);
+  const out: Source[] = [];
+  if (plant === 'demo') out.push(new PlantSimulator(plant, seed, { speed: DEMO_PLANT_SPEED, levels: { 'tk-04': 89.4, 'tk-02': 10.6 } }));
+  out.push(new SeedSimulator(plant, seed, { skip: (d) => isCoreDemoAsset(plant, d) }));
+  return out;
+}
 
 /**
- * Emite por `emit` los mismos `ServerMessage` que enviaría el WebSocket real:
- * un snapshot al arrancar y luego telemetría/alarmas cada tick.
+ * Emite por `emit` los mismos `ServerMessage` que enviaría el WebSocket real: un snapshot al arrancar y luego
+ * telemetría/alarmas cada tick. Para las plantas sembradas (`demo`, `tanques`) simula todos sus activos; para
+ * cualquier otra planta (creada en la administración demo) genera valores suaves de su catálogo.
  */
 export function startMockSource(emit: (m: ServerMessage) => void, plant = 'demo'): () => void {
-  const sim = new PlantSimulator(plant, Math.floor(Math.random() * 1e6));
+  if (!(plant in DEMO_ASSETS)) return startCatalogSource(emit, plant);
+  const sources = buildSources(plant);
   const offCatalog = watchCatalog(emit, plant);
-  emit(sim.snapshot(Date.now()));
-  let last = Date.now();
+  const now0 = Date.now();
+  const snaps = sources.map((s) => s.snapshot(now0)).filter((m): m is Extract<ServerMessage, { type: 'snapshot' }> => m.type === 'snapshot');
+  emit({ type: 'snapshot', plant, assets: Object.assign({}, ...snaps.map((s) => s.assets)) });
+  let last = now0;
   const id = setInterval(() => {
     const now = Date.now();
     const dt = (now - last) / 1000;
     last = now;
-    for (const m of sim.step(dt, now)) emit(m);
+    for (const s of sources) for (const m of s.step(dt, now)) emit(m);
   }, MOCK_TICK_MS);
   return () => {
     clearInterval(id);
@@ -31,8 +56,7 @@ function watchCatalog(emit: (m: ServerMessage) => void, plant: string): () => vo
 }
 
 /**
- * Plantas distintas de `demo` en modo demo: el simulador sólo conoce la planta demo, así que se
- * generan valores suaves para los activos del catálogo (mock) de esa planta, tal como estén al entrar.
+ * Plantas creadas en la administración demo: valores suaves para los activos de su catálogo, tal como estén al entrar.
  */
 export function startCatalogSource(emit: (m: ServerMessage) => void, plant: string): () => void {
   let stopped = false;

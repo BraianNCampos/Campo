@@ -1,17 +1,22 @@
-import { ConflictException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { ID_PATTERN, redisKeys } from '@campo/shared';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import type { Plant } from '@campo/shared';
-import type Redis from 'ioredis';
 import { AccessService } from '../auth/access.service';
 import type { AuthUser } from '../auth/auth.types';
+import { isPlatform, orgIdOf } from '../auth/plant-access';
 import { PlantCatalog } from '../auth/plant-catalog';
+import { TenantScope } from '../auth/tenant-scope';
 import { AuditService } from '../audit/audit.service';
 import { ModelsRepository } from '../models/models.repository';
+import { OrgsRepository } from '../orgs/orgs.repository';
 import { CatalogNotifier } from '../redis/catalog-notifier';
-import { REDIS } from '../redis/tokens';
 import { PlantsRepository } from './plants.repository';
-
-const STATE_PREFIX = redisKeys.state('');
 
 @Injectable()
 export class PlantsService {
@@ -20,61 +25,59 @@ export class PlantsService {
   constructor(
     private readonly repo: PlantsRepository,
     private readonly catalog: PlantCatalog,
+    private readonly tenant: TenantScope,
+    private readonly orgs: OrgsRepository,
     private readonly access: AccessService,
     private readonly audit: AuditService,
-    @Inject(REDIS) private readonly redis: Redis,
     private readonly models: ModelsRepository,
     private readonly notifier: CatalogNotifier,
   ) {}
 
   /**
-   * Plantas visibles: admin = `plants` ∪ plantas con activos ∪ plantas con estado vivo en Redis;
-   * resto = las asignadas (aunque aún no estén registradas: nombre = id).
+   * Plantas visibles: platform_admin = todas las registradas (`orgId` opcional filtra por cliente);
+   * admin = las de su cliente; engineer/operator/viewer = las asignadas de su cliente.
    */
-  async list(user: AuthUser): Promise<Plant[]> {
-    const byId = new Map<string, Plant>();
-    if (user.role === 'admin') {
-      for (const p of await this.repo.list()) byId.set(p.id, p);
-      for (const id of await this.liveIds()) {
-        if (!byId.has(id)) byId.set(id, { id, name: id, assets: 0 });
-      }
-    } else {
-      if (user.plants.length > 0) {
-        for (const p of await this.repo.list(user.plants)) byId.set(p.id, p);
-      }
-      for (const id of user.plants) {
-        if (!byId.has(id)) byId.set(id, { id, name: id, assets: 0 });
-      }
-    }
-    return [...byId.values()].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  list(user: AuthUser, orgId?: string): Promise<Plant[]> {
+    const scope = this.tenant.scope(user);
+    return this.repo.list({ ids: scope.plants, orgId: isPlatform(user) ? orgId : scope.orgId });
   }
 
-  async create(id: string, name: string, actor: AuthUser): Promise<Plant> {
-    if (!(await this.repo.create(id, name))) throw new ConflictException('La planta ya existe');
+  /** `admin`: siempre en su cliente. `platform_admin`: `orgId` obligatorio (400). */
+  async create(id: string, name: string, requestedOrg: string | undefined, actor: AuthUser): Promise<Plant> {
+    const orgId = await this.resolveOrg(actor, requestedOrg);
+    if (!isPlatform(actor) && (await this.catalog.isLive(id))) {
+      // Telemetría de una planta aún sin registrar: sólo plataforma puede adjudicarla a un cliente.
+      throw new ConflictException('La planta ya existe');
+    }
+    if (!(await this.repo.create(id, name, orgId))) throw new ConflictException('La planta ya existe');
     await this.notifier.changed(id);
-    await this.audit.record(actor, 'plant.create', `plant:${id}`, { name });
-    return { id, name, assets: 0 };
+    await this.audit.record(actor, 'plant.create', `plant:${id}`, orgId, { name });
+    return { id, name, assets: 0, orgId };
   }
 
   async rename(id: string, name: string, actor: AuthUser): Promise<Plant> {
-    if (!(await this.catalog.exists(id))) throw new NotFoundException('Planta no encontrada');
+    const orgId = await this.tenant.assertPlant(actor, id);
     const plant = await this.repo.rename(id, name);
+    if (!plant) throw new NotFoundException('Planta no encontrada');
     await this.notifier.changed(id);
-    await this.audit.record(actor, 'plant.update', `plant:${id}`, { name });
+    await this.audit.record(actor, 'plant.update', `plant:${id}`, orgId, { name });
     return plant;
   }
 
-  /** 409 si tiene activos; limpia las asignaciones de usuario (y cierra sus sesiones WS de esa planta). */
+  /**
+   * 409 si tiene activos; limpia asignaciones, reglas, alarmas y modelos (en la misma transacción) y
+   * cierra las sesiones WS de esa planta.
+   */
   async remove(id: string, actor: AuthUser): Promise<{ deleted: true }> {
+    const orgId = await this.tenant.assertPlant(actor, id);
     const res = await this.repo.remove(id);
     if (res.status === 'not_found') throw new NotFoundException('Planta no encontrada');
     if (res.status === 'has_assets') {
       throw new ConflictException('La planta tiene activos: bórrelos antes de eliminarla');
     }
     for (const userId of res.unassignedUserIds) await this.access.invalidate(userId);
-    // Sus modelos 3D (hasta 10 MB cada uno) no deben quedar huérfanos ni reaparecer si se recrea la planta.
     try {
-      await this.models.deleteByPlant(id);
+      await this.models.deleteByPlant(id); // idempotente: ya lo hizo la transacción
     } catch (err) {
       this.log.warn({
         msg: 'no se pudieron borrar los modelos de la planta',
@@ -83,34 +86,22 @@ export class PlantsService {
       });
     }
     await this.notifier.changed(id);
-    await this.audit.record(actor, 'plant.delete', `plant:${id}`, {
+    await this.audit.record(actor, 'plant.delete', `plant:${id}`, orgId, {
       unassignedUsers: res.unassignedUserIds.length,
     });
     return { deleted: true };
   }
 
-  /** Ids de planta con estado vivo en Redis. Si Redis falla se degrada a "ninguna". */
-  private async liveIds(): Promise<string[]> {
-    const ids = new Set<string>();
-    try {
-      let cursor = '0';
-      do {
-        const [next, keys] = await this.redis.scan(
-          cursor,
-          'MATCH',
-          `${STATE_PREFIX}*`,
-          'COUNT',
-          200,
-        );
-        cursor = next;
-        for (const key of keys) {
-          const id = key.slice(STATE_PREFIX.length);
-          if (ID_PATTERN.test(id)) ids.add(id);
-        }
-      } while (cursor !== '0');
-    } catch (err) {
-      this.log.warn({ msg: 'no se pudo listar plantas de Redis', error: (err as Error).message });
+  private async resolveOrg(actor: AuthUser, requested: string | undefined): Promise<string> {
+    if (!isPlatform(actor)) {
+      const own = orgIdOf(actor);
+      if (own === null || (requested !== undefined && requested !== own)) {
+        throw new ForbiddenException('No puede crear plantas en otro cliente');
+      }
+      return own;
     }
-    return [...ids];
+    if (requested === undefined) throw new BadRequestException('orgId es obligatorio');
+    if (!(await this.orgs.findById(requested))) throw new NotFoundException('Cliente no encontrado');
+    return requested;
   }
 }

@@ -214,13 +214,14 @@ describe('Catálogo vivo y modelos 3D (e2e)', () => {
       await api.upload('demo', token(), g).expect(status);
     });
 
-    it('sin token: 401; admin en planta inexistente: 404; id de planta inválido: 400', async () => {
+    it('sin token: 401; planta inexistente: 403 (admin) / 404 (platform_admin); id inválido: 400', async () => {
       await request(http)
         .post('/api/plants/demo/models?name=x')
         .set('Content-Type', GLB)
         .send(triangleGlb())
         .expect(401);
-      await api.upload('fantasma', admin, triangleGlb()).expect(404);
+      await api.upload('fantasma', admin, triangleGlb()).expect(403);
+      await api.upload('fantasma', await t.tokenFor('platform_admin'), triangleGlb()).expect(404);
       await api.upload('BAD_PLANT', admin, triangleGlb()).expect(400);
     });
 
@@ -626,7 +627,8 @@ describe('Catálogo vivo y modelos 3D (e2e)', () => {
       expect(catalogs(norteWs).length).toBe(m.norte + 1);
       expect(catalogs(demoWs).length).toBe(m.demo);
 
-      const wsNew = await open(`${wsBase}?plant=nueva&token=${admin}`);
+      // un admin de cliente no puede abrir un socket a una planta aún no registrada: lo hace plataforma
+      const wsNew = await open(`${wsBase}?plant=nueva&token=${await t.tokenFor('platform_admin')}`);
       await sleep(100);
       await api.post('/api/plants', admin).send({ id: 'nueva', name: 'Nueva' }).expect(201);
       await settle();

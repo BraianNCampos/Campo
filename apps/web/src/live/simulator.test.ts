@@ -38,12 +38,12 @@ describe('PlantSimulator', () => {
     expect(msgs.filter((m) => m.type === 'telemetry')).toHaveLength(8);
   });
 
-  it('genera alarmas críticas level>90 y level<10 en los primeros segundos y las limpia con el mismo id', () => {
+  it('genera alarmas level>90 (crítica) y level<10 (advertencia) en los primeros segundos y las limpia con el mismo id', () => {
     const { events } = run(new PlantSimulator('demo', 3), 120);
-    const crit = events.filter((e) => e.severity === 'critical' && e.state === 'active');
-    expect(crit.some((e) => e.ruleId === 'level-high' && e.value > 90)).toBe(true);
-    expect(crit.some((e) => e.ruleId === 'level-low' && e.value < 10)).toBe(true);
-    const first = crit[0]!;
+    const act = events.filter((e) => e.state === 'active');
+    expect(act.some((e) => e.ruleId === 'level-high' && e.severity === 'critical' && e.value > 90)).toBe(true);
+    expect(act.some((e) => e.ruleId === 'level-low' && e.severity === 'warning' && e.value < 10)).toBe(true);
+    const first = act[0]!;
     const cleared = events.find((e) => e.id === first.id && e.state === 'cleared');
     expect(cleared).toBeDefined();
   });
@@ -66,5 +66,19 @@ describe('PlantSimulator', () => {
         }
       }
     }
+  });
+});
+
+describe('PlantSimulator a ritmo reducido (modo demo)', () => {
+  it('con speed 0.2 y niveles iniciales cercanos al límite alarma en pocos segundos y los tanques se mueven despacio', () => {
+    const sim = new PlantSimulator('demo', 5, { speed: 0.2, levels: { 'tk-04': 89.5, 'tk-02': 10.5 } });
+    const { events } = run(sim, 60);
+    expect(events.some((e) => e.state === 'active')).toBe(true);
+    const a = new PlantSimulator('demo', 5, { speed: 0.2 });
+    const b = new PlantSimulator('demo', 5, { speed: 1 });
+    run(a, 10);
+    run(b, 10);
+    const lvl = (s: PlantSimulator) => (s.snapshot(0).assets['tk-03']?.values.level ?? 0);
+    expect(Math.abs(lvl(a) - 60)).toBeLessThan(Math.abs(lvl(b) - 60));
   });
 });

@@ -1,3 +1,4 @@
+import { ID_PATTERN } from '@campo/shared';
 import { Type } from 'class-transformer';
 import { IsInt, IsOptional, IsString, Matches, Max, MaxLength, Min } from 'class-validator';
 
@@ -23,4 +24,14 @@ export class AuditListQuery {
   @IsOptional()
   @Matches(/^[a-z]+\.[a-z_]+$/, { message: 'action inválida (p. ej. asset.delete)' })
   action?: string;
+
+  /** Sólo platform_admin: filtra por cliente. Un admin lo ignora (siempre ve su cliente). */
+  @IsOptional()
+  @Matches(ID_PATTERN, { message: 'orgId inválido' })
+  orgId?: string;
+
+  /** Alias de `orgId`. */
+  @IsOptional()
+  @Matches(ID_PATTERN, { message: 'org inválido' })
+  org?: string;
 }

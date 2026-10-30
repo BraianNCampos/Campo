@@ -1,5 +1,6 @@
 import type { Role } from '@campo/shared';
 import { clearToken, getToken } from '@/lib/auth';
+import { getDemoOrgId, setDemoOrgId, DEMO_ORGS, type DemoOrgId } from '@/lib/demo-org';
 import { config } from '@/lib/env';
 import { HttpAdminApi } from './http-api';
 import { MockAdminApi } from './mock-api';
@@ -27,6 +28,25 @@ export function setDemoRole(role: Role): void {
   }
 }
 
+/**
+ * Identidad del modo demo: `getDemoOrgId()` manda (null = personal de plataforma). Con un cliente elegido el
+ * rol demo nunca es `platform_admin`.
+ */
+export function getDemoIdentity(): { role: Role; org: DemoOrgId | null } {
+  const org = getDemoOrgId();
+  if (org === null) return { role: 'platform_admin', org: null };
+  const role = getDemoRole();
+  return { role: role === 'platform_admin' ? 'admin' : role, org };
+}
+
+/** Elige el usuario demo (rol y cliente) y lo recuerda; la página se recarga para reiniciar sesión y datos. */
+export function setDemoIdentity(role: Role, org: DemoOrgId | null): void {
+  setDemoRole(role);
+  setDemoOrgId(role === 'platform_admin' ? null : (org ?? 'campos-demo'));
+}
+
+export { DEMO_ORGS };
+
 /** 401: la sesión no vale → se limpia el token y se vuelve a /login (navegación completa: reinicia el estado). */
 function handleUnauthorized(): void {
   clearToken();
@@ -38,7 +58,7 @@ let instance: AdminApi | null = null;
 /** Mock en modo demo (igual que el stream), HTTP en caso contrario. Singleton por pestaña. */
 export function getAdminApi(): AdminApi {
   instance ??= config.mock
-    ? new MockAdminApi({ role: getDemoRole(), latencyMs: 60 })
+    ? new MockAdminApi({ ...getDemoIdentity(), latencyMs: 60 })
     : new HttpAdminApi({ baseUrl: config.apiUrl, getToken, onUnauthorized: handleUnauthorized });
   return instance;
 }

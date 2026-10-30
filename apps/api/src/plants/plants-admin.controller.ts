@@ -1,25 +1,25 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Query } from '@nestjs/common';
 import type { Plant } from '@campo/shared';
 import type { AuthUser } from '../auth/auth.types';
 import { CurrentUser, Roles } from '../auth/decorators';
 import { PlantParams } from '../common/params';
-import { CreatePlantDto, UpdatePlantDto } from './dto';
+import { CreatePlantDto, PlantListQuery, UpdatePlantDto } from './dto';
 import { PlantsService } from './plants.service';
 
-/** Plantas: listado para todos (según asignación); alta, nombre y baja sólo admin. */
+/** Plantas: listado para todos (según cliente y asignación); alta, nombre y baja: admin de su cliente y platform_admin. */
 @Controller('plants')
 export class PlantsAdminController {
   constructor(private readonly plants: PlantsService) {}
 
   @Get()
-  list(@CurrentUser() user: AuthUser): Promise<Plant[]> {
-    return this.plants.list(user);
+  list(@Query() q: PlantListQuery, @CurrentUser() user: AuthUser): Promise<Plant[]> {
+    return this.plants.list(user, q.orgId);
   }
 
   @Post()
   @Roles('admin')
   create(@Body() dto: CreatePlantDto, @CurrentUser() actor: AuthUser): Promise<Plant> {
-    return this.plants.create(dto.id, dto.name, actor);
+    return this.plants.create(dto.id, dto.name, dto.orgId, actor);
   }
 
   @Patch(':plant')

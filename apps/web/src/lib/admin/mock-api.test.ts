@@ -8,11 +8,13 @@ const make = (role: Role = 'admin') => new MockAdminApi({ role, now: () => NOW }
 const err = async (p: Promise<unknown>) => (await p.catch((e: unknown) => e)) as AdminApiError;
 
 describe('MockAdminApi: semilla', () => {
-  it('planta demo con sus 8 activos, 3 reglas, usuarios y auditoría', async () => {
+  it('planta demo del cliente campos-demo con sus 20 activos, reglas, usuarios y auditoría', async () => {
     const api = make();
-    expect(await api.listPlants()).toEqual([{ id: 'demo', name: 'Planta demo', assets: 8 }]);
-    expect((await api.listAssets('demo')).map((a) => a.id)).toEqual(['pump-01', 'pump-02', 'tk-01', 'tk-02', 'tk-03', 'tk-04', 'valve-01', 'valve-02']);
-    expect(await api.listRules()).toHaveLength(3);
+    expect(await api.listPlants()).toEqual([{ id: 'demo', name: 'Planta demo', assets: 20, orgId: 'campos-demo' }]);
+    const ids = (await api.listAssets('demo')).map((a) => a.id);
+    expect(ids).toHaveLength(20);
+    expect(ids).toEqual(expect.arrayContaining(['tk-01', 'pump-02', 'clima-01', 'en-linea1', 'gas-01', 'maq-03', 'pres-01', 'cau-01']));
+    expect(await api.listRules()).toHaveLength(15);
     expect((await api.listUsers()).length).toBeGreaterThanOrEqual(2);
     const audit = await api.listAudit();
     expect(audit.length).toBeGreaterThan(8);
@@ -25,6 +27,7 @@ describe('MockAdminApi: semilla', () => {
     const op = await make('operator').me();
     expect(op.role).toBe('operator');
     expect(op.plants).toEqual(['demo']);
+    expect(op.org).toMatchObject({ id: 'campos-demo', name: 'Agroindustria Ejemplo' });
   });
 });
 

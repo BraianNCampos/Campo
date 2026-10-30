@@ -4,13 +4,14 @@ import { AdminApiError } from '@/lib/admin/errors';
 import { config, buildWsUrl } from '@/lib/env';
 import { getToken } from '@/lib/auth';
 import { createBatcher } from '@/lib/batcher';
+import { loadLimits, LimitsError } from '@/lib/limits';
 import { parseServerMessage } from '@/lib/messages';
 import { loadSnapshot, saveSnapshot } from '@/lib/snapshot-cache';
 import { clearHistory } from '@/store/history';
 import { useLiveStore } from '@/store/live-store';
 import { useUiStore } from '@/store/ui-store';
 import { createCatalogSync } from './catalog-sync';
-import { startCatalogSource, startMockSource } from './mock-source';
+import { startMockSource } from './mock-source';
 import { LiveClient, type WsFactory } from './ws-client';
 
 /** Alarmas activas al (re)conectar: el snapshot WS no las incluye. Best-effort. */
@@ -34,6 +35,15 @@ async function fetchActiveAlarms(plant: string, push: (m: ServerMessage) => void
 
 /** Red o servidor caído: se reintenta. 403/404 (planta sin acceso o borrada): no. */
 const retriable = (e: unknown) => !(e instanceof AdminApiError) || ['network', 'server', 'unknown'].includes(e.kind);
+
+/** Misma mecánica que el catálogo (una petición en vuelo, debounce, reintento), para los límites. */
+function createLimitsSync(o: { plant: string; onLoaded: (l: import('@campo/shared').Limit[]) => void }) {
+  return createCatalogSync<import('@campo/shared').Limit>({
+    load: () => loadLimits(o.plant),
+    onLoaded: o.onLoaded,
+    shouldRetry: (e) => !(e instanceof LimitsError) || e.status === 0 || e.status >= 500,
+  });
+}
 
 export interface StartLiveOptions {
   /** Inyectable en tests */
@@ -63,19 +73,27 @@ export function startLive(plant: string, opts: StartLiveOptions = {}): () => voi
     shouldRetry: retriable,
   });
   catalog.refresh();
+  // los límites de alarma (barras de rango y «cerca del límite») se recargan junto con el catálogo
+  const limits = createLimitsSync({ plant, onLoaded: (l) => store.getState().setLimits(l) });
+  limits.refresh();
+  const refreshAll = () => {
+    catalog.schedule();
+    limits.schedule();
+  };
 
   if (config.mock) {
     store.getState().setConnection('open');
     const emit = (m: ServerMessage) => {
       if (m.type === 'catalog') {
-        if (m.plant === plant) catalog.schedule();
+        if (m.plant === plant) refreshAll();
       } else batcher.push(m);
     };
-    const stop = plant === 'demo' ? startMockSource(emit, plant) : startCatalogSource(emit, plant);
+    const stop = startMockSource(emit, plant);
     return () => {
       alive = false;
       stop();
       catalog.dispose();
+      limits.dispose();
       batcher.dispose();
     };
   }
@@ -92,14 +110,14 @@ export function startLive(plant: string, opts: StartLiveOptions = {}): () => voi
     onMessage: (m) => {
       if (!alive || m.plant !== plant) return;
       if (m.type === 'catalog') {
-        catalog.schedule();
+        refreshAll();
         return;
       }
       batcher.push(m);
       if (m.type === 'snapshot') {
         void fetchActiveAlarms(plant, (a) => batcher.push(a), () => alive);
         // al reconectar pudo cambiar el catálogo mientras estábamos desconectados (el primer snapshot ya va con la carga inicial)
-        if (snapshots++ > 0) catalog.schedule();
+        if (snapshots++ > 0) refreshAll();
       }
     },
     onStatus: (status, attempt) => {
@@ -122,6 +140,7 @@ export function startLive(plant: string, opts: StartLiveOptions = {}): () => voi
     clearInterval(cacheTimer);
     client.stop();
     catalog.dispose();
+    limits.dispose();
     batcher.dispose();
   };
 }

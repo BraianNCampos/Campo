@@ -8,7 +8,7 @@ import type {
   ManagedUser,
   Plant,
 } from '@campo/shared';
-import { redisKeys } from '@campo/shared';
+import { MODULE_IDS, redisKeys } from '@campo/shared';
 import request from 'supertest';
 import type { App } from 'supertest/types';
 import { WebSocket } from 'ws';
@@ -99,7 +99,7 @@ describe('Administración: plantas, activos, auditoría y revocación (e2e)', ()
         .post('/api/plants', admin)
         .send({ id: 'norte', name: '  Planta Norte ' })
         .expect(201);
-      expect(res.body).toEqual({ id: 'norte', name: 'Planta Norte', assets: 0 });
+      expect(res.body).toEqual({ id: 'norte', name: 'Planta Norte', assets: 0, orgId: 'campos-demo' });
       await api.post('/api/plants', admin).send({ id: 'norte', name: 'Otra' }).expect(409);
       await api.post('/api/plants', admin).send({ id: 'demo', name: 'Demo' }).expect(409); // por tener activos
       await api.post('/api/plants', admin).send({ id: 'BAD_ID', name: 'x' }).expect(400);
@@ -163,11 +163,11 @@ describe('Administración: plantas, activos, auditoría y revocación (e2e)', ()
       // texto libre o modelo inexistente: 400 (ver models.e2e-spec.ts para el detalle)
       await bad({ id: 'a2', name: 'x', type: 'sensor', model3dRef: 'tank' }).expect(400);
       await bad({ id: 'a2', name: 'x', type: 'sensor', model3dRef: null }).expect(201);
-      // planta inexistente -> 404 (admin); id de planta inválido -> 400
+      // planta inexistente -> 403 (admin de cliente: no se distingue de la de otro cliente); id inválido -> 400
       await api
         .post('/api/plants/fantasma/assets', admin)
         .send({ id: 'a1', name: 'x', type: 'tank' })
-        .expect(404);
+        .expect(403);
       await api
         .post('/api/plants/BAD_PLANT/assets', admin)
         .send({ id: 'a1', name: 'x', type: 'tank' })
@@ -189,12 +189,12 @@ describe('Administración: plantas, activos, auditoría y revocación (e2e)', ()
         .send({ plants: ['norte'] })
         .expect(200);
       const mine = (await api.get('/api/plants', operator.token).expect(200)).body as Plant[];
-      expect(mine).toEqual([{ id: 'norte', name: 'Planta Norte', assets: 2 }]);
+      expect(mine).toEqual([{ id: 'norte', name: 'Planta Norte', assets: 2, orgId: 'campos-demo' }]);
 
       const eng = (await api.get('/api/plants', engineer.token).expect(200)).body as Plant[];
-      expect(eng).toEqual([{ id: 'demo', name: 'demo', assets: 2 }]);
+      expect(eng).toEqual([{ id: 'demo', name: 'demo', assets: 2, orgId: 'campos-demo' }]);
 
-      // el admin ve todas (registradas, con activos o con estado vivo en Redis)
+      // el admin ve todas las de su cliente (las registradas; una planta sólo con telemetría no es de nadie)
       await t.redis.hset(
         redisKeys.state('solo-redis'),
         'x',
@@ -202,9 +202,8 @@ describe('Administración: plantas, activos, auditoría y revocación (e2e)', ()
       );
       const all = (await api.get('/api/plants', admin).expect(200)).body as Plant[];
       expect(all).toEqual([
-        { id: 'demo', name: 'demo', assets: 2 },
-        { id: 'norte', name: 'Planta Norte', assets: 2 },
-        { id: 'solo-redis', name: 'solo-redis', assets: 0 },
+        { id: 'demo', name: 'demo', assets: 2, orgId: 'campos-demo' },
+        { id: 'norte', name: 'Planta Norte', assets: 2, orgId: 'campos-demo' },
       ]);
       await request(http).get('/api/plants').expect(401);
     });
@@ -315,7 +314,7 @@ describe('Administración: plantas, activos, auditoría y revocación (e2e)', ()
 
     it('PATCH de planta (nombre) y borrado: 409 con activos; limpia asignaciones y cierra su WS', async () => {
       await api.patch('/api/plants/norte', admin).send({ name: 'Norte 2' }).expect(200);
-      await api.patch('/api/plants/fantasma', admin).send({ name: 'x' }).expect(404);
+      await api.patch('/api/plants/fantasma', admin).send({ name: 'x' }).expect(403);
       await api.patch('/api/plants/norte', admin).send({ name: '' }).expect(400);
       expect(
         ((await api.get('/api/plants', operator.token).expect(200)).body as Plant[])[0].name,
@@ -343,8 +342,8 @@ describe('Administración: plantas, activos, auditoría y revocación (e2e)', ()
         )?.plants,
       ).toEqual([]);
       expect((await api.get('/api/plants', operator.token).expect(200)).body).toEqual([]);
-      await api.delete('/api/plants/norte', admin).expect(404);
-      await api.get('/api/plants/norte/assets', admin).expect(404);
+      await api.delete('/api/plants/norte', admin).expect(403);
+      await api.get('/api/plants/norte/assets', admin).expect(403);
     });
 
     it('la auditoría refleja todo, más reciente primero, sin secretos', async () => {
@@ -524,6 +523,7 @@ describe('Administración: plantas, activos, auditoría y revocación (e2e)', ()
         role: 'engineer',
         active: true,
         plants: ['demo'],
+        org: { id: 'campos-demo', name: 'Agroindustria Ejemplo', modules: [...MODULE_IDS] },
       });
 
       await api.get('/api/me', u.token).expect(401);
@@ -565,6 +565,9 @@ describe('Administración: plantas, activos, auditoría y revocación (e2e)', ()
         .patch(`/api/users/${id}`, admin)
         .send({ password: 'clave-secreta-larga-2', role: 'operator' })
         .expect(200);
+      // una planta ajena (inexistente o de otro cliente) no se puede asignar: 403
+      await api.put(`/api/users/${id}/plants`, admin).send({ plants: ['demo', 'otra'] }).expect(403);
+      t.plants.register('otra', 'campos-demo');
       await api
         .put(`/api/users/${id}/plants`, admin)
         .send({ plants: ['demo', 'otra'] })
@@ -580,6 +583,7 @@ describe('Administración: plantas, activos, auditoría y revocación (e2e)', ()
         email: mail,
         role: 'viewer',
         plants: ['demo'],
+        orgId: 'campos-demo',
       });
       expect(mine.find((e) => e.action === 'user.update')?.detail).toEqual({
         changed: ['role', 'password'],
@@ -681,6 +685,7 @@ describe('Administración: plantas, activos, auditoría y revocación (e2e)', ()
           id: 'sin-audit',
           name: 'Sin audit',
           assets: 0,
+          orgId: 'campos-demo',
         });
       } finally {
         t.audit.failWith = undefined;

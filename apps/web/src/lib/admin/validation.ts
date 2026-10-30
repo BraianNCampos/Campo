@@ -1,6 +1,7 @@
-import { ID_PATTERN, MODEL_REF_PATTERN } from '@campo/shared';
-import type { AssetLayout, Role } from '@campo/shared';
+import { ASSET_KINDS, ID_PATTERN, METRICS, MODEL_REF_PATTERN, MODULE_IDS, moduleForAssetType } from '@campo/shared';
+import type { AssetDef, AssetLayout, ModuleId, Role } from '@campo/shared';
 import { LAYOUT_LIMITS, parseConnectsTo, parseLayout } from '@/lib/catalog';
+import { MODULE_DISABLED_TEXT } from './errors';
 import { ASSET_TYPES, OPERATORS, ROLES, SEVERITIES } from './types';
 import type { AlarmRuleInput, AssetInput, AssetType, Operator, Severity } from './types';
 
@@ -22,13 +23,21 @@ export function validatePassword(pw: string, field = 'password'): FieldErrors {
   return {};
 }
 
-/** Progreso hacia la longitud mínima (0..1) y texto para el indicador. */
-export function passwordStrength(pw: string): { ratio: number; ok: boolean; text: string } {
+/**
+ * Indicador simple de fortaleza (no sustituye la validación del servidor): 0 = no llega al mínimo,
+ * 1 = aceptable (>=12), 2 = buena (>=16 o 3 tipos de carácter), 3 = muy buena (ambas).
+ */
+export function passwordStrength(pw: string): { ratio: number; ok: boolean; level: 0 | 1 | 2 | 3; label: string; text: string } {
   const ok = pw.length >= PASSWORD_MIN;
+  const classes = [/[a-z]/, /[A-Z]/, /\d/, /[^A-Za-z0-9]/].filter((re) => re.test(pw)).length;
+  const level = !ok ? 0 : ((1 + (pw.length >= 16 ? 1 : 0) + (classes >= 3 ? 1 : 0)) as 1 | 2 | 3);
+  const label = ['Muy corta', 'Aceptable', 'Buena', 'Muy buena'][level]!;
   return {
     ratio: Math.min(1, pw.length / PASSWORD_MIN),
     ok,
-    text: ok ? `Longitud suficiente (${pw.length} caracteres)` : `${pw.length} de ${PASSWORD_MIN} caracteres mínimos`,
+    level,
+    label,
+    text: ok ? `${label} (${pw.length} caracteres)` : `${pw.length} de ${PASSWORD_MIN} caracteres mínimos`,
   };
 }
 
@@ -55,18 +64,73 @@ export interface UserForm {
   password: string;
   role: Role | '';
   plants: string[];
+  /** Cliente elegido (sólo lo usa un `platform_admin`). */
+  orgId?: string;
 }
 
-export function validateUserForm(v: UserForm): { errors: FieldErrors; value?: { email: string; password: string; role: Role; plants: string[] } } {
+/**
+ * `actorRole`: quién crea al usuario. Un `platform_admin` debe elegir cliente (salvo que cree otro
+ * `platform_admin`, que no tiene cliente); un administrador de cliente no puede otorgar `platform_admin`.
+ */
+export function validateUserForm(
+  v: UserForm,
+  opts: { actorRole?: Role } = {},
+): { errors: FieldErrors; value?: { email: string; password: string; role: Role; plants: string[]; orgId?: string } } {
+  const actor = opts.actorRole ?? 'admin';
   const errors: FieldErrors = {};
   const email = v.email.trim().toLowerCase();
   if (!email) errors.email = 'El correo es obligatorio.';
   else if (!EMAIL.test(email) || email.length > 254) errors.email = 'Ingresá un correo válido (nombre@dominio.com).';
   Object.assign(errors, validatePassword(v.password));
   if (!ROLES.includes(v.role as Role)) errors.role = 'Elegí un rol.';
+  else if (v.role === 'platform_admin' && actor !== 'platform_admin') errors.role = 'Sólo el personal de Campos Ingeniería puede otorgar este rol.';
   if (v.plants.some((p) => !ID_PATTERN.test(p))) errors.plants = 'Alguna planta no es válida.';
+  const needsOrg = actor === 'platform_admin' && v.role !== '' && v.role !== 'platform_admin';
+  if (needsOrg && !v.orgId) errors.orgId = 'Elegí el cliente al que pertenece.';
   if (hasErrors(errors)) return { errors };
-  return { errors, value: { email, password: v.password, role: v.role as Role, plants: [...new Set(v.plants)] } };
+  const role = v.role as Role;
+  const plants = role === 'platform_admin' ? [] : [...new Set(v.plants)];
+  return { errors, value: { email, password: v.password, role, plants, ...(needsOrg && { orgId: v.orgId }) } };
+}
+
+// ── Clientes ──
+
+export function validateOrgId(id: string): string | null {
+  if (!id) return 'El id es obligatorio.';
+  if (!ID_PATTERN.test(id)) return 'Usá minúsculas, números, "-" o "_" (máx. 64), empezando por letra o número.';
+  return null;
+}
+
+export interface OrgForm {
+  id: string;
+  name: string;
+  modules: ModuleId[];
+}
+
+/** Alta/edición de un cliente: id (sólo al crear), nombre y al menos un módulo conocido. */
+export function validateOrgForm(v: OrgForm, opts: { editing?: boolean } = {}): FieldErrors {
+  const e: FieldErrors = {};
+  if (!opts.editing) {
+    const idErr = validateOrgId(v.id.trim());
+    if (idErr) e.id = idErr;
+  }
+  const name = v.name.trim();
+  if (!name) e.name = 'El nombre es obligatorio.';
+  else if (name.length > 100) e.name = 'Máximo 100 caracteres.';
+  if (v.modules.some((m) => !MODULE_IDS.includes(m))) e.modules = 'Hay un módulo que no existe.';
+  else if (v.modules.length === 0) e.modules = 'Elegí al menos un módulo.';
+  return e;
+}
+
+/** Primer administrador de un cliente: correo y contraseña. */
+export function validateOrgAdminForm(v: { email: string; password: string }): { errors: FieldErrors; value?: { email: string; password: string } } {
+  const errors: FieldErrors = {};
+  const email = v.email.trim().toLowerCase();
+  if (!email) errors.email = 'El correo es obligatorio.';
+  else if (!EMAIL.test(email) || email.length > 254) errors.email = 'Ingresá un correo válido (nombre@dominio.com).';
+  Object.assign(errors, validatePassword(v.password));
+  if (hasErrors(errors)) return { errors };
+  return { errors, value: { email, password: v.password } };
 }
 
 export function validatePasswordChange(v: { current: string; next: string; confirm: string }): FieldErrors {
@@ -127,6 +191,8 @@ export interface AssetForm {
   layout: LayoutForm;
   connectsTo: string[];
   metadataText: string;
+  /** Campos de dominio opcionales; si falta, no se tocan los metadatos de dominio. */
+  domain?: DomainForm;
 }
 
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -249,8 +315,154 @@ export function fieldsFromMetadataText(text: string): { layout: LayoutForm; conn
   return { layout: layoutFormFrom(parsed.value), connectsTo: parseConnectsTo(parsed.value) };
 }
 
-/** `keepRef`: valor antiguo de `model3dRef` (texto libre) que la API tolera reenviar tal cual mientras no se cambie. */
-export function validateAssetForm(v: AssetForm, opts: { editing?: boolean; keepRef?: string | null } = {}): { errors: FieldErrors; value?: AssetInput } {
+// ── Campos de dominio (docs §11.2): capacityM3, contractedKw, scale ──
+
+export interface ScaleForm {
+  min: string;
+  max: string;
+}
+export interface DomainForm {
+  capacityM3: string;
+  contractedKw: string;
+  scale: Record<string, ScaleForm>;
+}
+export const emptyDomainForm = (): DomainForm => ({ capacityM3: '', contractedKw: '', scale: {} });
+
+/** Valores listos para escribir en los metadatos: `undefined` = no tocar, `null` = quitar la clave. */
+export interface DomainValues {
+  capacityM3?: number | null;
+  contractedKw?: number | null;
+  scale?: Record<string, { min: number; max: number } | null>;
+}
+
+const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+
+/** Campos (como texto) a partir de `metadata`; sólo toma valores numéricos. */
+export function domainFormFrom(metadata: unknown): DomainForm {
+  const out = emptyDomainForm();
+  if (!isObj(metadata)) return out;
+  if (isNum(metadata.capacityM3)) out.capacityM3 = String(metadata.capacityM3);
+  if (isNum(metadata.contractedKw)) out.contractedKw = String(metadata.contractedKw);
+  if (isObj(metadata.scale)) {
+    for (const [metric, r] of Object.entries(metadata.scale)) {
+      if (isObj(r) && isNum(r.min) && isNum(r.max)) out.scale[metric] = { min: String(r.min), max: String(r.max) };
+    }
+  }
+  return out;
+}
+
+/** Métricas con barra de rango editable para un tipo de activo. */
+export const scaleMetricsFor = (type: AssetType | ''): string[] => (type && type in ASSET_KINDS ? ASSET_KINDS[type].metrics.filter((m) => m in METRICS) : []);
+
+/** Valida los campos de dominio que corresponden al tipo. Errores: `capacityM3`, `contractedKw`, `scale:<métrica>`. */
+export function validateDomainForm(f: DomainForm, type: AssetType | ''): { errors: FieldErrors; value: DomainValues } {
+  const errors: FieldErrors = {};
+  const value: DomainValues = {};
+  const positive = (key: 'capacityM3' | 'contractedKw', label: string) => {
+    const n = parseNum(f[key]);
+    if (n === undefined) value[key] = null;
+    else if (!Number.isFinite(n) || n <= 0) errors[key] = `${label}: ingresá un número mayor que 0.`;
+    else value[key] = n;
+  };
+  if (type === 'tank') positive('capacityM3', 'Capacidad');
+  if (type === 'energy') positive('contractedKw', 'Potencia contratada');
+  const scale: NonNullable<DomainValues['scale']> = {};
+  for (const metric of scaleMetricsFor(type)) {
+    const r = f.scale[metric] ?? { min: '', max: '' };
+    const min = parseNum(r.min);
+    const max = parseNum(r.max);
+    const label = METRICS[metric]!.label;
+    if (min === undefined && max === undefined) scale[metric] = null;
+    else if (min === undefined || max === undefined) errors[`scale:${metric}`] = `${label}: completá el mínimo y el máximo (o vaciá los dos).`;
+    else if (!Number.isFinite(min) || !Number.isFinite(max)) errors[`scale:${metric}`] = `${label}: ingresá números.`;
+    else if (min >= max) errors[`scale:${metric}`] = `${label}: el mínimo tiene que ser menor que el máximo.`;
+    else scale[metric] = { min, max };
+  }
+  value.scale = scale;
+  return { errors, value: hasErrors(errors) ? {} : value };
+}
+
+/** Problemas de `capacityM3`, `contractedKw` y `scale` escritos a mano en el JSON. Vacío = correcto. */
+export function validateMetadataDomain(metadata: unknown): string[] {
+  if (!isObj(metadata)) return [];
+  const out: string[] = [];
+  for (const key of ['capacityM3', 'contractedKw'] as const) {
+    const v = metadata[key];
+    if (v !== undefined && (!isNum(v) || v <= 0)) out.push(`${key} debe ser un número mayor que 0.`);
+  }
+  const sc = metadata.scale;
+  if (sc !== undefined) {
+    if (!isObj(sc)) out.push('scale debe ser un objeto {métrica: {min, max}}.');
+    else {
+      for (const [metric, r] of Object.entries(sc)) {
+        if (!RULE_METRIC_PATTERN.test(metric)) out.push(`scale: «${metric}» no es un nombre de métrica válido.`);
+        else if (!isObj(r) || !isNum(r.min) || !isNum(r.max)) out.push(`scale.${metric} debe tener min y max numéricos.`);
+        else if (r.min >= r.max) out.push(`scale.${metric}: min tiene que ser menor que max.`);
+      }
+    }
+  }
+  return out;
+}
+
+/** Escribe los valores de dominio en una copia de los metadatos SIN tocar el resto de claves (ni otras métricas de `scale`). */
+export function mergeDomainIntoMetadata(meta: Record<string, unknown>, values: DomainValues): Record<string, unknown> {
+  const out = { ...meta };
+  for (const key of ['capacityM3', 'contractedKw'] as const) {
+    if (values[key] === null) delete out[key];
+    else if (values[key] !== undefined) out[key] = values[key];
+  }
+  if (values.scale) {
+    const scale: Record<string, unknown> = isObj(out.scale) ? { ...out.scale } : {};
+    for (const [metric, r] of Object.entries(values.scale)) {
+      if (r === null) delete scale[metric];
+      else scale[metric] = r;
+    }
+    if (Object.keys(scale).length === 0) delete out.scale;
+    else out.scale = scale;
+  }
+  return out;
+}
+
+/** Reescribe el JSON avanzado con los campos de dominio; `null` si el JSON actual no es válido (no se toca). */
+export function syncDomainIntoText(text: string, values: DomainValues): string | null {
+  const parsed = parseMetadata(text);
+  if (!parsed.ok) return null;
+  const merged = mergeDomainIntoMetadata(parsed.value, values);
+  return Object.keys(merged).length === 0 ? '' : JSON.stringify(merged, null, 2);
+}
+
+/** Campos de dominio a partir del JSON avanzado; `null` si no es válido. */
+export function domainFromMetadataText(text: string): DomainForm | null {
+  const parsed = parseMetadata(text);
+  return parsed.ok ? domainFormFrom(parsed.value) : null;
+}
+
+/** Métricas que se pueden usar en una regla según el tipo de los activos que abarca (`pattern` vacío = todos). */
+export function metricsForAssets(pattern: string, assets: readonly Pick<AssetDef, 'id' | 'type'>[]): string[] {
+  const p = pattern.trim();
+  const out = new Set<string>();
+  for (const a of assets) {
+    if (p && !ruleMatchesAsset(p, a.id)) continue;
+    for (const m of ASSET_KINDS[a.type]?.metrics ?? []) out.add(m);
+  }
+  return [...out];
+}
+
+/** "Nivel (%)", "Factor de potencia"; para métricas desconocidas, el propio id. */
+export function metricLabel(metric: string): string {
+  const m = METRICS[metric];
+  return m ? `${m.label}${m.unit ? ` (${m.unit})` : ''}` : metric;
+}
+
+/**
+ * `keepRef`: valor antiguo de `model3dRef` (texto libre) que la API tolera reenviar tal cual mientras no se cambie.
+ * `modules`: módulos contratados por el cliente (si se indica, un tipo de otro módulo se rechaza);
+ * `originalType`: tipo actual al editar (no se vuelve a exigir el módulo si no se cambia).
+ */
+export function validateAssetForm(
+  v: AssetForm,
+  opts: { editing?: boolean; keepRef?: string | null; modules?: readonly ModuleId[]; originalType?: AssetType } = {},
+): { errors: FieldErrors; value?: AssetInput } {
   const errors: FieldErrors = {};
   const id = v.id.trim();
   if (!opts.editing) {
@@ -261,21 +473,31 @@ export function validateAssetForm(v: AssetForm, opts: { editing?: boolean; keepR
   if (!name) errors.name = 'El nombre es obligatorio.';
   else if (name.length > 100) errors.name = 'Máximo 100 caracteres.';
   if (!ASSET_TYPES.includes(v.type as AssetType)) errors.type = 'Elegí un tipo.';
+  else if (opts.modules && v.type !== opts.originalType && !isTypeAllowed(v.type as AssetType, opts.modules)) errors.type = MODULE_DISABLED_TEXT;
   const ref = v.model3dRef.trim();
   if (ref && !MODEL_REF_PATTERN.test(ref) && ref !== opts.keepRef) errors.model3dRef = 'Elegí un modelo de la lista o dejalo en «Procedural».';
   const meta = parseMetadata(v.metadataText);
   if (!meta.ok) errors.metadata = meta.error;
   else {
-    const problems = validateMetadataLayout(meta.value, id || undefined);
+    const problems = [...validateMetadataLayout(meta.value, id || undefined), ...validateMetadataDomain(meta.value)];
     if (problems.length > 0) errors.metadata = problems.join(' ');
   }
   const layout = validateLayoutForm(v.layout);
   Object.assign(errors, layout.errors);
+  const domain = v.domain ? validateDomainForm(v.domain, v.type) : null;
+  if (domain) Object.assign(errors, domain.errors);
   if (v.connectsTo.length > LAYOUT_LIMITS.maxConnections) errors.connectsTo = `Como máximo ${LAYOUT_LIMITS.maxConnections} conexiones.`;
   else if (id && v.connectsTo.includes(id)) errors.connectsTo = 'Un activo no puede conectarse consigo mismo.';
   if (hasErrors(errors) || !meta.ok || layout.value === undefined) return { errors };
-  const metadata = mergeLayoutIntoMetadata(meta.value, layout.value, v.connectsTo);
+  let metadata = mergeLayoutIntoMetadata(meta.value, layout.value, v.connectsTo);
+  if (domain) metadata = mergeDomainIntoMetadata(metadata, domain.value);
   return { errors, value: { id, name, type: v.type as AssetType, model3dRef: ref || null, metadata } };
+}
+
+/** ¿El cliente puede crear activos de este tipo? Los genéricos (sin módulo) siempre. */
+export function isTypeAllowed(type: AssetType, modules: readonly ModuleId[]): boolean {
+  const m = moduleForAssetType(type);
+  return m === null || modules.includes(m);
 }
 
 // ── Reglas de alarma ──

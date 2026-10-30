@@ -53,8 +53,8 @@ interface Rule {
 
 export const DEMO_RULES: Rule[] = [
   { ruleId: 'level-high', metric: 'level', kind: 'tank', test: (v) => v > 90, clearTest: (v) => v <= 88, threshold: 90, severity: 'critical', text: 'Nivel alto', unit: '%' },
-  { ruleId: 'level-low', metric: 'level', kind: 'tank', test: (v) => v < 10, clearTest: (v) => v >= 12, threshold: 10, severity: 'critical', text: 'Nivel bajo', unit: '%' },
-  { ruleId: 'temp-high', metric: 'temp', kind: 'tank', test: (v) => v > 30, clearTest: (v) => v <= 29, threshold: 30, severity: 'warning', text: 'Temperatura alta', unit: '°C' },
+  { ruleId: 'level-low', metric: 'level', kind: 'tank', test: (v) => v < 10, clearTest: (v) => v >= 12, threshold: 10, severity: 'warning', text: 'Nivel bajo', unit: '%' },
+  { ruleId: 'temp-high', metric: 'temp', kind: 'tank', test: (v) => v > 35, clearTest: (v) => v <= 34, threshold: 35, severity: 'warning', text: 'Temperatura alta', unit: '°C' },
 ];
 
 /**
@@ -84,11 +84,20 @@ export class PlantSimulator {
   private active = new Map<string, AlarmEvent>(); // `${asset}:${rule}` → alarma activa
   private alarmSeq = 0;
 
+  private speed: number;
+
+  /**
+   * `speed` escala el tiempo de la planta (1 = ritmo original, pensado para tests; el modo demo usa menos para
+   * que los caudales y las tasas de cambio tengan órdenes de magnitud creíbles). `levels` pisa niveles iniciales.
+   */
   constructor(
     private plant = 'demo',
     seed = 42,
+    opts: { speed?: number; levels?: Record<string, number> } = {},
   ) {
+    this.speed = opts.speed ?? 1;
     this.rnd = mulberry32(seed);
+    for (const tk of this.tanks) tk.level = opts.levels?.[tk.id] ?? tk.level;
     this.tanks.forEach((tk) => this.temps.set(tk.id, this.tempOf(tk)));
   }
 
@@ -119,7 +128,7 @@ export class PlantSimulator {
 
   /** Avanza `dtSec` segundos y devuelve telemetría de todos los activos + cambios de alarma. */
   step(dtSec: number, now: number): ServerMessage[] {
-    const dt = clamp(dtSec, 0, 1);
+    const dt = clamp(dtSec, 0, 1) * this.speed;
     this.t += dt;
 
     // control de bombas con histéresis y disparo por mínimo/máximo extremo

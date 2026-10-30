@@ -1,7 +1,8 @@
-import type { AssetDef, AuditEntry, ManagedUser, Me, ModelInfo, Plant } from '@campo/shared';
-import { AdminApiError, assetsFromConflict, errorFromResponse, ModelInUseError, networkError } from './errors';
+import type { AssetDef, Limit, ManagedUser, Me, ModelInfo, Org, Plant } from '@campo/shared';
+import { AdminApiError, assetsFromConflict, errorFromResponse, ModelInUseError, networkError, orgNotEmptyFrom } from './errors';
 import type {
   AdminApi,
+  AdminAuditEntry,
   AlarmRule,
   AlarmRuleInput,
   AlarmRulePatch,
@@ -11,6 +12,8 @@ import type {
   AuditQuery,
   ModelUploadOptions,
   ModelUploadResult,
+  OrgInput,
+  OrgPatch,
   UserInput,
   UserPatch,
 } from './types';
@@ -136,8 +139,24 @@ export class HttpAdminApi implements AdminApi {
     return { accessToken: out.accessToken };
   }
 
-  listPlants = () => this.list<Plant>('/plants');
-  createPlant = (input: { id: string; name: string }) => this.send<Plant>('POST', '/plants', input);
+  // ───────── clientes y módulos (docs §11) ─────────
+
+  listOrgs = () => this.list<Org>('/orgs');
+  getOrg = (id: string) => this.get<Org>(`/orgs/${enc(id)}`);
+  createOrg = (input: OrgInput) => this.send<Org>('POST', '/orgs', input);
+  updateOrg = (id: string, patch: OrgPatch) => this.send<Org>('PATCH', `/orgs/${enc(id)}`, patch);
+  async deleteOrg(id: string) {
+    await this.request('DELETE', `/orgs/${enc(id)}`, {
+      onError: (status, body) => (status === 409 ? orgNotEmptyFrom(body) : undefined),
+    });
+  }
+  createOrgAdmin = (orgId: string, input: { email: string; password: string }) =>
+    this.send<ManagedUser>('POST', `/orgs/${enc(orgId)}/admins`, input);
+
+  listLimits = (plant: string) => this.list<Limit>(`/plants/${enc(plant)}/limits`);
+
+  listPlants = (q: { orgId?: string } = {}) => this.list<Plant>('/plants', { orgId: q.orgId });
+  createPlant = (input: { id: string; name: string; orgId?: string }) => this.send<Plant>('POST', '/plants', input);
   renamePlant = (id: string, name: string) => this.send<Plant>('PATCH', `/plants/${enc(id)}`, { name });
   async deletePlant(id: string) {
     await this.request('DELETE', `/plants/${enc(id)}`);
@@ -226,7 +245,7 @@ export class HttpAdminApi implements AdminApi {
     });
   }
 
-  listUsers = () => this.list<ManagedUser>('/users');
+  listUsers = (q: { orgId?: string } = {}) => this.list<ManagedUser>('/users', { orgId: q.orgId });
   createUser = (input: UserInput) => this.send<ManagedUser>('POST', '/users', input);
   updateUser = (id: string, patch: UserPatch) => this.send<ManagedUser>('PATCH', `/users/${enc(id)}`, patch);
   setUserPlants = (id: string, plants: string[]) => this.send<ManagedUser>('PUT', `/users/${enc(id)}/plants`, { plants });
@@ -240,5 +259,5 @@ export class HttpAdminApi implements AdminApi {
   }
 
   listAudit = (q: AuditQuery = {}) =>
-    this.list<AuditEntry>('/audit', { limit: q.limit, before: q.before, actor: q.actor, action: q.action });
+    this.list<AdminAuditEntry>('/audit', { limit: q.limit, before: q.before, actor: q.actor, action: q.action, orgId: q.orgId });
 }

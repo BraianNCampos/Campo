@@ -48,11 +48,12 @@ describe('API (e2e, repositorios en memoria)', () => {
   });
 
   describe('auth', () => {
-    it('el admin semilla (ADMIN_EMAIL/ADMIN_PASSWORD) puede iniciar sesión', async () => {
+    it('el usuario semilla (ADMIN_EMAIL/ADMIN_PASSWORD) es platform_admin y puede iniciar sesión', async () => {
       const res = await request(http)
         .post('/api/auth/login')
-        .send({ email: 'admin@campo.test', password: 'admin-password-123' })
+        .send({ email: 'platform@campo.test', password: 'admin-password-123' })
         .expect(200);
+      expect(res.body.user).toMatchObject({ role: 'platform_admin', org: null, plants: ['*'] });
       expect(typeof res.body.accessToken).toBe('string');
       expect(res.body.accessToken.split('.')).toHaveLength(3);
       // la contraseña nunca se guarda en claro
@@ -62,7 +63,7 @@ describe('API (e2e, repositorios en memoria)', () => {
     it('credenciales incorrectas -> 401 con mensaje genérico', async () => {
       const wrongPass = await request(http)
         .post('/api/auth/login')
-        .send({ email: 'admin@campo.test', password: 'incorrecta' })
+        .send({ email: 'platform@campo.test', password: 'incorrecta' })
         .expect(401);
       const noUser = await request(http)
         .post('/api/auth/login')
@@ -79,7 +80,7 @@ describe('API (e2e, repositorios en memoria)', () => {
       await request(http).post('/api/auth/login').send({}).expect(400);
       await request(http)
         .post('/api/auth/login')
-        .send({ email: 'admin@campo.test', password: 'x', role: 'admin' })
+        .send({ email: 'platform@campo.test', password: 'x', role: 'admin' })
         .expect(400);
     });
 
@@ -112,12 +113,15 @@ describe('API (e2e, repositorios en memoria)', () => {
       const res = await request(http).get('/api/plants/demo/assets').set(bearer(token)).expect(200);
       expect(res.body).toHaveLength(2);
       expect(res.body[0]).toMatchObject({ plant: 'demo', id: 'tk-01', type: 'tank' });
-      // Contrato 8.1: sin asignación no hay acceso (403, exista o no la planta); al admin una planta
-      // inexistente le da 404.
+      // Contrato 8.1/11.1: sin acceso no hay 403 (exista o no la planta, sea o no de otro cliente). Sólo un
+      // platform_admin, que lo ve todo, recibe 404 ante una planta inexistente.
       await request(http).get('/api/plants/otra/assets').set(bearer(token)).expect(403);
       const admin = await t.tokenFor('admin');
       await request(http).get('/api/plants/demo/assets').set(bearer(admin)).expect(200);
-      await request(http).get('/api/plants/otra/assets').set(bearer(admin)).expect(404);
+      await request(http).get('/api/plants/otra/assets').set(bearer(admin)).expect(403);
+      const platform = await t.tokenFor('platform_admin');
+      await request(http).get('/api/plants/demo/assets').set(bearer(platform)).expect(200);
+      await request(http).get('/api/plants/otra/assets').set(bearer(platform)).expect(404);
     });
 
     it('rechaza ids de planta inválidos', async () => {

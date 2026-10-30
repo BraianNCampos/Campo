@@ -1,13 +1,16 @@
 import { ID_PATTERN } from '@campo/shared';
 
-/** Límites de `metadata.layout` y `metadata.connectsTo` (docs/architecture.md §10.3). */
+/** Límites de `metadata.layout` y `metadata.connectsTo` (§10.3) y de los metadatos de dominio `scale` (§11.2). */
 export const LAYOUT_LIMITS = {
   maxCoord: 1000, // |x|, |z|, |y| en metros
   maxRotY: 3600, // grados (10 vueltas: de sobra, y acota valores absurdos)
   minScale: 0.05,
   maxScale: 50,
   maxConnections: 32,
+  maxScaleMetrics: 32,
 } as const;
+
+const METRIC_KEY = /^[A-Za-z0-9_.-]{1,64}$/;
 
 const LAYOUT_KEYS = ['x', 'z', 'y', 'rotY', 'scale'] as const;
 
@@ -62,6 +65,31 @@ function connectsToError(list: unknown, selfId: string): string | null {
   return null;
 }
 
+/** `capacityM3` / `contractedKw`: número finito > 0. */
+function positiveError(key: string, v: unknown): string | null {
+  return isNumber(v) && v > 0 ? null : `metadata.${key} debe ser un número finito mayor que 0`;
+}
+
+/** `scale: {[métrica]: {min, max}}` con min < max (rango de la barra de la web). */
+function scaleError(scale: unknown): string | null {
+  if (!isObject(scale)) return 'metadata.scale debe ser un objeto {métrica: {min, max}}';
+  const metrics = Object.keys(scale);
+  if (metrics.length > LAYOUT_LIMITS.maxScaleMetrics) {
+    return `metadata.scale admite como máximo ${LAYOUT_LIMITS.maxScaleMetrics} métricas`;
+  }
+  for (const metric of metrics) {
+    const range = scale[metric];
+    if (!METRIC_KEY.test(metric)) return `metadata.scale: métrica "${metric}" inválida`;
+    if (!isObject(range) || Object.keys(range).some((k) => k !== 'min' && k !== 'max')) {
+      return `metadata.scale.${metric} debe ser {min, max}`;
+    }
+    if (!isNumber(range['min']) || !isNumber(range['max']) || range['min'] >= range['max']) {
+      return `metadata.scale.${metric}: min y max deben ser números finitos con min < max`;
+    }
+  }
+  return null;
+}
+
 /**
  * Valida las claves conocidas de `metadata` (el resto es libre). Devuelve el primer error en español o null.
  * `selfId` = id del activo, para impedir que se conecte consigo mismo.
@@ -72,6 +100,16 @@ export function assetMetadataError(
 ): string | null {
   if (metadata['layout'] !== undefined) {
     const e = layoutError(metadata['layout']);
+    if (e) return e;
+  }
+  for (const key of ['capacityM3', 'contractedKw'] as const) {
+    if (metadata[key] !== undefined) {
+      const e = positiveError(key, metadata[key]);
+      if (e) return e;
+    }
+  }
+  if (metadata['scale'] !== undefined) {
+    const e = scaleError(metadata['scale']);
     if (e) return e;
   }
   if (metadata['connectsTo'] !== undefined) return connectsToError(metadata['connectsTo'], selfId);

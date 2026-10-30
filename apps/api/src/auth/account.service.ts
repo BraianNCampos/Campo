@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { AuditService } from '../audit/audit.service';
 import { AccessService } from './access.service';
+import { orgIdOf } from './plant-access';
 import { AuthService } from './auth.service';
 import type { AuthUser } from './auth.types';
 import { ChangePasswordDto } from './dto';
@@ -40,7 +41,7 @@ export class AccountService {
     if (res.status !== 'ok') throw new UnauthorizedException('Sesión no válida');
     await this.access.invalidate(user.id);
     this.log.log({ msg: 'contraseña cambiada', userId: user.id });
-    await this.audit.record(actor, 'me.password', `user:${user.id}`);
+    await this.audit.record(actor, 'me.password', `user:${user.id}`, orgIdOf(actor));
     return { accessToken: await this.auth.signToken(res.user) };
   }
 }

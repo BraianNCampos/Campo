@@ -1,16 +1,18 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { MODEL_REF_PATTERN } from '@campo/shared';
+import { MODEL_REF_PATTERN, moduleForAssetType } from '@campo/shared';
+import type { AssetType } from '@campo/shared';
 import { AlarmRulesRepository } from '../alarms/alarm-rules.repository';
 import { compileAssetPattern } from '../alarms/alarm-evaluator';
 import { AuditService } from '../audit/audit.service';
 import type { AuthUser } from '../auth/auth.types';
-import { PlantCatalog } from '../auth/plant-catalog';
 import { ModelsRepository } from '../models/models.repository';
+import { OrgsRepository } from '../orgs/orgs.repository';
 import { CatalogNotifier } from '../redis/catalog-notifier';
 import { assetMetadataError, unknownConnections } from './asset-metadata';
 import { Asset, AssetPatch, AssetsRepository } from './assets.repository';
@@ -22,23 +24,29 @@ export { CATALOG_CHANGED_CHANNEL } from '../redis/catalog-notifier';
 export type AssetResult = Asset & { warnings?: string[] };
 
 /**
- * Altas/ediciones/bajas del catálogo. El acceso (rol y planta) lo decide el controlador
- * (RolesGuard + PlantAccessGuard); aquí sólo la lógica.
+ * Altas/ediciones/bajas del catálogo. El acceso (rol, cliente y planta) lo decide el controlador
+ * (RolesGuard + PlantAccessGuard); `orgId` es el cliente PROPIETARIO de la planta (no el del actor).
+ * Aquí la lógica y los módulos contratados (§11.2).
  */
 @Injectable()
 export class AssetsService {
   constructor(
     private readonly repo: AssetsRepository,
     private readonly rules: AlarmRulesRepository,
-    private readonly catalog: PlantCatalog,
+    private readonly orgs: OrgsRepository,
     private readonly audit: AuditService,
     private readonly models: ModelsRepository,
     private readonly notifier: CatalogNotifier,
   ) {}
 
-  async create(plant: string, dto: CreateAssetDto, actor: AuthUser): Promise<AssetResult> {
+  async create(
+    plant: string,
+    orgId: string | null,
+    dto: CreateAssetDto,
+    actor: AuthUser,
+  ): Promise<AssetResult> {
     this.checkMetadata(dto.metadata, dto.id);
-    if (!(await this.catalog.exists(plant))) throw new NotFoundException('Planta no encontrada');
+    await this.assertModule(orgId, dto.type);
     await this.checkModelRef(plant, dto.model3dRef);
     const asset = await this.repo.create({
       plant,
@@ -50,7 +58,7 @@ export class AssetsService {
     });
     if (!asset) throw new ConflictException('El activo ya existe en la planta');
     await this.notifier.changed(plant);
-    await this.audit.record(actor, 'asset.create', `asset:${plant}/${asset.id}`, {
+    await this.audit.record(actor, 'asset.create', `asset:${plant}/${asset.id}`, orgId, {
       name: asset.name,
       type: asset.type,
       model3dRef: asset.model3dRef,
@@ -60,6 +68,7 @@ export class AssetsService {
 
   async update(
     plant: string,
+    orgId: string | null,
     id: string,
     dto: UpdateAssetDto,
     actor: AuthUser,
@@ -68,9 +77,15 @@ export class AssetsService {
       throw new BadRequestException('name y type no pueden ser null');
     }
     this.checkMetadata(dto.metadata ?? undefined, id);
+    const current = dto.type !== undefined || typeof dto.model3dRef === 'string'
+      ? await this.repo.get(plant, id)
+      : null;
+    // Cambiar el tipo a uno de un módulo no contratado se rechaza; editar un activo ya existente no.
+    if (dto.type !== undefined && dto.type !== null && dto.type !== current?.type) {
+      await this.assertModule(orgId, dto.type);
+    }
     if (typeof dto.model3dRef === 'string') {
       // Un valor ya guardado (p. ej. texto libre de antes de la Fase 5) no se revalida si no cambia.
-      const current = await this.repo.get(plant, id);
       await this.checkModelRef(plant, dto.model3dRef, current?.model3dRef);
     }
     const patch: AssetPatch = {
@@ -88,7 +103,7 @@ export class AssetsService {
     const asset = await this.repo.update(plant, id, patch);
     if (!asset) throw new NotFoundException('Activo no encontrado');
     await this.notifier.changed(plant);
-    await this.audit.record(actor, 'asset.update', `asset:${plant}/${id}`, {
+    await this.audit.record(actor, 'asset.update', `asset:${plant}/${id}`, orgId, {
       changed, // sólo nombres de campo; el contenido de metadata no se audita
       name: patch.name,
       type: patch.type,
@@ -100,6 +115,7 @@ export class AssetsService {
   /** Las reglas que nombran el activo (id exacto o patrón) NO se tocan: se informa de cuántas son. */
   async remove(
     plant: string,
+    orgId: string | null,
     id: string,
     actor: AuthUser,
   ): Promise<{ deleted: true; affectedRules: number }> {
@@ -108,8 +124,26 @@ export class AssetsService {
       compileAssetPattern(r.asset).test(id),
     ).length;
     await this.notifier.changed(plant);
-    await this.audit.record(actor, 'asset.delete', `asset:${plant}/${id}`, { affectedRules });
+    await this.audit.record(actor, 'asset.delete', `asset:${plant}/${id}`, orgId, { affectedRules });
     return { deleted: true, affectedRules };
+  }
+
+  /**
+   * El tipo debe pertenecer a un módulo contratado por el cliente PROPIETARIO de la planta (`sensor` es
+   * genérico). Una planta sin cliente (sólo con telemetría) no admite activos: hay que registrarla antes.
+   */
+  private async assertModule(orgId: string | null, type: AssetType): Promise<void> {
+    const org = orgId ? await this.orgs.findById(orgId) : null;
+    if (!org) throw new NotFoundException('Planta no registrada: créela primero (POST /api/plants)');
+    const module = moduleForAssetType(type);
+    if (module && !org.modules.includes(module)) {
+      throw new ForbiddenException({
+        statusCode: 403,
+        error: 'module_disabled',
+        module,
+        message: `El módulo "${module}" no está contratado por el cliente: no se pueden crear activos de tipo "${type}"`,
+      });
+    }
   }
 
   /** `metadata.layout` / `metadata.connectsTo` según docs/architecture.md §10.3 (el resto de claves es libre). */

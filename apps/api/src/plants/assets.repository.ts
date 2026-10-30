@@ -1,4 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
+import { ASSET_KINDS } from '@campo/shared';
 import type { AssetDef, AssetType } from '@campo/shared';
 import type { Pool } from 'pg';
 import { PG_POOL } from '../database/tokens';
@@ -7,7 +8,8 @@ export type { AssetType };
 /** El catálogo devuelve exactamente la forma `AssetDef` del contrato (camelCase: `model3dRef`). */
 export type Asset = AssetDef;
 
-export const ASSET_TYPES: readonly AssetType[] = ['tank', 'pump', 'valve', 'sensor'];
+/** Los 10 tipos del registro compartido (`ASSET_KINDS`); el CHECK de `assets.type` (060_orgs.sql) los repite. */
+export const ASSET_TYPES = Object.keys(ASSET_KINDS) as AssetType[];
 
 /** Campos modificables (el `id` y la planta no cambian). `undefined` = no tocar. */
 export interface AssetPatch {

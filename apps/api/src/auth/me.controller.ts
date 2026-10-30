@@ -10,10 +10,10 @@ import { UserThrottlerGuard } from './user-throttler.guard';
 export class MeController {
   constructor(private readonly account: AccountService) {}
 
-  /** Usuario vigente (rol y plantas de la base). `plants` = ["*"] para admin. */
+  /** Usuario vigente (rol, cliente y plantas de la base). `plants` = ["*"] para admin y platform_admin. */
   @Get()
   me(@CurrentUser() user: AuthUser): Me {
-    return { id: user.id, email: user.email, role: user.role, plants: user.plants };
+    return { id: user.id, email: user.email, role: user.role, plants: user.plants, org: user.org };
   }
 
   /** Cambia la contraseña propia y devuelve un token nuevo (los anteriores quedan revocados). Con rate limit. */

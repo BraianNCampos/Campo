@@ -79,7 +79,9 @@ export function resolvePlacements(entries: readonly SceneEntry[]): Record<string
 }
 
 /** Radio aproximado de la huella de cada tipo (para recortar las tuberías y encuadrar la cámara). */
-export const FOOTPRINT: Record<AssetType, number> = { tank: 1.5, pump: 1.4, valve: 0.8, sensor: 0.4 };
+export const FOOTPRINT: Record<AssetType, number> = {
+  tank: 1.5, pump: 1.4, valve: 0.8, sensor: 0.4, climate: 0.4, energy: 0.4, gas: 0.4, machine: 0.4, pressure: 0.4, flow: 0.4,
+};
 const MODEL_FOOTPRINT = 0.55; // modelo GLB normalizado a 1 unidad de lado
 
 export function footprint(e: Pick<SceneEntry, 'type' | 'model3dRef'>, scale: number): number {

@@ -1,6 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import type { Org } from '@campo/shared';
+import { getAdminApi } from '@/lib/admin';
 
 export interface Loaded<T> {
   data: T | undefined;
@@ -71,4 +73,10 @@ export function useSubmit() {
   }, []);
   const clearError = useCallback(() => setError(null), []);
   return { busy, error, run, clearError };
+}
+
+/** Clientes (sólo para `platform_admin`; para el resto devuelve una lista vacía sin pedir nada). */
+export function useOrgs(enabled: boolean): Loaded<Org[]> {
+  const loaded = useLoad(() => (enabled ? getAdminApi().listOrgs() : Promise.resolve([] as Org[])), [enabled]);
+  return loaded;
 }

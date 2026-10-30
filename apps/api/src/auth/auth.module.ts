@@ -12,12 +12,14 @@ import { AuthService } from './auth.service';
 import { DenialLogFilter } from './denial-log.filter';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import { MeController } from './me.controller';
+import { PgOrgsRepository, OrgsRepository } from '../orgs/orgs.repository';
 import { PlantAccessGuard } from './plant-access.guard';
 import { PgPlantCatalog, PlantCatalog } from './plant-catalog';
 import { RolesGuard } from './roles.guard';
+import { TenantScope } from './tenant-scope';
 import { PgUsersRepository, UsersRepository } from './users.repository';
 
-/** Global: PlantAccessGuard, AccessService y UsersRepository se usan desde otros módulos. */
+/** Global: PlantAccessGuard, TenantScope, AccessService y los repositorios de usuarios/clientes se usan desde otros módulos. */
 @Global()
 @Module({
   imports: [
@@ -42,6 +44,8 @@ import { PgUsersRepository, UsersRepository } from './users.repository';
     AccountService,
     AdminSeeder,
     PlantAccessGuard,
+    TenantScope,
+    { provide: OrgsRepository, useClass: PgOrgsRepository },
     { provide: UsersRepository, useClass: PgUsersRepository },
     { provide: AuthInvalidationBus, useClass: RedisInvalidationBus },
     { provide: PlantCatalog, useClass: PgPlantCatalog },
@@ -50,6 +54,14 @@ import { PgUsersRepository, UsersRepository } from './users.repository';
     { provide: APP_GUARD, useClass: RolesGuard },
     { provide: APP_FILTER, useClass: DenialLogFilter },
   ],
-  exports: [AuthService, AccessService, UsersRepository, PlantCatalog, PlantAccessGuard],
+  exports: [
+    AuthService,
+    AccessService,
+    UsersRepository,
+    OrgsRepository,
+    PlantCatalog,
+    PlantAccessGuard,
+    TenantScope,
+  ],
 })
 export class AuthModule {}

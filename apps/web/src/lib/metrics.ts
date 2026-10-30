@@ -1,3 +1,4 @@
+import { METRICS as SHARED_METRICS } from '@campo/shared';
 import { formatNumber } from './math';
 
 export interface Threshold {
@@ -34,7 +35,10 @@ export const METRICS: Record<string, MetricMeta> = {
 };
 
 export function metricMeta(metric: string): MetricMeta {
-  return METRICS[metric] ?? { label: metric, unit: '', decimals: 2 };
+  const own = METRICS[metric];
+  if (own) return own;
+  const shared = SHARED_METRICS[metric];
+  return shared ? { label: shared.label, unit: shared.unit, decimals: shared.decimals } : { label: metric, unit: '', decimals: 2 };
 }
 
 export function formatMetric(metric: string, v: number | undefined, withUnit = true): string {

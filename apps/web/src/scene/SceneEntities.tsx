@@ -20,8 +20,8 @@ function Procedural({ entry, placement }: { entry: SceneEntry; placement: Placem
       return <Pump {...props} />;
     case 'valve':
       return <Valve {...props} />;
-    case 'sensor':
-      return <Sensor {...props} />;
+    default:
+      return <Sensor {...props} />; // sensor y tipos de medición (clima, energía, gas…): mástil con cabezal
   }
 }
 

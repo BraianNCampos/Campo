@@ -3,7 +3,7 @@ import { redisKeys } from '@campo/shared';
 import type Redis from 'ioredis';
 import { AuditService } from '../audit/audit.service';
 import type { AuthUser } from '../auth/auth.types';
-import { assertPlantAccess, plantFilter } from '../auth/plant-access';
+import { TenantScope } from '../auth/tenant-scope';
 import { REDIS } from '../redis/tokens';
 import { AlarmEngine } from './alarm-engine.service';
 import { AlarmRecord, activeField, toEvent } from './alarm.types';
@@ -17,15 +17,16 @@ export class AlarmsService {
     private readonly engine: AlarmEngine,
     @Inject(REDIS) private readonly redis: Redis,
     private readonly audit: AuditService,
+    private readonly tenant: TenantScope,
   ) {}
 
-  /** Sólo alarmas de las plantas del usuario; `?plant=` pedido y no permitido -> 403. */
-  list(q: ListAlarmsQuery, user: AuthUser): Promise<AlarmRecord[]> {
-    if (q.plant) assertPlantAccess(user, q.plant);
+  /** Sólo alarmas de las plantas y el cliente del usuario; `?plant=` pedido y no permitido -> 403. */
+  async list(q: ListAlarmsQuery, user: AuthUser): Promise<AlarmRecord[]> {
+    if (q.plant) await this.tenant.assertPlant(user, q.plant);
     return this.repo.list({
       state: q.state,
       plant: q.plant,
-      plants: plantFilter(user),
+      scope: this.tenant.scope(user),
       limit: q.limit ?? 100,
     });
   }
@@ -35,7 +36,7 @@ export class AlarmsService {
     // La planta de la alarma decide: 404 si no existe, 403 si el usuario no tiene esa planta.
     const existing = await this.repo.findById(id);
     if (!existing) throw new NotFoundException('Alarma no encontrada');
-    assertPlantAccess(user, existing.plant);
+    const orgId = await this.tenant.assertPlant(user, existing.plant);
     const res = await this.repo.ack(id, user.id, now);
     if (!res) throw new NotFoundException('Alarma no encontrada');
     if (res.changed) {
@@ -50,7 +51,7 @@ export class AlarmsService {
       }
       await this.redis.publish(redisKeys.alarms(res.record.plant), json);
       // Sólo el primer ack (el idempotente que no cambia nada no se audita).
-      await this.audit.record(user, 'alarm.ack', `alarm:${id}`, {
+      await this.audit.record(user, 'alarm.ack', `alarm:${id}`, orgId, {
         plant: res.record.plant,
         asset: res.record.asset,
         metric: res.record.metric,

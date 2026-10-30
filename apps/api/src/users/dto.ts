@@ -24,6 +24,13 @@ export class UserIdParam {
   id!: string;
 }
 
+export class UserListQuery {
+  /** Sólo platform_admin: filtra por cliente. Un admin siempre ve el suyo. */
+  @IsOptional()
+  @Matches(ID_PATTERN, { message: 'orgId inválido' })
+  orgId?: string;
+}
+
 export class CreateUserDto {
   @Transform(lowerTrim)
   @IsEmail()
@@ -33,8 +40,14 @@ export class CreateUserDto {
   @PasswordRules()
   password!: string;
 
+  /** Si es `platform_admin` el servicio decide (403 para un admin); la validación sólo comprueba que sea un rol. */
   @IsIn(ROLES)
   role!: Role;
+
+  /** Cliente del usuario. Obligatorio para platform_admin (salvo al crear otro platform_admin); implícito para admin. */
+  @IsOptional()
+  @Matches(ID_PATTERN, { message: 'orgId inválido' })
+  orgId?: string;
 
   @IsOptional()
   @IsArray()

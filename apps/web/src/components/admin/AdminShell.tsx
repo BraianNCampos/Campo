@@ -7,12 +7,15 @@ import { useEffect } from 'react';
 import { canAccessSection, landingSection, sectionForPath, visibleSections, type SectionId } from '@/lib/admin/access';
 import { useSessionStore } from '@/store/session-store';
 import { Logo } from '../Brand';
+import { IconOrg } from './org-icons';
+import { ROLE_LABEL } from './shared';
 import { IconAudit, IconBack, IconCritical, IconPlant, IconRules, IconUser, IconUsers } from '../icons';
 import { SessionGate } from '../SessionGate';
 import { btn, EmptyState } from './ui';
 import { ToastRegion } from './ToastRegion';
 
 const ICONS: Record<SectionId, typeof IconUsers> = {
+  orgs: IconOrg,
   users: IconUsers,
   plants: IconPlant,
   rules: IconRules,
@@ -71,7 +74,12 @@ function AdminFrame({ children }: { children: ReactNode }) {
           {me && (
             <p className="truncate text-xs text-muted" title={me.email}>
               {me.email}
-              <span className="block font-semibold text-fg">{me.role}</span>
+              <span className="block font-semibold text-fg" data-testid="shell-role">
+                {ROLE_LABEL[me.role]}
+              </span>
+              <span className="block truncate" data-testid="shell-org">
+                {me.org?.name ?? 'Todos los clientes'}
+              </span>
             </p>
           )}
           <Link href="/" className={btn('secondary')}>
@@ -128,10 +136,10 @@ export function RequireSection({ section, children }: { section: SectionId; chil
   return (
     <EmptyState
       icon={<IconCritical />}
-      title="No tienes acceso a esta sección"
+      title="No tenés acceso a esta sección"
       action={landing && <Link href={landing.href} className={btn('primary')}>Ir a {landing.label}</Link>}
     >
-      Tu rol ({role ?? 'desconocido'}) no permite gestionar esto. Si lo necesitas, pide a un administrador que cambie tu rol.
+      Tu rol ({role ? ROLE_LABEL[role] : 'desconocido'}) no permite gestionar esto. Si lo necesitás, pedile a un administrador que cambie tu rol.
     </EmptyState>
   );
 }

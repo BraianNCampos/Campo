@@ -9,7 +9,7 @@ import {
 import type { ModelInfo } from '@campo/shared';
 import { AuditService } from '../audit/audit.service';
 import type { AuthUser } from '../auth/auth.types';
-import { assertPlantAccess } from '../auth/plant-access';
+import { TenantScope } from '../auth/tenant-scope';
 import { CatalogNotifier } from '../redis/catalog-notifier';
 import { GLB_LIMITS, validateGlb } from './glb-validator';
 import { ModelsRepository } from './models.repository';
@@ -33,11 +33,13 @@ export class ModelsService {
     private readonly repo: ModelsRepository,
     private readonly audit: AuditService,
     private readonly notifier: CatalogNotifier,
+    private readonly tenant: TenantScope,
   ) {}
 
   /** Valida, deduplica por sha256 y guarda. `created: false` = ya existía en la planta (200). */
   async upload(
     plant: string,
+    orgId: string | null,
     name: string,
     data: Buffer,
     actor: AuthUser,
@@ -56,7 +58,7 @@ export class ModelsService {
     const sha256 = createHash('sha256').update(data).digest('hex');
     const res = await this.repo.insert({ plant, name, sha256, data, createdBy: actor.id });
     if (res.created) await this.notifier.changed(plant);
-    await this.audit.record(actor, 'model.upload', `model:${plant}/${res.model.id}`, {
+    await this.audit.record(actor, 'model.upload', `model:${plant}/${res.model.id}`, orgId, {
       name: res.model.name,
       size: res.model.size,
       sha256,
@@ -70,7 +72,7 @@ export class ModelsService {
   }
 
   /**
-   * Descarga con control de acceso a la planta del modelo (403 genérico). Si `If-None-Match` casa con el
+   * Descarga con control de acceso (cliente y planta) a la planta del modelo (403 genérico). Si `If-None-Match` casa con el
    * sha256 no se lee el contenido: `data: null` = responder 304.
    */
   async download(
@@ -80,7 +82,7 @@ export class ModelsService {
   ): Promise<{ info: ModelInfo; data: Buffer | null }> {
     const info = await this.repo.getInfo(id);
     if (!info) throw new NotFoundException('Modelo no encontrado');
-    assertPlantAccess(user, info.plant);
+    await this.tenant.assertPlant(user, info.plant);
     if (etagMatches(ifNoneMatch, info.sha256)) return { info, data: null };
     const data = await this.repo.getData(id);
     if (!data) throw new NotFoundException('Modelo no encontrado');
@@ -88,7 +90,7 @@ export class ModelsService {
   }
 
   /** 409 con la lista de activos que lo usan; no se borra nada mientras haya referencias. */
-  async remove(plant: string, id: string, actor: AuthUser): Promise<{ deleted: true }> {
+  async remove(plant: string, orgId: string | null, id: string, actor: AuthUser): Promise<{ deleted: true }> {
     const info = await this.repo.getInfo(id);
     if (!info || info.plant !== plant) throw new NotFoundException('Modelo no encontrado');
     const assets = await this.repo.assetsUsing(plant, id);
@@ -102,7 +104,7 @@ export class ModelsService {
     }
     if (!(await this.repo.delete(plant, id))) throw new NotFoundException('Modelo no encontrado');
     await this.notifier.changed(plant);
-    await this.audit.record(actor, 'model.delete', `model:${plant}/${id}`, { name: info.name, id });
+    await this.audit.record(actor, 'model.delete', `model:${plant}/${id}`, orgId, { name: info.name, id });
     return { deleted: true };
   }
 }

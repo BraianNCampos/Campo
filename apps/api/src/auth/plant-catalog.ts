@@ -5,12 +5,18 @@ import type { Pool } from 'pg';
 import { PG_POOL } from '../database/tokens';
 import { REDIS } from '../redis/tokens';
 
-/** ¿Existe la planta? Sólo se usa para dar 404 (en vez de 403) a un admin. */
+/** Registro de plantas: a qué cliente pertenece cada una y si existe. */
 export abstract class PlantCatalog {
-  abstract exists(plant: string): Promise<boolean>;
+  /** Cliente propietario de la planta registrada (`plants.org_id`); `null` si no está registrada. */
+  abstract orgOf(plant: string): Promise<string | null>;
+  /** ¿Tiene estado vivo en Redis? (una planta puede emitir telemetría sin estar registrada). */
+  abstract isLive(plant: string): Promise<boolean>;
+  /** Registrada o con estado vivo. Sólo se usa para dar 404 a un platform_admin. */
+  async exists(plant: string): Promise<boolean> {
+    return (await this.orgOf(plant)) !== null || (await this.isLive(plant));
+  }
 }
 
-/** Existe si tiene estado vivo en Redis, está registrada en `plants` o tiene activos en el catálogo. */
 @Injectable()
 export class PgPlantCatalog extends PlantCatalog {
   constructor(
@@ -20,12 +26,15 @@ export class PgPlantCatalog extends PlantCatalog {
     super();
   }
 
-  async exists(plant: string): Promise<boolean> {
-    if ((await this.redis.exists(redisKeys.state(plant))) > 0) return true;
-    const { rowCount } = await this.pool.query(
-      'SELECT 1 FROM plants WHERE id = $1 UNION ALL SELECT 1 FROM assets WHERE plant = $1 LIMIT 1',
+  async orgOf(plant: string): Promise<string | null> {
+    const { rows } = await this.pool.query<{ org_id: string }>(
+      'SELECT org_id FROM plants WHERE id = $1',
       [plant],
     );
-    return (rowCount ?? 0) > 0;
+    return rows[0]?.org_id ?? null;
+  }
+
+  async isLive(plant: string): Promise<boolean> {
+    return (await this.redis.exists(redisKeys.state(plant))) > 0;
   }
 }

@@ -1,7 +1,8 @@
 import { create } from 'zustand';
-import type { AlarmEvent, AssetDef, AssetState, Severity } from '@campo/shared';
+import type { AlarmEvent, AssetDef, AssetState, Limit, Severity } from '@campo/shared';
 import type { Batch } from '@/lib/batcher';
 import { catalogMap, mergeAssetIds, sameCatalog } from '@/lib/catalog';
+import { groupLimitsByAsset } from '@/lib/modules/status';
 import { maxSeverity } from '@/lib/status';
 import { pushAssetValues } from './history';
 
@@ -24,6 +25,9 @@ export interface LiveData {
   catalogReady: boolean;
   /** la última carga del catálogo falló */
   catalogError: boolean;
+  /** límites de alarma de la planta (`GET /api/plants/:plant/limits`) por activo */
+  limitsByAsset: Record<string, Limit[]>;
+  limitsReady: boolean;
   /** catálogo ∪ telemetría, ordenados; la referencia sólo cambia si cambia el conjunto */
   assetIds: string[];
   /** alarmas activas por id */
@@ -39,6 +43,7 @@ export interface LiveActions {
   hydrate(assets: Record<string, AssetState>): void;
   setCatalog(list: readonly AssetDef[]): void;
   setCatalogError(failed: boolean): void;
+  setLimits(list: readonly Limit[]): void;
   ackLocal(id: string): void;
   setNotice(msg: string | null): void;
   reset(): void;
@@ -57,6 +62,8 @@ export const initialLiveData = (): LiveData => ({
   catalog: {},
   catalogReady: false,
   catalogError: false,
+  limitsByAsset: {},
+  limitsReady: false,
   assetIds: [],
   alarms: {},
   alarmSeverityByAsset: {},
@@ -169,6 +176,13 @@ export const useLiveStore = create<LiveStore>()((set, get) => ({
 
   setCatalogError(catalogError) {
     if (get().catalogError !== catalogError) set({ catalogError });
+  },
+
+  setLimits(list) {
+    const next = groupLimitsByAsset(list);
+    const prev = get().limitsByAsset;
+    if (get().limitsReady && JSON.stringify(prev) === JSON.stringify(next)) return; // sin cambios: nada se re-renderiza
+    set({ limitsByAsset: next, limitsReady: true });
   },
 
   ackLocal(id) {

@@ -8,10 +8,14 @@ export interface NewAuditEntry {
   actorEmail: string | null;
   action: string;
   target: string;
+  /** Cliente del recurso afectado (`null` = acción de plataforma sin cliente). */
+  orgId: string | null;
   detail: Record<string, unknown>;
 }
 
 export interface AuditQuery {
+  /** Sólo entradas de este cliente (undefined = todos; sólo platform_admin). */
+  orgId?: string;
   limit: number;
   /** Sólo entradas con id < before. */
   before?: string;
@@ -47,9 +51,9 @@ export class PgAuditRepository extends AuditRepository {
 
   async insert(e: NewAuditEntry): Promise<void> {
     await this.pool.query(
-      `INSERT INTO audit_log (actor_id, actor_email, action, target, detail)
-       VALUES ($1, $2, $3, $4, $5::jsonb)`,
-      [e.actorId, e.actorEmail, e.action, e.target, JSON.stringify(e.detail)],
+      `INSERT INTO audit_log (actor_id, actor_email, action, target, org_id, detail)
+       VALUES ($1, $2, $3, $4, $5, $6::jsonb)`,
+      [e.actorId, e.actorEmail, e.action, e.target, e.orgId, JSON.stringify(e.detail)],
     );
   }
 
@@ -66,9 +70,10 @@ export class PgAuditRepository extends AuditRepository {
           AND ($2::uuid IS NULL OR actor_id = $2)
           AND ($3::text IS NULL OR lower(actor_email) = $3)
           AND ($4::text IS NULL OR action = $4)
+          AND ($6::text IS NULL OR org_id = $6)
         ORDER BY audit_log.id DESC
         LIMIT $5`,
-      [q.before ?? null, actorId, actorEmail, q.action ?? null, q.limit],
+      [q.before ?? null, actorId, actorEmail, q.action ?? null, q.limit, q.orgId ?? null],
     );
     return rows.map((r) => ({
       id: r.id,

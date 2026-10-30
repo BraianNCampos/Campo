@@ -14,7 +14,7 @@ import {
 import type { ModelInfo } from '@campo/shared';
 import type { Response } from 'express';
 import type { AuthUser } from '../auth/auth.types';
-import { CurrentUser, Roles } from '../auth/decorators';
+import { CurrentUser, PlantOrgId, Roles } from '../auth/decorators';
 import { PlantAccessGuard } from '../auth/plant-access.guard';
 import { PlantParams } from '../common/params';
 import { ModelParams, PlantModelParams, UploadModelQuery } from './dto';
@@ -39,9 +39,10 @@ export class ModelsController {
     @Query() q: UploadModelQuery,
     @RawGlb() body: Buffer,
     @CurrentUser() actor: AuthUser,
+    @PlantOrgId() orgId: string | null,
     @Res({ passthrough: true }) res: Response,
   ): Promise<ModelInfo> {
-    const { model, created } = await this.models.upload(p.plant, q.name, body, actor);
+    const { model, created } = await this.models.upload(p.plant, orgId, q.name, body, actor);
     res.status(created ? 201 : 200);
     return model;
   }
@@ -56,8 +57,12 @@ export class ModelsController {
   @UseGuards(PlantAccessGuard)
   @Roles('engineer')
   @HttpCode(200)
-  remove(@Param() p: PlantModelParams, @CurrentUser() actor: AuthUser): Promise<{ deleted: true }> {
-    return this.models.remove(p.plant, p.id, actor);
+  remove(
+    @Param() p: PlantModelParams,
+    @CurrentUser() actor: AuthUser,
+    @PlantOrgId() orgId: string | null,
+  ): Promise<{ deleted: true }> {
+    return this.models.remove(p.plant, orgId, p.id, actor);
   }
 
   /** El id es inmutable (contenido direccionado por sha256): caché privada de un año + ETag. */

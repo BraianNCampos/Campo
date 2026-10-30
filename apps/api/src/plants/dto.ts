@@ -44,11 +44,23 @@ export class CreatePlantDto {
   @Matches(ID_PATTERN, { message: 'id debe cumplir ^[a-z0-9][a-z0-9_-]{0,63}$' })
   id!: string;
 
+  /** Cliente propietario. Obligatorio para platform_admin; un admin siempre crea en el suyo. */
+  @IsOptional()
+  @Matches(ID_PATTERN, { message: 'orgId inválido' })
+  orgId?: string;
+
   @Transform(trim)
   @IsString()
   @IsNotEmpty({ message: 'name no puede estar vacío' })
   @MaxLength(100)
   name!: string;
+}
+
+export class PlantListQuery {
+  /** Sólo platform_admin: filtra por cliente. Un admin siempre ve el suyo. */
+  @IsOptional()
+  @Matches(ID_PATTERN, { message: 'orgId inválido' })
+  orgId?: string;
 }
 
 export class UpdatePlantDto {

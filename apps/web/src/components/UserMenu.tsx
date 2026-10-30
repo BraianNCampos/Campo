@@ -3,16 +3,18 @@
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { canSeeAdminLink } from '@/lib/admin/access';
+import { showAdminLink } from '@/lib/modules/nav';
 import { getToken } from '@/lib/auth';
 import { config } from '@/lib/env';
 import { signOut, useSessionStore } from '@/store/session-store';
-import { IconLogout, IconSettings, IconUser } from './icons';
+import { IconLogout, IconMonitor, IconSettings, IconUser } from './icons';
+import { ViewAsSelect } from './ViewAsSelect';
 
 const itemCls = 'flex min-h-11 items-center gap-3 rounded-lg px-3 text-sm font-semibold hover:bg-surface-2';
+const linkCls = 'inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-line px-3 text-sm font-semibold hover:bg-surface-2';
 const iconBtn = 'flex size-11 items-center justify-center rounded-lg border border-line text-xl hover:bg-surface-2';
 
-function useLogout() {
+export function useLogout() {
   const router = useRouter();
   return () => {
     signOut();
@@ -20,22 +22,27 @@ function useLogout() {
   };
 }
 
-/** Escritorio (≥768px): enlaces visibles "Administración" (admin/engineer) y "Mi cuenta", y cerrar sesión. */
+export const canLogout = () => !config.mock && !!getToken();
+
+/** Escritorio: enlaces visibles «Modo pared», «Administración» y «Mi cuenta», «Ver como» (demo) y cerrar sesión. */
 export function UserLinks() {
   const role = useSessionStore((s) => s.me?.role);
   const logout = useLogout();
-  const showLogout = !config.mock && !!getToken();
   return (
     <nav aria-label="Cuenta" className="hidden items-center gap-2 md:flex">
-      {canSeeAdminLink(role) && (
-        <Link prefetch={false} href="/admin" className="inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-line px-3 text-sm font-semibold hover:bg-surface-2">
+      {config.mock && <ViewAsSelect className="w-52 [&>span]:sr-only" />}
+      <Link prefetch={false} href="/pared" className={linkCls}>
+        <IconMonitor className="text-base" /> Modo pared
+      </Link>
+      {showAdminLink(role) && (
+        <Link prefetch={false} href="/admin" className={linkCls}>
           <IconSettings className="text-base" /> Administración
         </Link>
       )}
-      <Link prefetch={false} href="/admin/account" className="inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-line px-3 text-sm font-semibold hover:bg-surface-2">
+      <Link prefetch={false} href="/admin/account" className={linkCls}>
         <IconUser className="text-base" /> Mi cuenta
       </Link>
-      {showLogout && (
+      {canLogout() && (
         <button type="button" aria-label="Cerrar sesión" onClick={logout} className={iconBtn}>
           <IconLogout />
         </button>
@@ -44,13 +51,13 @@ export function UserLinks() {
   );
 }
 
-/** Móvil (<768px): un solo botón con el menú de usuario (Administración, Mi cuenta, Cerrar sesión). */
+/** Móvil (<768px): un solo botón con el menú de usuario. */
 export function UserMenu() {
   const me = useSessionStore((s) => s.me);
   const logout = useLogout();
+  const showLogout = canLogout();
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
-  const showLogout = !config.mock && !!getToken();
 
   useEffect(() => {
     if (!open) return;
@@ -87,13 +94,18 @@ export function UserMenu() {
         <IconUser />
       </button>
       {open && (
-        <div id="user-menu" className="absolute top-full right-0 z-40 mt-2 w-64 rounded-xl border border-line bg-surface p-2 shadow-2xl">
+        <div id="user-menu" className="absolute top-full right-0 z-40 mt-2 w-72 rounded-xl border border-line bg-surface p-2 shadow-2xl">
           {me && (
             <p className="truncate px-3 py-2 text-xs text-muted">
               {me.email} · {me.role}
+              {me.org && <span className="block font-semibold text-fg">{me.org.name}</span>}
             </p>
           )}
-          {canSeeAdminLink(me?.role) && (
+          {config.mock && <ViewAsSelect className="px-2 pb-2" />}
+          <Link prefetch={false} href="/pared" className={itemCls} onClick={() => setOpen(false)}>
+            <IconMonitor className="text-xl" /> Modo pared
+          </Link>
+          {showAdminLink(me?.role) && (
             <Link prefetch={false} href="/admin" className={itemCls} onClick={() => setOpen(false)}>
               <IconSettings className="text-xl" /> Administración
             </Link>

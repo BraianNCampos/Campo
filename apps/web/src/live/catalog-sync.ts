@@ -3,9 +3,9 @@ import type { AssetDef } from '@campo/shared';
 /** Espera tras un aviso `{type:"catalog"}` antes de volver a pedir el catálogo (agrupa ráfagas de cambios). */
 export const CATALOG_DEBOUNCE_MS = 300;
 
-export interface CatalogSyncOptions {
-  load: () => Promise<AssetDef[]>;
-  onLoaded: (list: AssetDef[]) => void;
+export interface CatalogSyncOptions<T = AssetDef> {
+  load: () => Promise<T[]>;
+  onLoaded: (list: T[]) => void;
   onError?: (e: unknown) => void;
   /** ¿Merece la pena reintentar tras este error? (red/servidor sí; 403/404 no) */
   shouldRetry?: (e: unknown) => boolean;
@@ -26,7 +26,7 @@ export interface CatalogSync {
  * Mantiene el catálogo al día: una sola petición en vuelo, resultados en orden, *debounce* para los avisos
  * del WebSocket y reintento con espera creciente si falla (conserva el catálogo anterior).
  */
-export function createCatalogSync(opts: CatalogSyncOptions): CatalogSync {
+export function createCatalogSync<T = AssetDef>(opts: CatalogSyncOptions<T>): CatalogSync {
   const debounceMs = opts.debounceMs ?? CATALOG_DEBOUNCE_MS;
   const retryDelay = opts.retryDelayMs ?? ((n: number) => Math.min(30_000, 2000 * 2 ** (n - 1)));
   let disposed = false;

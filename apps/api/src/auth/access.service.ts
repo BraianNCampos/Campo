@@ -3,23 +3,31 @@ import { Observable, Subject } from 'rxjs';
 import { APP_CONFIG, AppConfig } from '../config/app-config';
 import { AuthInvalidationBus } from './auth-invalidation';
 import { AuthUser } from './auth.types';
+import { OrgsRepository, toSummary } from '../orgs/orgs.repository';
 import { toAuthUser } from './plant-access';
-import { UsersRepository } from './users.repository';
+import { User, UsersRepository } from './users.repository';
 
 interface Entry {
   user: AuthUser | null;
   tokenVersion: number;
+  /** Cliente del usuario (para invalidar por cliente). */
+  orgId: string | null;
   expires: number;
 }
+
+/** Prefijo del payload del bus cuando lo invalidado es un cliente entero (y no un usuario). */
+const ORG_PREFIX = 'org:';
 
 const MAX_ENTRIES = 5000;
 
 /**
- * Directorio de acceso: dado el id del token devuelve el usuario ACTUAL (rol, activo, plantas) de la base,
- * con caché en memoria de `AUTH_CACHE_TTL_MS` (30 s; 0 = sin caché). `null` = no existe o está inactivo.
+ * Directorio de acceso: dado el id del token devuelve el usuario ACTUAL (rol, cliente, plantas) de la base,
+ * con caché en memoria de `AUTH_CACHE_TTL_MS` (30 s; 0 = sin caché). `null` = no existe, está inactivo o su
+ * cliente está desactivado (o ya no existe).
  *
- * Invalidación: `invalidate(id)` limpia al instante la caché de este proceso y avisa a las demás réplicas
- * por el AuthInvalidationBus. Otras réplicas, si el aviso se pierde, convergen por TTL.
+ * Invalidación: `invalidate(id)` (usuario) e `invalidateOrg(id)` (cambio de `active`/`modules`/nombre del
+ * cliente) limpian al instante la caché de este proceso y avisan a las demás réplicas por el
+ * AuthInvalidationBus. Otras réplicas, si el aviso se pierde, convergen por TTL.
  */
 @Injectable()
 export class AccessService implements OnModuleInit, OnModuleDestroy {
@@ -32,20 +40,42 @@ export class AccessService implements OnModuleInit, OnModuleDestroy {
 
   /** Emite el id de cada usuario invalidado (local o remoto); el gateway WS revalida sus sockets. */
   readonly invalidations$: Observable<string> = this.changed.asObservable();
+  private readonly orgChanged = new Subject<string>();
+  /** Emite el id de cada cliente invalidado; el gateway WS revalida todos sus sockets. */
+  readonly orgInvalidations$: Observable<string> = this.orgChanged.asObservable();
 
   constructor(
     private readonly users: UsersRepository,
+    private readonly orgs: OrgsRepository,
     private readonly bus: AuthInvalidationBus,
     @Inject(APP_CONFIG) private readonly cfg: AppConfig,
   ) {}
 
   onModuleInit(): void {
-    this.unsubscribe = this.bus.subscribe((id) => this.drop(id));
+    this.unsubscribe = this.bus.subscribe((id) =>
+      id.startsWith(ORG_PREFIX) ? this.dropOrg(id.slice(ORG_PREFIX.length)) : this.drop(id),
+    );
   }
 
   onModuleDestroy(): void {
     this.unsubscribe?.();
     this.changed.complete();
+    this.orgChanged.complete();
+  }
+
+  /**
+   * Usuario de la petición a partir del registro de la base, o null si no puede operar: inactivo, o su
+   * cliente está desactivado / no existe. Única definición de "sesión válida" (login, REST y WebSocket).
+   */
+  async project(user: User): Promise<AuthUser | null> {
+    if (!user.active) return null;
+    if (user.orgId === null) {
+      // Sólo platform_admin puede no tener cliente; cualquier otro rol sin cliente es un estado inválido.
+      return user.role === 'platform_admin' ? toAuthUser(user, null) : null;
+    }
+    if (user.role === 'platform_admin') return null; // inválido: el personal de plataforma no tiene cliente
+    const org = await this.orgs.findById(user.orgId);
+    return org && org.active ? toAuthUser(user, toSummary(org)) : null;
   }
 
   /**
@@ -71,8 +101,9 @@ export class AccessService implements OnModuleInit, OnModuleDestroy {
     const generation = this.generation;
     const found = await this.users.findById(userId);
     const entry: Entry = {
-      user: found && found.active ? toAuthUser(found) : null,
+      user: found ? await this.project(found) : null,
       tokenVersion: found?.tokenVersion ?? 0,
+      orgId: found?.orgId ?? null,
       expires: Date.now() + ttl,
     };
     if (ttl > 0 && generation === this.generation) {
@@ -90,6 +121,22 @@ export class AccessService implements OnModuleInit, OnModuleDestroy {
     } catch (err) {
       this.log.warn({ msg: 'invalidación remota fallida', error: (err as Error).message });
     }
+  }
+
+  /** Llamar tras cambiar `active`, `modules` o el nombre de un cliente: todos sus usuarios se releen. */
+  async invalidateOrg(orgId: string): Promise<void> {
+    this.dropOrg(orgId);
+    try {
+      await this.bus.publish(ORG_PREFIX + orgId);
+    } catch (err) {
+      this.log.warn({ msg: 'invalidación remota fallida', error: (err as Error).message });
+    }
+  }
+
+  private dropOrg(orgId: string): void {
+    this.generation++;
+    for (const [id, e] of this.cache) if (e.orgId === orgId) this.cache.delete(id);
+    this.orgChanged.next(orgId);
   }
 
   private drop(userId: string): void {

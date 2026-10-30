@@ -1,8 +1,11 @@
+import { ASSET_KINDS } from '@campo/shared';
 import type { AssetState, AssetType } from '@campo/shared';
 
-export type AssetKind = 'tank' | 'pump' | 'valve' | 'sensor' | 'other';
+export type AssetKind = AssetType | 'other';
 
-const KIND_ORDER: Record<AssetKind, number> = { tank: 0, pump: 1, valve: 2, sensor: 3, other: 4 };
+const KIND_ORDER: Record<AssetKind, number> = {
+  tank: 0, pump: 1, valve: 2, climate: 3, energy: 4, gas: 5, machine: 6, pressure: 7, flow: 8, sensor: 9, other: 10,
+};
 
 export function assetKind(id: string, values?: Record<string, number>): AssetKind {
   if (/^(tk|tank|tanque)/i.test(id)) return 'tank';
@@ -21,6 +24,12 @@ const KIND_LABEL: Record<AssetKind, string> = {
   pump: 'Bomba',
   valve: 'Válvula',
   sensor: 'Sensor',
+  climate: 'Sensor de clima',
+  energy: 'Medidor de energía',
+  gas: 'Medidor de gas',
+  machine: 'Máquina',
+  pressure: 'Sensor de presión',
+  flow: 'Caudalímetro',
   other: 'Equipo',
 };
 const KIND_PLURAL: Record<AssetKind, string> = {
@@ -28,6 +37,12 @@ const KIND_PLURAL: Record<AssetKind, string> = {
   pump: 'Bombas',
   valve: 'Válvulas',
   sensor: 'Sensores',
+  climate: 'Sensores de clima',
+  energy: 'Medidores de energía',
+  gas: 'Medidores de gas',
+  machine: 'Máquinas',
+  pressure: 'Sensores de presión',
+  flow: 'Caudalímetros',
   other: 'Equipos',
 };
 
@@ -48,7 +63,7 @@ export function assetLabel(id: string): string {
 
 /** Métrica principal por tipo de equipo. */
 export function primaryMetric(kind: AssetKind): string {
-  return kind === 'tank' ? 'level' : kind === 'pump' ? 'rpm' : kind === 'valve' ? 'position' : 'value';
+  return kind === 'other' ? 'value' : ASSET_KINDS[kind].primaryMetric;
 }
 
 /** Orden estable: tanques, bombas, válvulas, sensores, otros; luego natural por id. `typeOf` aporta el tipo del catálogo. */

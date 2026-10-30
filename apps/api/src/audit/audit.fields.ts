@@ -3,9 +3,14 @@
  * así que añadir un campo sensible por descuido en un servicio no llega nunca a la tabla.
  * Regla: sólo ids, nombres de campos modificados y valores de configuración no secretos. Nunca
  * contraseñas, hashes, tokens ni el contenido de `metadata` de un activo (sólo que cambió).
+ * El cliente (`org_id`) NO va en `detail`: se pasa aparte a `AuditService.record`.
  */
 export const AUDIT_FIELDS = {
-  'user.create': ['email', 'role', 'plants'],
+  'org.create': ['name', 'modules', 'active'],
+  'org.update': ['changed', 'name', 'modules', 'active'],
+  'org.delete': ['name'],
+  'org.admin.create': ['email'],
+  'user.create': ['email', 'role', 'plants', 'orgId'],
   'user.update': ['changed', 'role', 'active'],
   'user.plants': ['plants'],
   'user.revoke': [],

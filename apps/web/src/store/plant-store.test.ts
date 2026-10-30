@@ -2,8 +2,8 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { readStoredPlant, resolveSelectedPlant, usePlantStore } from './plant-store';
 
 const plants = [
-  { id: 'demo', name: 'Demo', assets: 8 },
-  { id: 'norte', name: 'Norte', assets: 2 },
+  { id: 'demo', name: 'Demo', assets: 8, orgId: 'campos-demo' },
+  { id: 'norte', name: 'Norte', assets: 2, orgId: 'campos-demo' },
 ];
 
 describe('resolveSelectedPlant', () => {
@@ -53,7 +53,7 @@ describe('usePlantStore', () => {
   it('refrescar la lista conserva la selección', () => {
     usePlantStore.getState().setPlants(plants);
     usePlantStore.getState().select('norte');
-    usePlantStore.getState().setPlants([...plants, { id: 'sur', name: 'Sur', assets: 0 }]);
+    usePlantStore.getState().setPlants([...plants, { id: 'sur', name: 'Sur', assets: 0, orgId: 'campos-demo' }]);
     expect(usePlantStore.getState().selected).toBe('norte');
   });
 });

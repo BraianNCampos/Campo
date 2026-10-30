@@ -2,7 +2,7 @@ import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nest
 import type Redis from 'ioredis';
 import { REDIS, REDIS_SUB } from '../redis/tokens';
 
-/** Canal por el que las réplicas se avisan de que un usuario cambió. Payload: el id (string). */
+/** Canal por el que las réplicas se avisan de que un usuario cambió. Payload: el id de usuario, o `org:<id>` si cambió un cliente. */
 export const AUTH_INVALIDATE_CHANNEL = 'campo:auth:invalidate';
 
 /**
@@ -40,7 +40,7 @@ export class RedisInvalidationBus
   private readonly log = new Logger(RedisInvalidationBus.name);
   private readonly handlers = new Set<(userId: string) => void>();
   private readonly onMessage = (channel: string, userId: string): void => {
-    if (channel !== AUTH_INVALIDATE_CHANNEL || !userId || userId.length > 64) return;
+    if (channel !== AUTH_INVALIDATE_CHANNEL || !userId || userId.length > 80) return;
     for (const h of [...this.handlers]) h(userId);
   };
 

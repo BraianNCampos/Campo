@@ -2,7 +2,7 @@ import type { AddressInfo } from 'node:net';
 import { Logger } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import type { AlarmEvent, LoginResponse, ManagedUser, Me } from '@campo/shared';
-import { redisKeys } from '@campo/shared';
+import { MODULE_IDS, redisKeys } from '@campo/shared';
 import request from 'supertest';
 import type { App } from 'supertest/types';
 import { WebSocket } from 'ws';
@@ -82,7 +82,8 @@ describe('Autorización por planta (e2e)', () => {
     http = t.app.getHttpServer() as App;
     wsBase = `ws://127.0.0.1:${(t.app.getHttpServer().address() as AddressInfo).port}/ws`;
     admin = await t.tokenFor('admin');
-    // dos plantas con datos vivos
+    // dos plantas del mismo cliente, con datos vivos
+    t.plants.register('otra', 'campos-demo');
     for (const plant of ['demo', 'otra']) {
       await t.redis.hset(
         redisKeys.state(plant),
@@ -105,21 +106,31 @@ describe('Autorización por planta (e2e)', () => {
   };
 
   describe('GET /api/me y login', () => {
-    it('login devuelve user {id,email,role,plants}; admin -> ["*"]', async () => {
+    it('login devuelve user {id,email,role,plants,org}; admin y platform_admin -> ["*"]', async () => {
       const u = await t.makeUser(email('ana'), 'operator', ['demo']);
       const res = await request(http)
         .post('/api/auth/login')
         .send({ email: u.email, password: 'operator-password-123' })
         .expect(200);
       const body = res.body as LoginResponse;
-      expect(body.user).toEqual({ id: u.id, email: u.email, role: 'operator', plants: ['demo'] });
+      expect(body.user).toEqual({
+        id: u.id,
+        email: u.email,
+        role: 'operator',
+        plants: ['demo'],
+        org: { id: 'campos-demo', name: 'Agroindustria Ejemplo', modules: [...MODULE_IDS] },
+      });
       expect(JSON.stringify(res.body)).not.toMatch(/hash|\$2[aby]\$/);
 
       const adm = await request(http)
         .post('/api/auth/login')
-        .send({ email: 'admin@campo.test', password: 'admin-password-123' })
+        .send({ email: 'platform@campo.test', password: 'admin-password-123' })
         .expect(200);
-      expect((adm.body as LoginResponse).user).toMatchObject({ role: 'admin', plants: ['*'] });
+      expect((adm.body as LoginResponse).user).toMatchObject({
+        role: 'platform_admin',
+        plants: ['*'],
+        org: null,
+      });
     });
 
     it('GET /api/me refleja la base y exige token', async () => {
@@ -130,6 +141,7 @@ describe('Autorización por planta (e2e)', () => {
         email: u.email,
         role: 'viewer',
         plants: ['demo', 'otra'],
+        org: { id: 'campos-demo', name: 'Agroindustria Ejemplo', modules: [...MODULE_IDS] },
       } satisfies Me);
       expect((await api.get('/api/me', admin).expect(200)).body.plants).toEqual(['*']);
       await request(http).get('/api/me').expect(401);
@@ -165,9 +177,10 @@ describe('Autorización por planta (e2e)', () => {
       await api.get('/api/plants/BAD_ID/state', u.token).expect(400);
     });
 
-    it('admin accede a todas; planta inexistente -> 404 sólo para admin', async () => {
+    it('admin accede a todas las de su cliente; planta inexistente -> 403 (admin) / 404 (platform_admin)', async () => {
       await api.get('/api/plants/otra/state', admin).expect(200);
-      await api.get('/api/plants/fantasma/state', admin).expect(404);
+      await api.get('/api/plants/fantasma/state', admin).expect(403);
+      await api.get('/api/plants/fantasma/state', await t.tokenFor('platform_admin')).expect(404);
     });
   });
 
@@ -471,6 +484,7 @@ describe('Autorización por planta (e2e)', () => {
         role: 'operator',
         active: true,
         plants: ['demo'],
+        org: { id: 'campos-demo', name: 'Agroindustria Ejemplo', modules: [...MODULE_IDS] },
       });
       expect(JSON.stringify(created.body)).not.toMatch(/hash|password|\$2[aby]\$/i);
 
@@ -576,14 +590,14 @@ describe('Autorización por planta (e2e)', () => {
       try {
         const h = solo.app.getHttpServer() as App;
         const tok = await solo.tokenFor('admin');
-        const seed = solo.users.users[0];
+        const seed = solo.users.users.find((u) => u.email === 'admin@campo.test')!;
         const patch = (id: string, token: string, body: object) =>
           request(h).patch(`/api/users/${id}`).set(bearer(token)).send(body);
 
         await patch(seed.id, tok, { active: false }).expect(409);
         await patch(seed.id, tok, { role: 'viewer' }).expect(409);
         await patch(seed.id, tok, { active: false, role: 'engineer' }).expect(409);
-        expect(solo.users.users[0]).toMatchObject({ role: 'admin', active: true });
+        expect(seed).toMatchObject({ role: 'admin', active: true });
         // cambios que no lo dejan sin admin siguen permitidos
         await patch(seed.id, tok, { role: 'admin', password: 'nueva-clave-larga-1' }).expect(200);
         // cambiar la contraseña revoca el token (§9.1): se vuelve a entrar con la nueva
