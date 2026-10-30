@@ -1,0 +1,349 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Servicio de alimentación · Dimensional Drawing</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Arimo:wght@400;600;700&display=swap">
+<style>
+/* Layout: dibujo dimensional en dos hojas (planta · cortes · detalles · tablas · listado), negro sobre blanco, tema claro único. */
+:root{--paper:#ececec;--sheet:#ffffff;--ink:#111;--ink2:#444;--ink3:#7a7a7a;--fill:#f3f3f3;--fill2:#e6e6e6;--f:'Arimo','Helvetica Neue',Helvetica,Arial,sans-serif;color-scheme:light}
+body{background:var(--paper);color:var(--ink);font-family:var(--f);margin:0}
+.wrap{max-width:1760px;margin:0 auto;padding-block:24px 40px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.scroll{overflow-x:auto;background:var(--sheet);box-shadow:0 1px 3px rgba(0,0,0,.12)}
+svg{display:block;width:100%;min-width:1100px;height:auto}
+.tb{background:var(--sheet);border:1.2px solid var(--ink);border-radius:16px;overflow:hidden;display:grid;grid-template-columns:2.2fr 1fr 1fr 1fr;margin-bottom:24px}
+.tb>div{border-right:.8px solid var(--ink);border-bottom:.8px solid var(--ink);padding:10px 14px;min-width:0}
+.tb>div:nth-child(4),.tb>div:nth-child(7){border-right:0}
+.tb .big{grid-row:span 2;display:flex;flex-direction:column;justify-content:space-between;gap:12px}
+.tb h1{font-size:clamp(28px,4vw,44px);line-height:1;margin:4px 0 0;font-weight:400;letter-spacing:.1em;text-transform:uppercase}
+.lbl{text-transform:uppercase;letter-spacing:.06em;font-size:9.5px;color:var(--ink2)}
+.tb .v{font-size:13px;margin-top:2px;letter-spacing:.05em;text-transform:uppercase;color:var(--ink);font-variant-numeric:tabular-nums}
+.tb .big .v{font-size:11px;color:var(--ink2);line-height:1.6}
+.tb .proj{grid-column:1/-1;border-right:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px 24px}
+.tb .notes{grid-column:1/-1;border-right:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:6px 24px;font-size:11.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink);line-height:1.9}
+.tb .notes ol{margin:4px 0 0;padding-left:20px}
+.tb .nh{font-weight:700;font-size:13px;letter-spacing:.06em}
+.tb .nh span{font-weight:400;font-size:11.5px;margin-left:6px}
+.tb .figs{grid-column:1/-1;border-right:0;border-bottom:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px 18px}
+.tb .figs>div{border-left:.8px solid var(--ink);padding-left:14px}
+.tb .figs>div:first-child{border-left:0;padding-left:0}
+.tb .figs .v{font-size:18px;letter-spacing:.06em;text-transform:none;margin-top:4px}
+@media (max-width:640px){.tb{grid-template-columns:1fr 1fr}.tb .big{grid-column:1/-1;grid-row:auto}}
+.sheetwrap{margin-bottom:28px}
+.foot{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink2);padding:10px 2px 0}
+.foot b{font-weight:700;color:var(--ink)}
+/* drawing */
+.border{fill:none;stroke:var(--ink);stroke-width:1.2}
+.obj{fill:var(--sheet);stroke:var(--ink);stroke-width:1.6;stroke-linejoin:round}
+.well{fill:var(--fill);stroke:var(--ink);stroke-width:1}
+.slot{fill:none;stroke:var(--ink2);stroke-width:.8;stroke-dasharray:4 3}
+.hug{fill:var(--fill2);stroke:var(--ink);stroke-width:1}
+.thin{fill:none;stroke:var(--ink);stroke-width:.8}
+.ph{fill:none;stroke:var(--ink3);stroke-width:.8;stroke-dasharray:14 3 3 3}
+.cl{fill:none;stroke:var(--ink3);stroke-width:.7;stroke-dasharray:16 3 2 3}
+.cut{stroke:var(--ink);stroke-width:2.4;fill:none}
+.dl{stroke:var(--ink);stroke-width:.7;fill:none}
+.ext{stroke:var(--ink);stroke-width:.55;fill:none}
+.arrow{fill:var(--ink)}
+.hl{stroke:var(--ink2);stroke-width:.7}
+.hs{stroke:var(--ink);stroke-width:.8}
+.env{fill:none;stroke:var(--ink);stroke-width:.8;stroke-dasharray:10 3 2 3}
+.pl{stroke:var(--ink);stroke-width:3;fill:none}
+.pipeo{fill:none;stroke:var(--ink);stroke-linejoin:round}
+.pipei{fill:none;stroke:var(--sheet);stroke-linejoin:round}
+.main{fill:none;stroke:var(--ink);stroke-width:1.1;stroke-dasharray:10 4}
+.stn{fill:var(--sheet);stroke:var(--ink2);stroke-width:.7}
+.dt{font:400 11px var(--f);fill:var(--ink);paint-order:stroke;stroke:var(--sheet);stroke-width:4px;stroke-linejoin:round}
+.dts{font:400 9.5px var(--f);fill:var(--ink2);letter-spacing:.06em;text-transform:uppercase;paint-order:stroke;stroke:var(--sheet);stroke-width:3px}
+.sl{font:400 9px var(--f);fill:var(--ink2);letter-spacing:.08em;text-transform:uppercase;paint-order:stroke;stroke:var(--sheet);stroke-width:3px}
+.nt{font:400 11.5px var(--f);fill:var(--ink);letter-spacing:.06em;text-transform:uppercase}
+.nth{font:700 13px var(--f);fill:var(--ink);letter-spacing:.06em}
+.vt{font:400 12px var(--f);fill:var(--ink);letter-spacing:.1em;text-transform:uppercase}
+.nb{fill:var(--sheet);stroke:var(--ink);stroke-width:.9}
+.nbt{font:400 9.5px var(--f);fill:var(--ink)}
+.lead{stroke:var(--ink);stroke-width:.7;fill:none}
+.dot{fill:var(--ink)}
+.th{font:400 10.5px var(--f);fill:var(--ink);letter-spacing:.05em;text-transform:uppercase}
+.tc{font:400 10.5px var(--f);fill:var(--ink)}
+.tcs{font:400 8.4px var(--f);fill:var(--ink)}
+.u0{text-transform:none!important}
+.ths{font:400 8.4px var(--f);fill:var(--ink);letter-spacing:.04em;text-transform:uppercase}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="tb">
+    <div class="big">
+      <div><div class="lbl">Plano instalación de gas industrial · dimensional drawing</div><h1>Servicio de alimentación</h1></div>
+      <div class="v u0">Entrada a recinto ERP, válvula de bloqueo y empalme a cañería PE Ø 63 mm. Redibujo del plano original: solo valores presentes en la fuente; lo no rotulado queda [TBD].</div>
+    </div>
+    <div><div class="lbl">Dwg no.</div><div class="v">05-TOS-26</div></div>
+    <div><div class="lbl">Rev</div><div class="v">0 · proyecto constructivo</div></div>
+    <div><div class="lbl">Sheets</div><div class="v">2</div></div>
+    <div><div class="lbl">Units</div><div class="v u0">m · mm donde se indica</div></div>
+    <div><div class="lbl">Scale</div><div class="v">Original: planta 1:20, resto las indicadas</div></div>
+    <div><div class="lbl">Source</div><div class="v">PDF AutoCAD A1 · 05-TOS-26 Rev 0</div></div>
+    <div class="proj">
+      <div><div class="lbl">Calle</div><div class="v">Calle N°2 760 · Parque industrial TS. AS.</div></div>
+      <div><div class="lbl">Localidad</div><div class="v">Tres Arroyos · Pcia. Buenos Aires</div></div>
+      <div><div class="lbl">Propietario</div><div class="v">Mario Norris S.A · (Tostex S.A)</div></div>
+      <div><div class="lbl">Proyectada por</div><div class="v">Ing. Campos Braian</div></div>
+      <div><div class="lbl">Representante técnico</div><div class="v">José Luis Pérez · Mat. 17810 · Cat. 1ra.</div></div>
+    </div>
+    <div class="notes">
+      <div><span class="nh">NOTAS:<span>(SALVO INDICACIÓN CONTRARIA)</span></span><ol>
+        <li>No escalar desde pantalla. Leer los números.</li>
+        <li>Unidades en m. Soporte: 450 y 350 en mm.</li>
+        <li>Los círculos numerados son posiciones del listado de materiales (hoja 2).</li></ol></div>
+      <div><span class="nh" aria-hidden="true">&nbsp;</span><ol start="4">
+        <li>Cada cota del dibujo es un código (L1, V2, S1…). Valores en las tablas.</li>
+        <li>Lo que el original no rotula se marca [TBD] y se dibuja como esquema proporcional.</li>
+        <li>Monocromo: la cañería se distingue por trazo grueso, no por color.</li></ol></div>
+    </div>
+    <div class="figs">
+      <div><div class="lbl">L1 · lm-eje</div><div class="v">212.60 [u?]</div></div>
+      <div><div class="lbl">D2 · lm-cañería</div><div class="v">1.50</div></div>
+      <div><div class="lbl">V4 · tapada</div><div class="v">0.80</div></div>
+      <div><div class="lbl">V2 · tapa-fondo</div><div class="v">1.10</div></div>
+      <div><div class="lbl">N2 · nicho-prof</div><div class="v">0.85</div></div>
+      <div><div class="lbl">N1 · nicho-ancho</div><div class="v">0.50</div></div>
+      <div><div class="lbl">Ø cañería PE</div><div class="v u0">63 mm</div></div>
+    </div>
+  </header>
+
+  <div class="sheetwrap"><div class="scroll"><svg id="sh1" viewBox="0 0 1700 1060" role="img" aria-label="Hoja 1: planta del servicio de alimentación, detalle de entrada a recinto (corte A-A), detalle de válvula de bloqueo, croquis de ubicación y tablas de variables"></svg></div>
+  <div class="foot"><span>2026-10-30 &nbsp;|&nbsp; Plano instalación de gas industrial · redibujo dimensional</span><span><b>Servicio de alimentación, planta y cortes</b> &nbsp;|&nbsp; 1</span></div></div>
+
+  <div class="sheetwrap"><div class="scroll"><svg id="sh2" viewBox="0 0 1700 1060" role="img" aria-label="Hoja 2: detalle de soporte, detalle de rejilla de trinchera, detalle de empalme, tablas de variables y listado de materiales"></svg></div>
+  <div class="foot"><span>2026-10-30 &nbsp;|&nbsp; Plano instalación de gas industrial · redibujo dimensional</span><span><b>Servicio de alimentación, detalles y listado</b> &nbsp;|&nbsp; 2</span></div></div>
+</div>
+
+<script>
+(function(){
+const NS='http://www.w3.org/2000/svg';let sv,A,HAT,uid=0,sd=7;
+function mk(t,a,p){const e=document.createElementNS(NS,t);for(const k in a)if(a[k]!=null)e.setAttribute(k,a[k]);(p||sv).appendChild(e);return e}
+function tx(x,y,s,c,a,p){const t=mk('text',Object.assign({x:x,y:y,class:c||'dt'},a||{}),p);t.textContent=s;return t}
+function begin(id){sv=document.getElementById(id);sv.innerHTML='';const n=uid++;const d=mk('defs',{});const m=mk('marker',{id:'ar'+n,viewBox:'0 0 10 10',refX:10,refY:5,markerWidth:7,markerHeight:7,orient:'auto-start-reverse',markerUnits:'userSpaceOnUse'},d);mk('path',{d:'M0,1.7 L10,5 L0,8.3 z',class:'arrow'},m);
+ const pt=mk('pattern',{id:'hat'+n,width:5,height:5,patternUnits:'userSpaceOnUse',patternTransform:'rotate(45)'},d);mk('line',{x1:0,y1:0,x2:0,y2:5,class:'hl'},pt);A='url(#ar'+n+')';HAT='url(#hat'+n+')';rr(20,20,1660,1020,16,'border')}
+
+/* ---- kit ---- */
+function dimH(x1,x2,y,e1,e2,l,o){o=o||{};[[x1,e1],[x2,e2]].forEach(([x,e])=>{if(e==null)return;const s=Math.sign(y-e)||1;mk('line',{x1:x,y1:e+s*3,x2:x,y2:y+s*5,class:'ext'})});
+ if(x2-x1>=28)mk('line',{x1:x1,y1:y,x2:x2,y2:y,class:'dl','marker-start':A,'marker-end':A});else{mk('line',{x1:x1-13,y1:y,x2:x1,y2:y,class:'dl','marker-end':A});mk('line',{x1:x2+13,y1:y,x2:x2,y2:y,class:'dl','marker-end':A});mk('line',{x1:x1,y1:y,x2:x2,y2:y,class:'dl'})}
+ tx((x1+x2)/2+(o.dx||0),(o.below?y+13:y-4)+(o.dy||0),l,o.c||'dt',{'text-anchor':'middle'})}
+function dimV(y1,y2,x,e1,e2,l,o){o=o||{};[[y1,e1],[y2,e2]].forEach(([y,e])=>{if(e==null)return;const s=Math.sign(x-e)||1;mk('line',{x1:e+s*3,y1:y,x2:x+s*5,y2:y,class:'ext'})});
+ if(y2-y1>=28)mk('line',{x1:x,y1:y1,x2:x,y2:y2,class:'dl','marker-start':A,'marker-end':A});else{mk('line',{x1:x,y1:y1-13,x2:x,y2:y1,class:'dl','marker-end':A});mk('line',{x1:x,y1:y2+13,x2:x,y2:y2,class:'dl','marker-end':A});mk('line',{x1:x,y1:y1,x2:x,y2:y2,class:'dl'})}
+ const c=(y1+y2)/2+(o.dy||0);if(o.side){const r=o.side==='r';tx(r?x+6:x-6,c+4,l,o.c||'dt',{'text-anchor':r?'start':'end'})}else tx(x-5,c,l,o.c||'dt',{'text-anchor':'middle',transform:'rotate(-90 '+(x-5)+' '+c+')'})}
+function callout(px,py,ex,ey,l,dir,c){const s=dir||(ex>=px?1:-1);mk('circle',{cx:px,cy:py,r:1.8,class:'dot'});mk('polyline',{points:px+','+py+' '+ex+','+ey+' '+(ex+s*10)+','+ey,class:'lead'});tx(ex+s*14,ey+4,l,c||'dt',{'text-anchor':s>0?'start':'end'})}
+function rad(cx,cy,r,c,l,L){const sx=c.includes('l')?-1:1,sy=c.includes('t')?-1:1;const ox=cx-sx*r,oy=cy-sy*r;const px=ox+sx*r*Math.SQRT1_2,py=oy+sy*r*Math.SQRT1_2;callout(px,py,px+sx*L,py+sy*L,l,sx)}
+function nb(x,y,n){mk('rect',{x:x-6,y:y-6,width:12,height:12,class:'nb'});tx(x,y+3.5,String(n),'nbt',{'text-anchor':'middle'})}
+function pos(x,y,n){mk('circle',{cx:x,cy:y,r:7.5,class:'nb'});tx(x,y+3.3,String(n),'nbt',{'text-anchor':'middle'})}
+function posL(fx,fy,cx,cy,n){const a=Math.atan2(fy-cy,fx-cx);mk('circle',{cx:fx,cy:fy,r:1.6,class:'dot'});mk('line',{x1:cx+7.5*Math.cos(a),y1:cy+7.5*Math.sin(a),x2:fx,y2:fy,class:'lead'});pos(cx,cy,n)}
+function rr(x,y,w,h,r,c){return mk('rect',{x:x,y:y,width:w,height:h,rx:r,class:c})}
+function title(x,y,t,s){tx(x,y,t,'vt',{'text-anchor':'middle'});if(s)tx(x,y+14,s,'dts',{'text-anchor':'middle'})}
+function notes(list){const NX=50,NY=58;tx(NX,NY,'NOTAS:','nth');tx(NX+62,NY,'(SALVO INDICACIÓN CONTRARIA)','nt');
+ list.forEach(([n,t],i)=>{const y=NY+30+i*24;if(n){nb(NX+6,y-4,n);tx(NX+22,y,t,'nt')}else tx(NX,y,t,'nt')})}
+function table(x,y,ttl,rows){const ws=[40,88,96],rh=17;tx(x,y-8,ttl,'vt');
+ const all=[['Cód.','Variable','Valor']].concat(rows);all.forEach((r,i)=>{let cx2=x;r.forEach((c,j)=>{mk('rect',{x:cx2,y:y+i*rh,width:ws[j],height:rh,class:'thin'});tx(cx2+(j?ws[j]/2:6),y+i*rh+12,c,i?'tc':'th',{'text-anchor':j?'middle':'start'});cx2+=ws[j]})});return y+all.length*rh+36}
+function rnd(){sd=(sd*16807)%2147483647;return sd/2147483647}
+function stones(x,y,w,h,n,r){for(let i=0;i<n;i++){mk('ellipse',{cx:x+4+rnd()*(w-8),cy:y+3+rnd()*(h-6),rx:(r||4)*(.75+rnd()*.5),ry:(r||4)*(.5+rnd()*.45),class:'stn'})}}
+function pipe(d,w){mk('path',{d:d,class:'pipeo','stroke-width':w});mk('path',{d:d,class:'pipei','stroke-width':w-3})}
+function brk(x,y,h){mk('polyline',{points:(x-4)+','+(y-h)+' '+(x+4)+','+(y-h/3)+' '+(x-4)+','+(y+h/3)+' '+(x+4)+','+(y+h),class:'thin'})}
+function hatch(x,y,w,h){return mk('rect',{x:x,y:y,width:w,height:h,fill:HAT,class:'hs'})}
+function terrainMark(x,y,label,lx,ly){mk('path',{d:'M'+(x-22)+','+(y-20)+' L'+(x+22)+','+(y-20)+' L'+x+','+y+' z',class:'thin'});tx(lx,ly,label,'sl')}
+
+/* variables (Spanish codes) */
+const VAR={
+ planta:[['L1','lm-eje','212.60 [u?]'],['D1','lm-válvula','0.40'],['D2','lm-cañería','1.50'],['D3','lm-calle','4.00']],
+ nicho:[['N1','nicho-ancho','0.50'],['N2','nicho-prof','0.85'],['E1','muro-trasero','0.20'],['E2','muro-horm.','0.15']],
+ corte:[['A2','eje-muro','0.50'],['V1','tapa-brida','0.70'],['V2','tapa-fondo','1.10'],['V3','fondo-eje','0.20'],['V4','tapada','0.80']],
+ tbd:[['T1','recinto','[TBD]'],['T2','muro-frente','[TBD]'],['T3','platea','[TBD]'],['T4','piedra','[TBD]'],['T5','cota-tapa','[TBD]']],
+ soporte:[['S1','muro-lejos','450 mm'],['S2','muro-cerca','350 mm'],['P1','placa','200×200 mm'],['P2','esp-placa','3/16″'],['P3','ángulo','2″×3/16″'],['P4','cañería','2″ – 3″']],
+ rejilla:[['G1','ancho','0.90'],['G2','centro-borde','0.50'],['G3','centro-inf','0.27'],['R5','r-agujero','0.10'],['G4','sep-planch.','30 [u?]'],['G5','alto','[TBD]'],['G6','perfil','3/16″×1/2″']]
+};
+
+/* =================== HOJA 1 · PLANTA Y CORTES =================== */
+begin('sh1');
+notes([[0,'UNIDADES: METROS, SALVO INDICACIÓN · ESCALA ORIG. PLANTA 1:20'],[0,'ESQUEMA NO ESCALAR · MANDAN LOS CÓDIGOS Y TABLAS'],[0,'CÍRCULOS = POSICIONES DEL LISTADO (HOJA 2)'],[0,'SOPORTE, REJILLA Y EMPALME: VER HOJA 2'],[1,'L1 SIN UNIDAD EN ORIGEN (EL CROQUIS REPITE 212.60)'],[2,'D3 SIN ROTULAR EN ORIGEN: L.M. A LÍNEA INFERIOR'],[3,'ESPESORES SIN COTA SE DIBUJAN CON E2 (LISTADO POS. 8)'],[4,'COTA TERRENO = 000 · COTA DE TAPA RESPECTO: [TBD]']]);
+
+/* ---- planta ---- */
+{const PX=340,PY=490;
+ /* recinto: muros (espesor sin cota: esquema) */
+ hatch(130,300,420,12);
+ hatch(130,360,12,16);hatch(130,404,12,PY-404);
+ hatch(538,312,12,38);hatch(538,410,12,PY-410);
+ hatch(130,PY-12,30,12);hatch(210,PY-12,340,12);
+ [[130,376,404],[538,350,410]].forEach(([x,a,b])=>{mk('line',{x1:x,y1:a,x2:x+12,y2:a,class:'thin'});mk('line',{x1:x,y1:b,x2:x+12,y2:b,class:'thin'});[a+(b-a)/3,a+2*(b-a)/3].forEach(y=>mk('line',{x1:x,y1:y,x2:x+12,y2:y,class:'thin'}))});
+ /* puertas */
+ mk('line',{x1:130,y1:360,x2:80,y2:360,class:'thin'});mk('path',{d:'M130,312 A48,48 0 0 0 82,360',class:'thin'});
+ mk('line',{x1:210,y1:PY,x2:210,y2:PY+50,class:'thin'});mk('path',{d:'M160,'+PY+' A50,50 0 0 0 210,'+(PY+50),class:'thin'});
+ tx(240,400,'RECINTO ERP','vt',{'text-anchor':'middle'});
+ /* nicho */
+ hatch(316,PY-75,48,12);hatch(316,PY-63,9,51);hatch(355,PY-63,9,51);
+ /* L.M. y calle */
+ mk('line',{x1:60,y1:PY,x2:98,y2:PY,class:'cl'});mk('line',{x1:128,y1:PY,x2:620,y2:PY,class:'cl'});
+ mk('line',{x1:100,y1:PY-12,x2:108,y2:PY+12,class:'thin'});mk('line',{x1:118,y1:PY-12,x2:126,y2:PY+12,class:'thin'});
+ tx(62,PY-8,'L.M.','vt');
+ mk('line',{x1:70,y1:PY+240,x2:610,y2:PY+240,class:'thin'});tx(340,PY+264,'CALLE 2','vt',{'text-anchor':'middle'});
+ /* cañería existente PE Ø63 (5) y servicio */
+ mk('line',{x1:70,y1:PY+87,x2:610,y2:PY+87,class:'main'});mk('line',{x1:70,y1:PY+93,x2:610,y2:PY+93,class:'main'});
+ tx(70,PY+110,'CAÑERÍA PE Ø 63 mm EXISTENTE','sl u0');
+ mk('line',{x1:PX,y1:PY-58,x2:PX,y2:PY+90,class:'pl'});mk('circle',{cx:PX,cy:PY-58,r:3,class:'nb'});
+ rr(PX-5,PY-15,10,6,0,'hug');rr(PX-6,PY+18,12,12,0,'hug');mk('circle',{cx:PX,cy:PY+24,r:2,class:'dot'});rr(PX-6,PY+84,12,12,0,'hug');mk('circle',{cx:PX,cy:PY+90,r:2,class:'dot'});
+ /* posiciones */
+ posL(PX,PY-42,284,PY-52,1);posL(PX,PY-12,284,PY-24,7);posL(358,PY-70,412,PY-86,8);
+ posL(PX+7,PY+28,PX+56,PY+48,10);posL(PX-1.5,PY+60,298,PY+50,6);posL(PX+6,PY+92,PX+54,PY+118,9);posL(430,PY+90,440,PY+66,5);
+ /* cotas */
+ dimH(325,355,PY-33,null,null,'N1',{dx:-1,dy:-2});
+ dimV(PY-63,PY-12,PX+62,364,364,'N2',{side:'r'});
+ dimV(PY-75,PY-63,PX-42,316,316,'E1',{side:'l'});
+ dimV(PY,PY+24,PX+26,PX+6,PX+6,'D1',{side:'r'});
+ dimH(70,PX,PY+62,PY,PY+55,'L1',{dx:70});nb(256,PY+51,1);
+ dimV(PY,PY+90,520,540,540,'D2',{side:'r'});
+ dimV(PY,PY+240,580,600,600,'D3',{side:'r'});nb(594,PY+150,2);
+ nb(PX+26,PY-88,3);
+ /* corte A-A */
+ mk('line',{x1:PX,y1:PY-110,x2:PX,y2:PY-92,class:'cut'});mk('line',{x1:PX,y1:PY-101,x2:PX+22,y2:PY-101,class:'dl','marker-end':A});tx(PX-6,PY-104,'A','vt',{'text-anchor':'end'});
+ mk('line',{x1:PX,y1:PY+2,x2:PX,y2:PY+14,class:'cut'});mk('line',{x1:PX,y1:PY+8,x2:PX+22,y2:PY+8,class:'dl','marker-end':A});tx(PX-6,PY+18,'A','vt',{'text-anchor':'end'});
+ title(340,PY+296,'Servicio alimentación · planta','Escala original 1:20 · esquema proporcional');}
+
+/* ---- detalle de entrada a recinto (corte A-A) ---- */
+{const yT=300,yG=315,yB=520,ax=480,rx=810;
+ /* muros */
+ hatch(700,yT,40,yB-yT);hatch(910,100,30,yB-100);
+ brk(925,100,0);mk('polyline',{points:'905,100 922,100 919,92 925,108 928,100 946,100',class:'thin'});
+ /* platea y piedra */
+ hatch(690,yB,55,15);hatch(890,yB,60,15);rr(745,yB,145,70,0,'thin');stones(745,yB,145,70,34,5);
+ /* terreno */
+ [[650,700],[940,1040]].forEach(([a,b])=>{mk('line',{x1:a,y1:yG,x2:b,y2:yG,class:'obj'});rr(a,yG,b-a,26,0,'thin');stones(a,yG,b-a,26,Math.round((b-a)/9),4)});
+ mk('line',{x1:650,y1:yG-5,x2:660,y2:yG+30,class:'thin'});
+ /* tapa */
+ rr(738,yT-3,172,6,0,'hug');
+ /* cañería: tramo vertical, codo y horizontal */
+ mk('line',{x1:rx,y1:110,x2:rx,y2:ax+22,class:'cl'});
+ rr(912,ax-9,26,18,0,'obj');mk('line',{x1:912,y1:ax-9,x2:938,y2:ax-9,class:'thin'});
+ pipe('M'+rx+',176 V'+(ax-12)+' Q'+rx+','+ax+' '+(rx+12)+','+ax+' H1045',9);
+ rr(944,ax-8,16,16,0,'hug');brk(1047,ax,10);
+ /* válvula esférica bridada (11), junta (3), brida (2), espárragos (12) */
+ rr(790,160,40,6,0,'hug');rr(803,166,14,10,0,'obj');
+ rr(792,158,36,2,0,'obj');
+ rr(790,153,40,5,0,'hug');mk('ellipse',{cx:rx,cy:139,rx:15,ry:14,class:'obj'});rr(790,114,40,6,0,'hug');rr(803,106,14,8,0,'obj');
+ mk('line',{x1:rx,y1:126,x2:rx,y2:98,class:'thin'});mk('line',{x1:796,y1:98,x2:824,y2:98,class:'thin','stroke-width':2});
+ [796,824].forEach(x=>mk('line',{x1:x,y1:150,x2:x,y2:170,class:'hs','stroke-width':1.4}));
+ /* terreno 000 */
+ terrainMark(990,yG-1,'COTA NIVEL DE TERRENO 000',950,yG-30);
+ /* posiciones */
+ posL(822,138,858,114,11);posL(824,163,862,188,2);posL(796,159,758,148,3);posL(798,168,764,186,12);
+ posL(870,yT,886,278,14);posL(813,420,868,426,1);posL(806,ax-8,770,ax-18,4);posL(928,405,970,382,8);posL(954,ax,978,438,7);posL(1000,ax+4,1010,548,6);
+ /* cotas */
+ dimH(rx,910,88,100,100,'A2');
+ dimV(160,yT,716,788,730,'V1',{side:'l'});
+ dimV(yT,yB,650,700,690,'V2',{side:'l'});
+ dimV(ax,yB,682,742,742,'V3',{side:'l',dy:-3});
+ dimV(yG,ax-5,1030,1000,1000,'V4',{side:'r'});
+ dimH(740,910,372,null,null,'N2',{dx:-34});
+ nb(1000,yG-48,4);
+ tx(740,yB+92,'SUELO PERMEABLE · PIEDRA 6–20 mm','sl u0');
+ title(840,640,'Detalle de entrada a recinto','Corte A–A · esquema proporcional');}
+
+/* ---- detalle de válvula de bloqueo ---- */
+{const yG=745,ax=910,vx=870;
+ mk('line',{x1:660,y1:yG,x2:1050,y2:yG,class:'obj'});[[660,vx-14],[vx+14,1050]].forEach(([a,b])=>{rr(a,yG,b-a,22,0,'thin');stones(a,yG,b-a,22,Math.round((b-a)/9),4)});
+ terrainMark(720,yG-2,'COTA NIVEL DE TERRENO 000',660,yG-30);
+ rr(vx-14,yG-4,28,4,0,'hug');
+ mk('line',{x1:vx-4,y1:yG,x2:vx-4,y2:ax-12,class:'obj'});mk('line',{x1:vx+4,y1:yG,x2:vx+4,y2:ax-12,class:'obj'});
+ mk('line',{x1:660,y1:ax-5,x2:1040,y2:ax-5,class:'main'});mk('line',{x1:660,y1:ax+5,x2:1040,y2:ax+5,class:'main'});
+ mk('line',{x1:690,y1:ax,x2:1030,y2:ax,class:'cl'});
+ brk(664,ax,10);brk(1044,ax,10);
+ rr(vx-14,ax-13,28,26,0,'hug');mk('circle',{cx:vx,cy:ax,r:4,class:'dot'});
+ posL(vx+4,yG-3,920,yG+36,13);posL(vx+14,ax-8,930,ax-36,10);posL(980,ax-5,992,ax-40,5);
+ dimV(yG,ax-5,780,700,700,'V4',{side:'l'});mk('line',{x1:780,y1:ax-5,x2:840,y2:ax-5,class:'ext'});
+ title(850,970,'Detalle de válvula de bloqueo','Esquema proporcional');}
+
+/* ---- croquis de ubicación ---- */
+{rr(1100,470,540,300,0,'thin');
+ rr(1120,490,500,76,0,'thin');tx(1330,532,'TOSTEX S.A','vt',{'text-anchor':'middle'});rr(1560,532,40,34,0,'thin');
+ mk('line',{x1:1120,y1:566,x2:1640,y2:566,class:'cl'});tx(1124,560,'L.M.','dts');
+ mk('line',{x1:1180,y1:566,x2:1180,y2:750,class:'obj'});
+ mk('path',{d:'M1640,650 H1330 A40,40 0 0 0 1290,690 V750',class:'obj'});
+ pipe('M1580,566 V586 H1245 Q1230,586 1230,601 V750',4);mk('line',{x1:1580,y1:566,x2:1580,y2:586,class:'pl'});
+ tx(1420,580,'CAÑERÍA PE Ø 63 mm · TAPADA 0.8 m','dts u0',{'text-anchor':'middle'});
+ dimH(1180,1580,622,566,586,'L1');dimV(566,586,1624,1600,1600,'D2',{side:'r',dy:2});
+ tx(1470,676,'CALLE 2','vt',{'text-anchor':'middle'});tx(1252,710,'CALLE 7','vt',{'text-anchor':'middle',transform:'rotate(-90 1252 710)'});
+ title(1370,800,'Croquis ubicación','Sin escala');}
+/* ---- ubicación y firmas ---- */
+{rr(1100,850,260,170,0,'thin');tx(1230,868,'UBICACIÓN','vt',{'text-anchor':'middle'});
+ mk('line',{x1:1110,y1:890,x2:1350,y2:890,class:'thin'});tx(1230,886,'CH. 249','dts',{'text-anchor':'middle'});
+ tx(1230,903,'AV. DESAFECTADA PARA USO','sl',{'text-anchor':'middle'});tx(1230,913,'DE PARQUE INDUSTRIAL','sl',{'text-anchor':'middle'});
+ rr(1130,920,130,46,0,'obj');tx(1195,947,'TOSTEX S.A','dts',{'text-anchor':'middle'});
+ mk('line',{x1:1115,y1:984,x2:1345,y2:984,class:'thin'});tx(1195,998,'CALLE 2','dts',{'text-anchor':'middle'});
+ mk('line',{x1:1120,y1:896,x2:1120,y2:1016,class:'thin'});tx(1114,1010,'CALLE 7','sl',{'text-anchor':'start',transform:'rotate(-90 1114 1010)'});
+ mk('line',{x1:1310,y1:896,x2:1310,y2:1016,class:'thin'});tx(1304,1010,'AV. AMEGHINO','sl',{'text-anchor':'start',transform:'rotate(-90 1304 1010)'});
+ mk('circle',{cx:1334,cy:1000,r:10,class:'nb'});mk('path',{d:'M1330,1004 L1338,996 M1338,1000 V996 H1334',class:'thin'});
+ rr(1380,850,260,170,0,'thin');tx(1510,868,'FIRMAS','vt',{'text-anchor':'middle'});
+ mk('line',{x1:1430,y1:930,x2:1590,y2:930,class:'thin'});tx(1510,944,'PROPIETARIO','dts',{'text-anchor':'middle'});
+ mk('line',{x1:1430,y1:994,x2:1590,y2:994,class:'thin'});tx(1510,1008,'INSTALADOR','dts',{'text-anchor':'middle'});}
+{let y=table(1100,86,'Planta',VAR.planta);y=table(1100,y,'Nicho',VAR.nicho);table(1100,y,'Sin cota en origen',VAR.tbd);table(1390,86,'Corte A–A',VAR.corte)}
+
+/* =================== HOJA 2 · DETALLES Y LISTADO =================== */
+begin('sh2');
+notes([[0,'HOJA 2 DE 2 · PLANTA Y CORTES: VER HOJA 1'],[0,'DETALLES ESQUEMÁTICOS · MANDAN LOS CÓDIGOS Y TABLAS'],[0,'S1, S2: MILÍMETROS · RESTO DE LAS COTAS: METROS'],[1,'G4 = 30 SIN UNIDAD EN ORIGEN (¿mm?)'],[2,'G5 (ALTO DE REJILLA) SIN COTA EN ORIGEN: [TBD]'],[3,'EMPALME SIN COTAS EN ORIGEN']]);
+
+/* ---- soporte ---- */
+{hatch(100,290,40,270);
+ rr(140,380,3,80,0,'obj');rr(143,414,157,12,0,'hug');
+ rr(287,350,26,140,0,'obj');rr(281,396,6,48,0,'hug');rr(283,408,37,20,0,'thin');
+ dimH(140,320,326,350,350,'S1');dimH(140,280,545,460,490,'S2',{below:true});
+ callout(120,320,170,300,'MURO RECINTO',1,'sl');
+ callout(142,452,176,506,'PLACA 200×200 mm · ESP. 3/16″',1,'sl u0');
+ callout(200,414,192,372,'ÁNGULO 2″×3/16″',1,'sl');
+ callout(318,413,352,374,'GRAMPA U-BOLT',1,'sl');
+ callout(284,440,246,474,'PLACA PVC',-1,'sl');
+ callout(306,356,346,338,'CAÑERÍA 2″ – 3″',1,'sl');
+ /* axonometría */
+ mk('polygon',{points:'480,360 580,320 580,420 480,460',class:'obj'});
+ [[492,372],[568,335],[568,408],[492,448]].forEach(([x,y])=>mk('circle',{cx:x,cy:y,r:3,class:'thin'}));
+ mk('polygon',{points:'522,386 536,380 632,432 618,438',class:'hug'});
+ mk('line',{x1:618,y1:352,x2:618,y2:500,class:'obj'});mk('line',{x1:636,y1:346,x2:636,y2:494,class:'obj'});mk('ellipse',{cx:627,cy:349,rx:9,ry:4,class:'obj'});mk('path',{d:'M618,500 A9,4 0 0 0 636,494',class:'thin'});
+ mk('ellipse',{cx:627,cy:436,rx:13,ry:7,class:'thin'});
+ title(335,620,'Detalle soporte','Elevación y axonometría · esquemático');}
+
+/* ---- rejilla de trinchera ---- */
+{const k=240,PX=700,PY=380,W=0.9*k,H=140;
+ rr(PX,PY,W,H,0,'obj');for(let x=PX+8;x<PX+W-1;x+=8)mk('line',{x1:x,y1:PY,x2:x,y2:PY+H,class:'hl'});
+ const cx=PX+W-0.5*k,cy=PY+H-0.27*k;mk('circle',{cx:cx,cy:cy,r:0.1*k,class:'obj'});
+ mk('line',{x1:cx-30,y1:cy,x2:cx+30,y2:cy,class:'cl'});mk('line',{x1:cx,y1:cy-30,x2:cx,y2:cy+30,class:'cl'});
+ dimH(PX,PX+W,PY+H+34,PY+H,PY+H,'G1',{below:true});
+ dimH(cx,PX+W,PY-34,cy-0.1*k,PY,'G2');
+ dimV(cy,PY+H,PX-30,cx-0.1*k,PX,'G3',{side:'l'});
+ rad(cx,cy,0.1*k,'tl','R5',34);
+ /* perfil de planchuelas */
+ [0,48,96].forEach(i=>rr(970+i,420,5,14,0,'hug'));mk('line',{x1:966,y1:420,x2:1078,y2:420,class:'obj'});
+ dimH(975,1023,452,434,434,'G4',{below:true});
+ posL(972,430,950,396,1);
+ tx(960,500,'1. PLANCHUELA HIERRO','sl');tx(960,512,'3/16″ × 1/2″','sl');
+ title(860,620,'Detalle rejilla trinchera','Planta y perfil · alto de rejilla [TBD]');}
+
+/* ---- empalme ---- */
+{const cx=1150,cy=420;
+ mk('circle',{cx:cx,cy:cy,r:34,class:'obj'});mk('circle',{cx:cx,cy:cy,r:26,class:'thin'});
+ mk('path',{d:'M'+(cx-26)+','+(cy-30)+' V'+(cy-48)+' H'+(cx+26)+' V'+(cy-30),class:'obj'});rr(cx-34,cy-56,68,8,0,'hug');
+ rr(cx+30,cy-8,52,16,0,'hug');rr(cx+82,cy-12,24,24,0,'hug');rr(cx+106,cy-8,52,16,0,'obj');brk(cx+160,cy,10);
+ posL(cx-26,cy+24,cx-34,cy+70,1);posL(cx+14,cy-48,cx+50,cy-84,2);posL(cx+94,cy+12,cx+94,cy+58,3);posL(cx+132,cy+8,cx+132,cy+58,4);
+ ['1. CAÑERÍA PE Ø 63 mm','2. SERVICIO ALTO VOL. Ø 63 × 63 mm','3. CUPLA EF 63 mm','4. CAÑERÍA PE Ø 63 mm'].forEach((t,i)=>tx(1100,520+i*18,t,'sl u0'));
+ title(1205,620,'Detalle empalme','Esquemático · sin cotas en origen');}
+
+/* ---- tablas y listado ---- */
+{table(50,730,'Soporte',VAR.soporte);table(330,730,'Rejilla',VAR.rejilla)}
+{const X=1350,Y=86,ws=[22,38,131,52,72],rh=0,hd=['Pos','Cant.','Descripción','Material','Norma'];
+ const rows=[['1','1.38 m','Cañería Ø 2″ - Sch 40','ACERO','ASTM A53'],['2','1','Brida WNRF Ø 2″ - S150','ACERO','ANSI B16.5'],['3','1','Junta p/brida Ø 2″ - S150','Fibra sintética','ASTM F-36'],['4','1','Codo a 90° R.L Ø 2″ - STD','ASTM A234','ANSI B16.9'],['5','-','Cañería existente PE Ø 63 mm','PE','NAG 140 parte 2'],['6','1.5 m','Cañería PE Ø 63 mm','PE','NAG 140 parte 2'],['7','1','Transición AC/PE Ø 2″ x 63 mm','A.C / P.E','NAG 140 parte 3'],['8','2.2 m²','Muro de hormigón 0.15 con pintura látex blanco','--','--'],['9','1','Válvula de servicio PE Ø 63 mm','PE','NAG 140 parte 4'],['10','1','Válvula de bloqueo PE Ø 63 mm con extensor','PE','NAG 140 parte 4'],['11','1','Válvula esférica Ø 2″ PN EF - S150 acc. Palanca','WCB A-216','S150'],['12','4','Espárrago con tuerca Ø 5/8″ x 3 1/2″ UNC','A193 Gr B7','ASME B 16.5'],['13','1','Cámara de inspección p/vereda','--','--'],['14','1','Tapa p/trinchera a fabricar en taller','ACERO','--']];
+ const cpl=[0,0,29,10,17];
+ const wrap=(s,n)=>{if(!n||s.length<=n)return[s];const w=s.split(' '),o=[];let l='';w.forEach(t=>{if((l+' '+t).trim().length>n&&l){o.push(l);l=t}else l=(l+' '+t).trim()});o.push(l);return o};
+ tx(X,Y-8,'Listado de materiales','vt');
+ let y=Y;const rowDraw=(r,head)=>{const cells=r.map((c,j)=>wrap(c,cpl[j]));const lines=Math.max(...cells.map(c=>c.length));const h=Math.max(17,lines*10+8);let x=X;cells.forEach((c,j)=>{mk('rect',{x:x,y:y,width:ws[j],height:h,class:'thin'});c.forEach((t,i)=>tx(j===2?x+4:x+ws[j]/2,y+h/2-(c.length-1)*5+3+i*10,t,head?'ths':'tcs',{'text-anchor':j===2?'start':'middle'}));x+=ws[j]});y+=h};
+ rowDraw(hd,true);rows.forEach(r=>rowDraw(r,false));}
+})();
+</script>
+</body>
+</html>
