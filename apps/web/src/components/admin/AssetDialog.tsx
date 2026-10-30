@@ -110,13 +110,14 @@ export function AssetDialog({
 
   const currentRef = form.model3dRef;
   const known = models.some((m) => `model:${m.id}` === currentRef);
-  const selectValue = uploadMode ? UPLOAD : currentRef;
+  // un valor antiguo (texto libre, p. ej. «tank») equivale a «sin modelo»: se muestra como procedural
+  const selectValue = uploadMode ? UPLOAD : MODEL_REF_PATTERN.test(currentRef) ? currentRef : '';
   const candidates = useMemo(() => assets.filter((a) => a.id !== (asset?.id ?? form.id.trim())), [assets, asset?.id, form.id]);
   const orphans = form.connectsTo.filter((id) => !assets.some((a) => a.id === id));
 
   async function submit(e: FormEvent) {
     e.preventDefault();
-    const { errors: errs, value } = validateAssetForm(form, { editing });
+    const { errors: errs, value } = validateAssetForm(form, { editing, keepRef: asset?.model3dRef });
     setErrors(errs);
     setSubmitted(true);
     setMetaTouched(true);
@@ -124,7 +125,13 @@ export function AssetDialog({
     const api = getAdminApi();
     const saved = await run<AssetResult>(() =>
       asset
-        ? api.updateAsset(plant, asset.id, { name: value.name, type: value.type, model3dRef: value.model3dRef, metadata: value.metadata })
+        ? api.updateAsset(plant, asset.id, {
+            name: value.name,
+            type: value.type,
+            metadata: value.metadata,
+            // el valor antiguo (texto libre) sólo se reenvía si se cambia; si no, se omite
+            ...(value.model3dRef !== asset.model3dRef && { model3dRef: value.model3dRef }),
+          })
         : api.createAsset(plant, value),
     );
     if (saved) {
@@ -177,9 +184,7 @@ export function AssetDialog({
                 {m.name} ({formatBytes(m.size)})
               </option>
             ))}
-            {currentRef && !known && (
-              <option value={currentRef}>{MODEL_REF_PATTERN.test(currentRef) ? `Modelo no encontrado (${currentRef})` : `Referencia no válida (${currentRef})`}</option>
-            )}
+            {MODEL_REF_PATTERN.test(currentRef) && !known && <option value={currentRef}>Modelo no encontrado ({currentRef})</option>}
             <option value={UPLOAD}>Subir nuevo…</option>
           </SelectField>
         </div>
@@ -235,7 +240,7 @@ export function AssetDialog({
         </fieldset>
 
         <TextAreaField
-          label="Metadatos (JSON avanzado)"
+          label="Metadatos (JSON)"
           rows={6}
           value={form.metadataText}
           onChange={(e) => setMetadataText(e.target.value)}

@@ -41,6 +41,8 @@ export function ChartsStrip() {
       </header>
       {!id ? (
         <p className="m-auto text-sm text-muted">Selecciona un equipo para ver sus curvas.</p>
+      ) : metrics === '' ? (
+        <p className="m-auto text-sm text-muted">Aún no ha llegado telemetría de este activo.</p>
       ) : (
         <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 lg:grid-cols-2">
           {metrics.split(',').filter(Boolean).map((m) => (

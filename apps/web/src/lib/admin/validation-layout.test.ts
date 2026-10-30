@@ -111,6 +111,9 @@ describe('validateAssetForm con modelo, disposición y conexiones', () => {
     expect(validateAssetForm({ ...base, model3dRef: 'tank' }).errors.model3dRef).toBeDefined();
     expect(validateAssetForm({ ...base, model3dRef: 'model:123' }).errors.model3dRef).toBeDefined();
     expect(validateAssetForm({ ...base, model3dRef: '' }).value?.model3dRef).toBeNull();
+    // valor antiguo tolerado si es el que ya tenía el activo
+    expect(validateAssetForm({ ...base, model3dRef: 'tank' }, { editing: true, keepRef: 'tank' }).errors.model3dRef).toBeUndefined();
+    expect(validateAssetForm({ ...base, model3dRef: 'otro' }, { editing: true, keepRef: 'tank' }).errors.model3dRef).toBeDefined();
   });
   it('errores de layout y de JSON bloquean y se indican por campo', () => {
     const r = validateAssetForm({ ...base, layout: layout({ x: '9999', z: '0' }) });

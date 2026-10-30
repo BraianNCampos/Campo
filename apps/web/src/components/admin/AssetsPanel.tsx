@@ -32,7 +32,7 @@ function AssetsContent() {
   const canEdit = role === 'admin' || role === 'engineer';
   const modelName = (ref: string | null) => {
     const id = modelIdOf(ref);
-    return id ? (models.data?.find((m) => m.id === id)?.name ?? 'Modelo no encontrado') : ref ? `Referencia no válida (${ref})` : 'Procedural';
+    return id ? (models.data?.find((m) => m.id === id)?.name ?? 'Modelo no encontrado') : 'Procedural'; // null o valor antiguo = procedural
   };
   const placement = (a: AssetDef) => {
     const l = parseLayout(a.metadata);

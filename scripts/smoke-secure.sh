@@ -195,6 +195,37 @@ else
   note "node no disponible: se omite la prueba del WebSocket"
 fi
 
+echo; echo "Modelos 3D por Caddy (límites de cuerpo, validación y caché)"
+if [ -n "${TOKEN:-}" ] && command -v node >/dev/null 2>&1; then
+  TMPM=$(mktemp -d)
+  node --input-type=module -e "
+    import { buildGlb } from '$PWD/scripts/make-sample-glb.mjs'; import { writeFileSync } from 'node:fs';
+    const nodes = Array.from({length: 1000}, (_, i) => ({ name: 'b' + i, geometry: {w: .1, h: .1, d: .1}, translation: [(i % 40) * .2, 0, Math.floor(i / 40) * .2] }));
+    writeFileSync('$TMPM/big.glb', buildGlb(nodes));" 2>/dev/null
+  head -c 12000000 /dev/zero > "$TMPM/huge.bin"; head -c 2000000 /dev/zero | tr '\0' 'a' > "$TMPM/two.json"; echo "no es un glb" > "$TMPM/bad.glb"
+  HTTP() { "${CURL[@]}" -o "${2:-/dev/null}" -w '%{http_code}' "${@:3}" "$1"; }
+  MURL="$BASE/api/plants/$PLANT/models"
+  [ "$(stat -c %s "$TMPM/big.glb")" -gt 1048576 ] && ok "GLB de prueba de $(( $(stat -c %s "$TMPM/big.glb") / 1024 )) KB (supera el límite general de 1 MB de /api)" || bad "no se pudo generar el GLB de prueba"
+  CODE=$(HTTP "$MURL?name=smoke-big" "$TMPM/up.json" -X POST -H "$AUTH" -H 'content-type: model/gltf-binary' --data-binary @"$TMPM/big.glb")
+  [ "$CODE" = 201 ] || [ "$CODE" = 200 ] && ok "subir un GLB de >1 MB por Caddy -> $CODE (regla específica de 11 MB)" || bad "subida de GLB por Caddy -> $CODE"
+  MID=$(python3 -c 'import json;print(json.load(open("'"$TMPM"'/up.json"))["id"])' 2>/dev/null)
+  [ "$(HTTP "$MURL?name=huge" /dev/null -X POST -H "$AUTH" -H 'content-type: model/gltf-binary' --data-binary @"$TMPM/huge.bin")" = 413 ] && ok "cuerpo de 12 MB a /models -> 413" || bad "el cuerpo de 12 MB no se rechazó con 413"
+  [ "$(HTTP "$BASE/api/auth/login" /dev/null -X POST -H 'content-type: application/json' --data-binary @"$TMPM/two.json")" = 413 ] && ok "cuerpo de 2 MB al resto de /api -> 413 (el límite de 1 MB se mantiene)" || bad "el límite de 1 MB del resto de /api no se aplica"
+  [ "$(HTTP "$MURL?name=bad" /dev/null -X POST -H "$AUTH" -H 'content-type: model/gltf-binary' --data-binary @"$TMPM/bad.glb")" = 400 ] && ok "archivo que no es GLB -> 400" || bad "un archivo basura no se rechazó con 400"
+  [ "$(HTTP "$MURL?name=x" /dev/null -X POST -H 'content-type: model/gltf-binary' --data-binary @"$TMPM/big.glb")" = 401 ] && ok "subir sin token -> 401" || bad "subida sin token no devolvió 401"
+  if [ -n "${MID:-}" ]; then
+    HTTP "$BASE/api/models/$MID" "$TMPM/back.glb" -D "$TMPM/h.txt" -H "$AUTH" >/dev/null
+    cmp -s "$TMPM/big.glb" "$TMPM/back.glb" && ok "la descarga devuelve los mismos bytes que se subieron" || bad "la descarga difiere del archivo subido"
+    ETAG=$(grep -i '^etag:' "$TMPM/h.txt" | cut -d' ' -f2 | tr -d '\r')
+    [ "$(HTTP "$BASE/api/models/$MID" /dev/null -H "$AUTH" -H "If-None-Match: $ETAG")" = 304 ] && ok "If-None-Match -> 304" || bad "la caché por ETag no responde 304"
+    [ "$(HTTP "$BASE/api/models/$MID" /dev/null)" = 401 ] && ok "descargar sin token -> 401" || bad "descarga sin token no devolvió 401"
+    [ "$(HTTP "$MURL/$MID" /dev/null -X DELETE -H "$AUTH")" = 200 ] && ok "borrar el modelo de prueba" || bad "no se pudo borrar el modelo de prueba"
+  fi
+  rm -rf "$TMPM"
+else
+  note "sin token o sin node: se omite la prueba de modelos 3D"
+fi
+
 if [ -n "${TOKEN:-}" ]; then
   LEAK=0; for c in caddy api web ingest; do docker logs "campo-$c" 2>&1 | grep -qF "$TOKEN" && { LEAK=1; note "el JWT aparece en los logs de campo-$c"; }; done
   [ "$LEAK" = 0 ] && ok "el JWT (query de /ws) no aparece en los logs de caddy, api, web ni ingest" || bad "el JWT se filtra a los logs"

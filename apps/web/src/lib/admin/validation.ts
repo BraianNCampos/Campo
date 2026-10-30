@@ -249,7 +249,8 @@ export function fieldsFromMetadataText(text: string): { layout: LayoutForm; conn
   return { layout: layoutFormFrom(parsed.value), connectsTo: parseConnectsTo(parsed.value) };
 }
 
-export function validateAssetForm(v: AssetForm, opts: { editing?: boolean } = {}): { errors: FieldErrors; value?: AssetInput } {
+/** `keepRef`: valor antiguo de `model3dRef` (texto libre) que la API tolera reenviar tal cual mientras no se cambie. */
+export function validateAssetForm(v: AssetForm, opts: { editing?: boolean; keepRef?: string | null } = {}): { errors: FieldErrors; value?: AssetInput } {
   const errors: FieldErrors = {};
   const id = v.id.trim();
   if (!opts.editing) {
@@ -261,7 +262,7 @@ export function validateAssetForm(v: AssetForm, opts: { editing?: boolean } = {}
   else if (name.length > 100) errors.name = 'Máximo 100 caracteres.';
   if (!ASSET_TYPES.includes(v.type as AssetType)) errors.type = 'Elige un tipo.';
   const ref = v.model3dRef.trim();
-  if (ref && !MODEL_REF_PATTERN.test(ref)) errors.model3dRef = 'Elige un modelo de la lista (model:<uuid>) o déjalo en «Procedural».';
+  if (ref && !MODEL_REF_PATTERN.test(ref) && ref !== opts.keepRef) errors.model3dRef = 'Elige un modelo de la lista (model:<uuid>) o déjalo en «Procedural».';
   const meta = parseMetadata(v.metadataText);
   if (!meta.ok) errors.metadata = meta.error;
   else {

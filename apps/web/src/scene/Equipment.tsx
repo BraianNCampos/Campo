@@ -41,6 +41,7 @@ export function Equipment({
   ringRadius,
   labelPos,
   valueRef,
+  glb,
   children,
 }: {
   id: string;
@@ -50,6 +51,8 @@ export function Equipment({
   ringRadius: number;
   labelPos: Vec3;
   valueRef: RefObject<HTMLElement | null>;
+  /** dibujado con un modelo GLB (marca la etiqueta con `data-model`, útil en pruebas) */
+  glb?: boolean;
   children: ReactNode;
 }) {
   return (
@@ -73,7 +76,7 @@ export function Equipment({
       {children}
       <SelectionRing id={id} radius={ringRadius} />
       <Html position={labelPos} center zIndexRange={[20, 0]} portal={labelPortalRef} style={{ pointerEvents: 'none' }}>
-        <div className="scene-label" data-minor={type === 'tank' ? undefined : ''}>
+        <div className="scene-label" data-minor={type === 'tank' ? undefined : ''} data-model={glb ? 'glb' : undefined}>
           {name}
           <b ref={valueRef as RefObject<HTMLElement>}>—</b>
         </div>

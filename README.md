@@ -78,20 +78,21 @@ scripts/smoke.sh
 
 Pendiente de verificar con carga real: el rendimiento de la web en una GPU física (solo se midió con render por software) y el comportamiento con muchas más plantas y activos.
 
-Administración desde la web (`/admin`): usuarios y asignación de plantas, plantas y activos, reglas de alarma, auditoría de cambios y cambio de contraseña propio. Cada acción de administración queda en un registro de auditoría de solo lectura (nunca guarda contraseñas ni tokens).
+Administración desde la web (`/admin`): usuarios y asignación de plantas, plantas y activos (con su modelo 3D, posición y conexiones), modelos 3D, reglas de alarma, auditoría de cambios y cambio de contraseña propio. Cada acción de administración queda en un registro de auditoría de solo lectura (nunca guarda contraseñas ni tokens).
 
-Seguridad ya implementada: acceso por planta (REST y WebSocket) con revocación en ≤30 s, MQTT autenticado con TLS y ACL por planta, secretos obligatorios en producción y proxy HTTPS con cabeceras de seguridad. El CI verifica la pila endurecida (`scripts/smoke-secure.sh`, 70 comprobaciones).
+Seguridad ya implementada: acceso por planta (REST y WebSocket) con revocación en ≤30 s, MQTT autenticado con TLS y ACL por planta, secretos obligatorios en producción y proxy HTTPS con cabeceras de seguridad. El CI verifica la pila endurecida (`scripts/smoke-secure.sh`, 80 comprobaciones, incluidos los límites de subida de modelos a través de Caddy).
 
 Límites conocidos:
 
 - Ingesta: no escala a varias réplicas con el mismo `MQTT_CLIENT_ID` (haría falta suscripción compartida). Un corte de Postgres de más de ~30 s pierde esa porción del histórico.
 - API: el motor de alarmas corre en memoria; con varias réplicas, activarlo en una sola (`ALARM_ENGINE_ENABLED=false` en el resto). Un WebSocket abierto sobrevive a la expiración de su token (solo se corta al revocar el acceso, cambiar la contraseña o desactivar al usuario).
 - Seguridad: sin mTLS por dispositivo, sin rotación automática de credenciales ni WAF, y sin TLS en el tráfico interno hacia Postgres. La CSP mantiene `'unsafe-inline'` porque Next.js inyecta scripts sin nonce.
-- Web: el layout 3D está hecho a mano para la planta `demo`; las demás se colocan en cuadrícula sin tuberías. La lista en vivo se arma con la telemetría recibida, así que un activo recién creado en el catálogo aparece cuando envía su primer dato. Las variables `NEXT_PUBLIC_*` se fijan en el build.
+- Web: la lista en vivo y el 3D se construyen desde el catálogo (un activo sin telemetría aparece como "Sin datos" y el resto de la UI se actualiza sola cuando alguien cambia el catálogo). Los modelos 3D son GLB autocontenidos de hasta 10 MB (sin Draco ni meshopt) y se animan con datos en vivo mediante nodos con nombres convencionales (`campo_level`, `campo_rotor`, `campo_gate`; ver `docs/architecture.md` §10.2 y `examples/models/`). Las tuberías de una planta nueva se definen con `connectsTo` y se trazan en ángulos rectos aproximados, sin conocer los puertos reales del modelo. Las variables `NEXT_PUBLIC_*` se fijan en el build.
+- Modelos: sin cuota por planta ni límite de subidas simultáneas; un modelo descargado queda un año en la caché del navegador.
 
 ## Siguientes pasos sugeridos
 
 1. Comandos hacia los equipos (`campo/v1/{planta}/{activo}/cmd`) con confirmación y auditoría; los permisos MQTT por planta y el registro de auditoría ya están preparados.
-2. Importación de modelos 3D reales (glTF) por activo (`model3d_ref` ya existe en el catálogo y se edita desde la administración) y construir la lista en vivo desde el catálogo.
+2. Histórico y alarmas en la web: curvas históricas con rangos largos y una vista de alarmas cerradas (la API ya las sirve).
 3. Escalado horizontal: suscripción compartida MQTT y un único evaluador de alarmas elegido por elección de líder.
-4. Histórico y alarmas en la web: curvas históricas con rangos largos y una vista de alarmas cerradas (la API ya las sirve).
+4. Editor 3D directo (arrastrar activos y trazar tuberías sobre la escena) en lugar de coordenadas numéricas.

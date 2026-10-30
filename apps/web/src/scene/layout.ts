@@ -122,7 +122,7 @@ export function fitView(b: Bounds, aspect: number): CameraFit {
   const portrait = aspect < 0.9;
   const widthExt = 2 * b.halfX * 1.1 + 1.9;
   const depthExt = 2 * b.halfZ * 1.2 + 3.7;
-  const ext = portrait ? Math.max(depthExt, widthExt * 0.5) : Math.max(widthExt, depthExt * 0.9);
+  const ext = portrait ? Math.max(depthExt, widthExt * 0.5) : Math.max(widthExt, depthExt * 1.2);
   const floor = ext >= 18 ? 22 : 12;
   return {
     target: [b.cx, 1.3, b.cz],

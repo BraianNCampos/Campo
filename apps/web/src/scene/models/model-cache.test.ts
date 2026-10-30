@@ -8,8 +8,8 @@ const fakeModel = (tag: string): LoadedModel => ({ scene: Object.assign(new THRE
 const bytes = (n = 8) => new ArrayBuffer(n);
 
 function setup(over: Partial<ConstructorParameters<typeof ModelCache>[0]> = {}) {
-  const fetchBytes = vi.fn(async (_id: string) => bytes());
-  const parse = vi.fn(async (_b: ArrayBuffer) => fakeModel('m'));
+  const fetchBytes = vi.fn<(id: string) => Promise<ArrayBuffer>>(async () => bytes());
+  const parse = vi.fn<(b: ArrayBuffer) => Promise<LoadedModel>>(async () => fakeModel('m'));
   const dispose = vi.fn();
   const cache = new ModelCache({ fetchBytes, parse, dispose, graceMs: 1000, ...over });
   return { cache, fetchBytes, parse, dispose };

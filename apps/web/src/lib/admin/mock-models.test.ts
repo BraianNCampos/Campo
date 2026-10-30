@@ -37,7 +37,7 @@ describe('MockAdminApi: modelos 3D', () => {
   it('400 en español con basura, cabecera falsa, truncado y extensiones no admitidas; 413 por tamaño', async () => {
     const api = make();
     const text = (s: string) => new Blob([s]);
-    expect((await err(api.uploadModel('demo', text('hola, esto no es un modelo 3D'), 'x'))).message).toMatch(/GLB/);
+    expect((await err(api.uploadModel('demo', text('hola, esto no es un modelo 3D'), 'x'))).message).toMatch(/^GLB no válido: /);
     expect((await err(api.uploadModel('demo', text('x'), 'x'))).status).toBe(400);
     const good = readFileSync(resolve(here, '../../../../../examples/models/sample-pump.glb'));
     const trunc = await err(api.uploadModel('demo', new Blob([good.subarray(0, good.length - 10)]), 'x'));
@@ -46,7 +46,7 @@ describe('MockAdminApi: modelos 3D', () => {
     const big = await err(api.uploadModel('demo', new Blob([new Uint8Array(MODEL_MAX_BYTES + 1)]), 'x'));
     expect(big.status).toBe(413);
     expect(big.kind).toBe('too_large');
-    expect(big.message).toMatch(/10 MB/);
+    expect(big.message).toBe('El modelo supera el límite de 10 MB');
     expect((await err(api.uploadModel('demo', sample('sample-tank'), '  '))).status).toBe(400);
     expect(await api.listModels('demo')).toEqual([]);
   });
@@ -76,6 +76,14 @@ describe('MockAdminApi: modelos 3D', () => {
     expect((await err(make('operator').deleteModel('demo', 'x'))).kind).toBe('forbidden');
     expect((await err(make().uploadModel('nada', sample('sample-tank'), 'x'))).kind).toBe('not_found');
     expect((await make('operator').listModels('demo'))).toEqual([]); // cualquier rol con acceso lista
+  });
+
+  it('el valor antiguo de model3dRef (tk-01 = "tank") se tolera si se reenvía igual, no otro texto libre', async () => {
+    const api = make();
+    expect((await api.listAssets('demo')).find((a) => a.id === 'tk-01')?.model3dRef).toBe('tank');
+    expect((await api.updateAsset('demo', 'tk-01', { name: 'T1', model3dRef: 'tank' })).model3dRef).toBe('tank');
+    expect((await err(api.updateAsset('demo', 'tk-01', { model3dRef: 'otro' }))).kind).toBe('validation');
+    expect((await api.updateAsset('demo', 'tk-01', { model3dRef: null })).model3dRef).toBeNull();
   });
 
   it('un activo referencia un modelo de su planta (model3dRef) y no uno inexistente o de otra planta', async () => {
@@ -128,7 +136,7 @@ describe('MockAdminApi: modelos 3D', () => {
     const ok = await api.createAsset('demo', { id: 'a1', name: 'A', type: 'tank', metadata: { layout: { x: 1, z: 2 }, connectsTo: ['tk-01', 'fantasma'], otra: 'clave' } });
     expect(ok.warnings).toHaveLength(1);
     expect(ok.warnings![0]).toContain('fantasma');
-    expect(ok.metadata).toMatchObject({ otra: 'clave' });
+    expect(ok.metadata).toEqual({ layout: { x: 1, z: 2 }, connectsTo: ['tk-01'], otra: 'clave' }); // el inexistente no se guarda
     expect((await api.createAsset('demo', { id: 'a2', name: 'A', type: 'tank' })).warnings).toBeUndefined();
   });
 

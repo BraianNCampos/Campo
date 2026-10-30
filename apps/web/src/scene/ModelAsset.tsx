@@ -60,7 +60,7 @@ function GlbEquipment({ id, name, type, placement, model, onBroken }: GlbProps) 
 
   const radius = 0.5 * Math.hypot(model.size.x, model.size.z) * norm.k + 0.2;
   return (
-    <Equipment id={id} name={name} type={type} placement={placement} ringRadius={radius} labelPos={[0, model.size.y * norm.k + 0.55, 0]} valueRef={valueEl}>
+    <Equipment id={id} name={name} type={type} placement={placement} ringRadius={radius} labelPos={[0, model.size.y * norm.k + 0.55, 0]} valueRef={valueEl} glb>
       <group position={norm.offset} scale={norm.k}>
         <primitive object={instance.object} />
       </group>

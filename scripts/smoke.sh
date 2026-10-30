@@ -56,6 +56,16 @@ curl -sf "$API_URL/api/plants" -H "$AUTH" | json 'sys.exit(0 if any(p["id"] == "
 curl -sf "$API_URL/api/audit?limit=5" -H "$AUTH" >/dev/null && ok "GET /api/audit (solo admin)" || fail "/api/audit"
 [ "$(curl -s -o /dev/null -w '%{http_code}' "$API_URL/api/audit")" = 401 ] && ok "auditoría sin token -> 401" || fail "auditoría sin proteger"
 
+echo "Modelos 3D"
+GLB=examples/models/sample-tank.glb
+MCODE=$(curl -s -o /tmp/smoke-model.json -w '%{http_code}' -X POST "$API_URL/api/plants/demo/models?name=smoke-tank" -H "$AUTH" -H 'content-type: model/gltf-binary' --data-binary @"$GLB")
+{ [ "$MCODE" = 201 ] || [ "$MCODE" = 200 ]; } && ok "subir GLB de ejemplo -> $MCODE" || fail "subida de GLB -> $MCODE"
+MID=$(json 'd["id"]' < /tmp/smoke-model.json)
+curl -sf "$API_URL/api/models/$MID" -H "$AUTH" -o /tmp/smoke-model.glb && cmp -s "$GLB" /tmp/smoke-model.glb && ok "la descarga es idéntica al archivo subido" || fail "descarga distinta"
+[ "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$API_URL/api/plants/demo/models?name=bad" -H "$AUTH" -H 'content-type: model/gltf-binary' --data-binary 'no es un glb')" = 400 ] && ok "archivo basura -> 400" || fail "GLB inválido aceptado"
+[ "$(curl -s -o /dev/null -w '%{http_code}' -X DELETE "$API_URL/api/plants/demo/models/$MID" -H "$AUTH")" = 200 ] && ok "borrar modelo" || fail "borrado de modelo"
+rm -f /tmp/smoke-model.json /tmp/smoke-model.glb
+
 echo "Alarmas"
 curl -sf "$API_URL/api/alarms?state=active" -H "$AUTH" >/dev/null && ok "GET /api/alarms" || fail "alarmas"
 

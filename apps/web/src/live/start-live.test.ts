@@ -126,6 +126,89 @@ describe('startLive: cambio de planta', () => {
   });
 });
 
+describe('startLive: catálogo vivo', () => {
+  const asset = (id: string) => ({ plant: 'demo', id, name: id, type: 'tank', model3dRef: null, metadata: {} });
+  let catalog: ReturnType<typeof asset>[];
+  const catalogCalls = () => vi.mocked(fetch).mock.calls.filter((c) => String(c[0]).includes('/api/plants/demo/assets'));
+
+  beforeEach(() => {
+    catalog = [asset('tk-01'), asset('nuevo')];
+    setAdminApi(null);
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => new Response(JSON.stringify(String(url).includes('/assets') ? catalog : []), { status: 200 })));
+  });
+  afterEach(() => setAdminApi(null));
+
+  it('al arrancar pide el catálogo de la planta y la lista incluye los activos sin telemetría', async () => {
+    const stop = startLive('demo', { createSocket: factory });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(catalogCalls()).toHaveLength(1);
+    FakeWs.all[0]!.send(snap('demo', 'tk-01', 40));
+    await vi.advanceTimersByTimeAsync(300);
+    const s = useLiveStore.getState();
+    expect(s.catalogReady).toBe(true);
+    expect(s.assetIds).toEqual(['nuevo', 'tk-01']);
+    expect(s.assets.nuevo).toBeUndefined();
+    stop();
+  });
+
+  it('{type:"catalog"} vuelve a pedir el catálogo con debounce (ráfaga → una petición)', async () => {
+    const stop = startLive('demo', { createSocket: factory });
+    await vi.advanceTimersByTimeAsync(0);
+    const ws = FakeWs.all[0]!;
+    ws.send(snap('demo', 'tk-01', 1));
+    await vi.advanceTimersByTimeAsync(300);
+    expect(catalogCalls()).toHaveLength(1);
+    catalog = [asset('tk-01'), asset('nuevo'), asset('otro')];
+    for (let i = 0; i < 5; i++) {
+      ws.send({ type: 'catalog', plant: 'demo' });
+      await vi.advanceTimersByTimeAsync(100);
+    }
+    expect(catalogCalls()).toHaveLength(1); // aún dentro de la ventana
+    await vi.advanceTimersByTimeAsync(300);
+    expect(catalogCalls()).toHaveLength(2);
+    expect(useLiveStore.getState().assetIds).toContain('otro');
+    stop();
+  });
+
+  it('el aviso de otra planta se ignora; tras parar no se pide nada más', async () => {
+    const stop = startLive('demo', { createSocket: factory });
+    await vi.advanceTimersByTimeAsync(0);
+    FakeWs.all[0]!.send({ type: 'catalog', plant: 'norte' });
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(catalogCalls()).toHaveLength(1);
+    FakeWs.all[0]!.send({ type: 'catalog', plant: 'demo' });
+    stop();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(catalogCalls()).toHaveLength(1);
+  });
+
+  it('al reconectar (segundo snapshot) refresca el catálogo; el primero no duplica la carga inicial', async () => {
+    const stop = startLive('demo', { createSocket: factory });
+    await vi.advanceTimersByTimeAsync(0);
+    const ws = FakeWs.all[0]!;
+    ws.send(snap('demo', 'tk-01', 1));
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(catalogCalls()).toHaveLength(1);
+    ws.send(snap('demo', 'tk-01', 2));
+    await vi.advanceTimersByTimeAsync(400);
+    expect(catalogCalls()).toHaveLength(2);
+    stop();
+  });
+
+  it('si el catálogo falla se marca el error y la lista sigue saliendo de la telemetría', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => (String(url).includes('/assets') ? new Response('{}', { status: 500 }) : new Response('[]', { status: 200 }))));
+    const stop = startLive('demo', { createSocket: factory });
+    await vi.advanceTimersByTimeAsync(0);
+    FakeWs.all[0]!.send(snap('demo', 'tk-01', 1));
+    await vi.advanceTimersByTimeAsync(300);
+    const s = useLiveStore.getState();
+    expect(s.catalogError).toBe(true);
+    expect(s.catalogReady).toBe(false);
+    expect(s.assetIds).toEqual(['tk-01']);
+    stop();
+  });
+});
+
 describe('startLive en modo demo', () => {
   it('demo usa el simulador; otras plantas, los activos del catálogo mock', async () => {
     cfg.mock = true;
