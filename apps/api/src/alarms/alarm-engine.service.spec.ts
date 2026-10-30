@@ -10,12 +10,37 @@ import {
   MemoryAlarmsRepository,
   MemoryAuditRepository,
 } from '../../test/support/memory-repos';
+import { PlantCatalog } from '../auth/plant-catalog';
+import { TenantScope } from '../auth/tenant-scope';
 import { createRedisMocks } from '../../test/support/redis-mock';
 import { AlarmEngine } from './alarm-engine.service';
 import { AlarmsService } from './alarms.service';
 
 const cfg = parseEnv({ JWT_SECRET: 'x'.repeat(32), NODE_ENV: 'test' });
 const audit = new AuditService(new MemoryAuditRepository());
+
+const ORG = { id: 'A', name: 'A', modules: [] };
+const operator = {
+  id: 'user-1',
+  email: 'a@b.c',
+  role: 'operator' as const,
+  plants: ['demo'],
+  org: ORG,
+};
+const platform = {
+  id: 'user-2',
+  email: 'x@y.z',
+  role: 'platform_admin' as const,
+  plants: ['*'],
+  org: null,
+};
+/** `demo` es de A; `ajena` es de otro cliente; `huerfana` ya no está registrada. */
+const owners: Record<string, string> = { demo: 'A', ajena: 'B' };
+const catalog = Object.assign(Object.create(PlantCatalog.prototype) as PlantCatalog, {
+  orgOf: (p: string) => Promise.resolve(owners[p] ?? null),
+  isLive: () => Promise.resolve(false),
+});
+const tenant = new TenantScope(catalog);
 
 const tel = (value: number, asset = 'tk-01'): TelemetryEvent => ({
   type: 'telemetry',
@@ -65,6 +90,7 @@ describe('AlarmEngine', () => {
       { messages$: bus.asObservable() } as unknown as RealtimeBus,
       redis,
       cfg,
+      catalog,
     );
     await engine.onModuleInit();
   });
@@ -141,12 +167,8 @@ describe('AlarmEngine', () => {
     await flush();
     const id = published[0].id;
 
-    const svc = new AlarmsService(alarms, engine, redis, audit);
-    const rec = await svc.ack(
-      id,
-      { id: 'user-1', email: 'a@b.c', role: 'operator', plants: ['demo'] },
-      9000,
-    );
+    const svc = new AlarmsService(alarms, engine, redis, audit, tenant);
+    const rec = await svc.ack(id, operator, 9000);
     expect(rec).toMatchObject({
       acknowledged: true,
       acknowledgedBy: 'user-1',
@@ -161,7 +183,7 @@ describe('AlarmEngine', () => {
     expect(stored.acknowledged).toBe(true);
 
     // idempotente: segundo ack no cambia ni publica
-    await svc.ack(id, { id: 'user-2', email: 'x@y.z', role: 'admin', plants: ['*'] }, 9500);
+    await svc.ack(id, platform, 9500);
     await flush();
     expect(published).toHaveLength(2);
     expect(alarms.alarms.get(id)?.acknowledgedBy).toBe('user-1');
@@ -173,15 +195,10 @@ describe('AlarmEngine', () => {
   });
 
   it('ack de una alarma inexistente -> NotFound', async () => {
-    const svc = new AlarmsService(alarms, engine, redis, audit);
-    await expect(
-      svc.ack('00000000-0000-4000-8000-0000000000ff', {
-        id: 'u',
-        email: 'e',
-        role: 'admin',
-        plants: ['*'],
-      }),
-    ).rejects.toThrow('Alarma no encontrada');
+    const svc = new AlarmsService(alarms, engine, redis, audit, tenant);
+    await expect(svc.ack('00000000-0000-4000-8000-0000000000ff', platform)).rejects.toThrow(
+      'Alarma no encontrada',
+    );
   });
 
   it('cierra la alarma activa si se elimina su regla', async () => {
@@ -208,6 +225,7 @@ describe('AlarmEngine', () => {
       { messages$: bus.asObservable() } as unknown as RealtimeBus,
       redis,
       cfg,
+      catalog,
     );
     await engine2.onModuleInit();
     expect(Object.keys(await redis.hgetall(redisKeys.activeAlarms('demo')))).toHaveLength(1);
@@ -223,6 +241,51 @@ describe('AlarmEngine', () => {
     engine.onTelemetry(tel(95), 0);
     engine.onTelemetry(tel(95), 5000);
     await flush();
+    expect(published).toHaveLength(1);
+  });
+
+  it('al arrancar, una alarma activa de una planta sin cliente se cierra en vez de restaurarse ni republicarse', async () => {
+    engine.onModuleDestroy();
+    await redis.flushall();
+    alarms.alarms.set('orphan-1', {
+      type: 'alarm',
+      id: 'orphan-1',
+      ruleId,
+      plant: 'huerfana',
+      asset: 'tk-01',
+      metric: 'level',
+      severity: 'critical',
+      state: 'active',
+      value: 99,
+      threshold: 90,
+      ts: 1,
+      message: 'm',
+      acknowledged: false,
+    });
+    const engine2 = new AlarmEngine(
+      rules,
+      alarms,
+      { messages$: bus.asObservable() } as unknown as RealtimeBus,
+      redis,
+      cfg,
+      catalog,
+    );
+    await engine2.onModuleInit();
+    expect(alarms.alarms.get('orphan-1')?.state).toBe('cleared');
+    expect(await redis.hgetall(redisKeys.activeAlarms('huerfana'))).toEqual({});
+    engine2.onModuleDestroy();
+    engine = engine2;
+  });
+
+  it('ack: un usuario de otro cliente no puede reconocer la alarma (403) y no cambia nada', async () => {
+    engine.onTelemetry(tel(95), 0);
+    engine.onTelemetry(tel(95), 5000);
+    await flush();
+    const id = published[0].id;
+    const svc = new AlarmsService(alarms, engine, redis, audit, tenant);
+    const other = { ...operator, org: { ...ORG, id: 'B' } };
+    await expect(svc.ack(id, other, 9000)).rejects.toThrow('No tiene acceso a esta planta');
+    expect(alarms.alarms.get(id)?.acknowledged).toBe(false);
     expect(published).toHaveLength(1);
   });
 });

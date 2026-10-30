@@ -156,7 +156,7 @@ export function ConfirmDialog({ title, description, confirmLabel, requireText, d
       <form onSubmit={(e) => void submit(e)} className="flex flex-col gap-4">
         {requireText && (
           <TextField
-            label={`Escribe "${requireText}" para confirmar`}
+            label={`Escribí "${requireText}" para confirmar`}
             value={typed}
             onChange={(e) => setTyped(e.target.value)}
             autoComplete="off"

@@ -6,6 +6,8 @@ import type { WebSocket } from 'ws';
 import type { AccessService } from '../auth/access.service';
 import type { AuthService } from '../auth/auth.service';
 import type { AuthUser } from '../auth/auth.types';
+import { PlantCatalog } from '../auth/plant-catalog';
+import { TenantScope } from '../auth/tenant-scope';
 import { parseEnv } from '../config/app-config';
 import type { StateService } from '../plants/state.service';
 import type { BusMessage, RealtimeBus } from '../redis/realtime-bus';
@@ -73,9 +75,15 @@ const alarm = (plant = 'demo'): AlarmEvent => ({
   message: 'm',
 });
 
+const orgA = { id: 'A', name: 'A', modules: [] };
+const orgB = { id: 'B', name: 'B', modules: [] };
+
 describe('LiveGateway', () => {
   let bus: Subject<BusMessage>;
   let invalidations: Subject<string>;
+  let orgInvalidations: Subject<string>;
+  /** Propietario de cada planta registrada (demo y otra son de A; b1 es de B). */
+  let owners: Record<string, string>;
   let gw: LiveGateway;
   /** "Base de datos" de usuarios para el AccessService falso (null = inactivo/inexistente). */
   let db: Record<string, AuthUser | null>;
@@ -92,12 +100,16 @@ describe('LiveGateway', () => {
     jest.useFakeTimers();
     bus = new Subject<BusMessage>();
     db = {
-      u1: { id: 'u1', email: 'e', role: 'viewer', plants: ['demo', 'otra'] },
-      admin: { id: 'admin', email: 'a', role: 'admin', plants: ['*'] },
-      sinplantas: { id: 'sinplantas', email: 's', role: 'operator', plants: [] },
+      u1: { id: 'u1', email: 'e', role: 'viewer', plants: ['demo', 'otra'], org: orgA },
+      admin: { id: 'admin', email: 'a', role: 'admin', plants: ['*'], org: orgA },
+      adminb: { id: 'adminb', email: 'ab', role: 'admin', plants: ['*'], org: orgB },
+      plat: { id: 'plat', email: 'p', role: 'platform_admin', plants: ['*'], org: null },
+      sinplantas: { id: 'sinplantas', email: 's', role: 'operator', plants: [], org: orgA },
       inactivo: null,
     };
+    owners = { demo: 'A', otra: 'A', b1: 'B' };
     invalidations = new Subject<string>();
+    orgInvalidations = new Subject<string>();
     fresh.mockClear();
     const auth = {
       // el token es el id del usuario; 'bad' no es válido
@@ -109,6 +121,7 @@ describe('LiveGateway', () => {
     } as unknown as AuthService;
     const access = {
       invalidations$: invalidations.asObservable(),
+      orgInvalidations$: orgInvalidations.asObservable(),
       getAccess: jest.fn((id: string, o?: { fresh?: boolean }) => {
         if (o?.fresh) fresh(id);
         return Promise.resolve(db[id] ?? null);
@@ -123,6 +136,12 @@ describe('LiveGateway', () => {
       { messages$: bus.asObservable() } as unknown as RealtimeBus,
       auth,
       access,
+      new TenantScope(
+        Object.assign(Object.create(PlantCatalog.prototype) as PlantCatalog, {
+          orgOf: (p: string) => Promise.resolve(owners[p] ?? null),
+          isLive: () => Promise.resolve(false),
+        }),
+      ),
       stateSvc,
       cfg,
     );
@@ -363,10 +382,32 @@ describe('LiveGateway', () => {
       expect(s.closedWith?.[0]).toBe(WS_CLOSE.badRequest);
     });
 
-    it('admin accede a cualquier planta sin asignaciones', async () => {
-      const s = await connect('/ws?plant=cualquiera&token=admin');
+    it('admin accede a cualquier planta de SU cliente sin asignaciones', async () => {
+      const s = await connect('/ws?plant=otra&token=admin');
       expect(s.closedWith).toBeUndefined();
       expect(s.types()).toEqual(['snapshot']);
+    });
+
+    it('una planta de otro cliente (o sin registrar) -> 4403 aunque sea admin o la tenga asignada; platform_admin entra a todas', async () => {
+      db.u1 = { ...db.u1!, plants: ['demo', 'b1'] }; // asignación cruzada por error: inerte
+      for (const [plant, token] of [
+        ['b1', 'admin'],
+        ['demo', 'adminb'],
+        ['b1', 'good'],
+        ['sin-registrar', 'admin'],
+      ]) {
+        const s = await connect(`/ws?plant=${plant}&token=${token}`);
+        expect([plant, token, s.closedWith?.[0], s.sent]).toEqual([
+          plant,
+          token,
+          WS_CLOSE.forbidden,
+          [],
+        ]);
+      }
+      for (const plant of ['demo', 'b1', 'sin-registrar']) {
+        const s = await connect(`/ws?plant=${plant}&token=plat`);
+        expect(s.closedWith).toBeUndefined();
+      }
     });
 
     it('sólo reenvía eventos de la planta suscrita (telemetría y alarmas), aunque el usuario tenga otras', async () => {
@@ -395,6 +436,30 @@ describe('LiveGateway', () => {
         bus.next({ kind: 'alarm', plant: 'demo', event: alarm() });
         jest.advanceTimersByTime(100);
         expect(s.sent).toHaveLength(before);
+      });
+
+      it('desactivar el cliente (orgInvalidations$): se cierran con 4401 los sockets de sus usuarios y los demás siguen', async () => {
+        const a = await connect('/ws?plant=demo&token=good');
+        const admin = await connect('/ws?plant=otra&token=admin');
+        const b = await connect('/ws?plant=b1&token=adminb');
+        const plat = await connect('/ws?plant=b1&token=plat');
+        db.u1 = null; // AccessService devuelve null: su cliente está inactivo
+        db.admin = null;
+        orgInvalidations.next('A');
+        await flush();
+        expect(a.closedWith?.[0]).toBe(WS_CLOSE.unauthorized);
+        expect(admin.closedWith?.[0]).toBe(WS_CLOSE.unauthorized);
+        expect(b.closedWith).toBeUndefined();
+        expect(plat.closedWith).toBeUndefined();
+        expect(gw.clientCount()).toBe(2);
+      });
+
+      it('si la planta cambia de cliente, el socket se corta con 4403 en la revalidación', async () => {
+        const s = await connect('/ws?plant=demo&token=admin');
+        owners.demo = 'B'; // borrada y recreada por otro cliente
+        jest.advanceTimersByTime(cfg.wsRevalidateMs);
+        await flush();
+        expect(s.closedWith?.[0]).toBe(WS_CLOSE.forbidden);
       });
 
       it('si se desactiva o borra, se cierra con 4401', async () => {

@@ -6,14 +6,11 @@ import { getToken } from '@/lib/auth';
 import { config } from '@/lib/env';
 import { signOut, useSessionStore } from '@/store/session-store';
 import { Logo } from './Brand';
+import { BrandLoader } from './BrandLoader';
 import { Button } from './admin/ui';
 
 export function Skeleton() {
-  return (
-    <div className="flex h-dvh items-center justify-center text-muted" role="status" aria-label="Cargando">
-      <div className="size-8 animate-spin rounded-full border-2 border-line border-t-accent" />
-    </div>
-  );
+  return <BrandLoader />;
 }
 
 /** Garantiza sesión + plantas cargadas (`/api/me`, `/api/plants`) antes de pintar a sus hijos. */
@@ -37,7 +34,7 @@ export function SessionGate({ children }: { children: ReactNode }) {
         <div className="mx-auto">
           <Logo />
         </div>
-        <h1 className="text-xl font-bold">No se pudo cargar tu sesión</h1>
+        <h1 className="text-xl font-bold">No pudimos cargar tu sesión</h1>
         <p role="alert" className="rounded-lg border border-crit/60 bg-crit/15 px-3 py-2 text-sm font-semibold text-crit">
           {error}
         </p>

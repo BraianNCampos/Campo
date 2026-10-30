@@ -351,8 +351,12 @@ export function domainFormFrom(metadata: unknown): DomainForm {
   return out;
 }
 
+/** Contadores acumulados: no tienen barra de rango (siempre crecen). */
+const COUNTERS = new Set(['kwh', 'total']);
+
 /** Métricas con barra de rango editable para un tipo de activo. */
-export const scaleMetricsFor = (type: AssetType | ''): string[] => (type && type in ASSET_KINDS ? ASSET_KINDS[type].metrics.filter((m) => m in METRICS) : []);
+export const scaleMetricsFor = (type: AssetType | ''): string[] =>
+  type && type in ASSET_KINDS ? ASSET_KINDS[type].metrics.filter((m) => m in METRICS && !COUNTERS.has(m)) : [];
 
 /** Valida los campos de dominio que corresponden al tipo. Errores: `capacityM3`, `contractedKw`, `scale:<métrica>`. */
 export function validateDomainForm(f: DomainForm, type: AssetType | ''): { errors: FieldErrors; value: DomainValues } {

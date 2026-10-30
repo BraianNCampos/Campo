@@ -93,7 +93,12 @@ export async function createTestApp(overrides: Partial<AppConfig> = {}): Promise
     (id) => void models.deleteByPlant(id),
   );
   // Cliente por defecto con todos los módulos y su planta `demo` (con los activos DEMO_ASSETS).
-  await orgs.create({ id: DEMO_ORG, name: 'Agroindustria Ejemplo', modules: [...MODULE_IDS], active: true });
+  await orgs.create({
+    id: DEMO_ORG,
+    name: 'Agroindustria Ejemplo',
+    modules: [...MODULE_IDS],
+    active: true,
+  });
   plants.register('demo', DEMO_ORG);
   const audit = new MemoryAuditRepository();
   const pool = {

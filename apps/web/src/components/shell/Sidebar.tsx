@@ -30,7 +30,7 @@ export function Sidebar({ moduleIds }: { moduleIds: readonly ModuleId[] }) {
   const orgName = me?.org ? me.org.name : 'Campos Ingeniería';
 
   return (
-    <aside aria-label="Secciones" data-testid="sidebar" className="flex w-60 shrink-0 flex-col border-r border-line bg-surface">
+    <aside aria-label="Secciones" data-testid="sidebar" className="flex w-64 shrink-0 flex-col border-r border-line bg-surface">
       <div className="px-5 pt-5 pb-4">
         <p className="m-0"><Wordmark className="text-3xl" /></p>
         <p className="mt-1.5 truncate text-xs text-muted" title={orgName}>{orgName}</p>
@@ -42,7 +42,7 @@ export function Sidebar({ moduleIds }: { moduleIds: readonly ModuleId[] }) {
           const active = pathname === moduleHref(m.id);
           return (
             <Link key={m.id} prefetch={false} href={moduleHref(m.id)} data-testid={`module-nav-${m.id}`} aria-current={active ? 'page' : undefined} className={`${item(active)} relative`}>
-              {active && <span aria-hidden="true" className="absolute inset-y-2 left-0 w-0.5 rounded-full bg-accent" />}
+              {active && <span aria-hidden="true" className="absolute inset-y-2 left-0 w-0.5 rounded-full bg-fg" />}
               <Icon className="shrink-0 text-xl" />
               <span className="min-w-0 flex-1 truncate">{m.label}</span>
               <NavBadge badge={badges[m.id]} testId={`module-badge-${m.id}`} />

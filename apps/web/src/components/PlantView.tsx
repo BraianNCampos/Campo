@@ -21,7 +21,7 @@ const Plant3D = dynamic(() => import('@/scene/Plant3D'), {
 
 export function PlantView() {
   return (
-    <ErrorBoundary fallback={<Placeholder text="No se pudo iniciar el 3D (WebGL no disponible)." />}>
+    <ErrorBoundary fallback={<Placeholder text="No pudimos iniciar el 3D (WebGL no está disponible)." />}>
       <Plant3D />
     </ErrorBoundary>
   );

@@ -3,33 +3,34 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import type { AssetDef, AssetType, ModelInfo } from '@campo/shared';
+import type { AssetDef, ModelInfo } from '@campo/shared';
 import { getAdminApi } from '@/lib/admin';
+import { canEditCatalog } from '@/lib/admin/access';
 import { modelIdOf, parseConnectsTo, parseLayout } from '@/lib/catalog';
 import { usePlantStore } from '@/store/plant-store';
 import { useSessionStore } from '@/store/session-store';
-import { IconBack, IconEdit, IconGrid, IconPlus, IconPump, IconTank, IconTrash, IconValve } from '../icons';
+import { IconBack, IconEdit, IconPlus, IconTank, IconTrash, KIND_ICON } from '../icons';
 import { RequireSection } from './AdminShell';
-import { AssetDialog, TYPE_LABEL } from './AssetDialog';
-import { useLoad } from './hooks';
+import { AssetDialog, typeLabel } from './AssetDialog';
+import { useLoad, useOrgModules } from './hooks';
 import { ConfirmDialog } from './Modal';
 import { ModelsPanel } from './ModelsPanel';
 import { PlantPreview } from './PlantPreview';
 import { Alert, Button, btn, card, cardList, EmptyState, ErrorState, LoadingBlock, PageHeader, tableWrap, td, th } from './ui';
 
-const TYPE_ICON: Record<AssetType, typeof IconTank> = { tank: IconTank, pump: IconPump, valve: IconValve, sensor: IconGrid };
-
 function AssetsContent() {
   const plantId = decodeURIComponent(String(useParams<{ plant: string }>().plant ?? ''));
   const role = useSessionStore((s) => s.me?.role);
-  const plantName = usePlantStore((s) => s.plants.find((p) => p.id === plantId)?.name);
+  const plantInfo = usePlantStore((s) => s.plants.find((p) => p.id === plantId));
+  const plantName = plantInfo?.name;
+  const modules = useOrgModules(plantInfo?.orgId);
   const assets = useLoad(() => getAdminApi().listAssets(plantId), [plantId]);
   const models = useLoad(() => getAdminApi().listModels(plantId), [plantId]);
   const [dialog, setDialog] = useState<{ kind: 'edit'; asset: AssetDef } | { kind: 'create' } | { kind: 'delete'; asset: AssetDef } | null>(null);
   const [notice, setNotice] = useState<{ id: string; rules: number } | null>(null);
   const [warnings, setWarnings] = useState<{ id: string; items: string[] } | null>(null);
   const list = assets.data;
-  const canEdit = role === 'admin' || role === 'engineer';
+  const canEdit = canEditCatalog(role);
   const modelName = (ref: string | null) => {
     const id = modelIdOf(ref);
     return id ? (models.data?.find((m) => m.id === id)?.name ?? 'Modelo no encontrado') : 'Procedural'; // null o valor antiguo = procedural
@@ -89,7 +90,7 @@ function AssetsContent() {
             {notice.rules > 0 ? (
               <>
                 {notice.rules} {notice.rules === 1 ? 'regla de alarma lo nombra' : 'reglas de alarma lo nombran'} y {notice.rules === 1 ? 'sigue existiendo' : 'siguen existiendo'}:{' '}
-                <Link href="/admin/rules" className="underline">revísalas en Reglas de alarma</Link>.
+                <Link href={`/admin/rules?plant=${encodeURIComponent(plantId)}`} className="underline">revisalas en Reglas de alarma</Link>.
               </>
             ) : (
               'Ninguna regla de alarma lo nombraba.'
@@ -113,7 +114,7 @@ function AssetsContent() {
       {assets.error != null && <ErrorState error={assets.error} onRetry={assets.reload} />}
       {assets.loading && !list && assets.error == null && <LoadingBlock label="Cargando activos…" />}
       {list && list.length === 0 && (
-        <EmptyState icon={<IconTank />} title="Esta planta no tiene activos">Añade el primero con «Nuevo activo».</EmptyState>
+        <EmptyState icon={<IconTank />} title="Esta planta no tiene activos">Agregá el primero con «Nuevo activo».</EmptyState>
       )}
       {list && list.length > 0 && (
         <>
@@ -133,14 +134,14 @@ function AssetsContent() {
               </thead>
               <tbody className="divide-y divide-line">
                 {list.map((a) => {
-                  const Icon = TYPE_ICON[a.type];
+                  const Icon = KIND_ICON[a.type];
                   return (
                     <tr key={a.id} data-testid={`asset-row-${a.id}`}>
                       <td className={`${td} font-mono`}>{a.id}</td>
                       <td className={`${td} font-semibold`}>{a.name}</td>
                       <td className={td}>
                         <span className="inline-flex items-center gap-1.5">
-                          <Icon className="text-lg text-muted" /> {TYPE_LABEL[a.type]}
+                          <Icon className="text-lg text-muted" /> {typeLabel(a.type)}
                         </span>
                       </td>
                       <td className={`${td} text-muted`}>{modelName(a.model3dRef)}</td>
@@ -159,14 +160,14 @@ function AssetsContent() {
           </div>
           <ul className={cardList}>
             {list.map((a) => {
-              const Icon = TYPE_ICON[a.type];
+              const Icon = KIND_ICON[a.type];
               return (
                 <li key={a.id} className={card} data-testid={`asset-card-${a.id}`}>
                   <p className="flex items-center gap-2 text-base font-semibold">
                     <Icon className="text-xl text-muted" /> {a.name}
                   </p>
                   <p className="text-sm text-muted">
-                    <span className="font-mono">{a.id}</span> · {TYPE_LABEL[a.type]}
+                    <span className="font-mono">{a.id}</span> · {typeLabel(a.type)}
                   </p>
                   <p className="text-sm text-muted">
                     Modelo: {modelName(a.model3dRef)} · {placement(a)}
@@ -192,6 +193,7 @@ function AssetsContent() {
           asset={dialog.kind === 'edit' ? dialog.asset : undefined}
           assets={list ?? []}
           models={models.data ?? []}
+          modules={modules}
           onClose={() => setDialog(null)}
           onSaved={upsert}
           onModelUploaded={addModel}
@@ -200,7 +202,7 @@ function AssetsContent() {
       {dialog?.kind === 'delete' && (
         <ConfirmDialog
           title={`Eliminar activo ${dialog.asset.id}`}
-          description="Se borra del catálogo. Las reglas de alarma que lo nombren seguirán existiendo; te diremos cuántas."
+          description="Se borra del catálogo. Las reglas de alarma que lo nombren seguirán existiendo; te avisamos cuántas."
           confirmLabel="Eliminar activo"
           onConfirm={async () => {
             const { affectedRules } = await getAdminApi().deleteAsset(plantId, dialog.asset.id);

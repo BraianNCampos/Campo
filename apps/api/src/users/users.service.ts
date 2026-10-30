@@ -69,7 +69,13 @@ export class UsersService {
       dto.plants && dto.plants.length > 0
         ? ((await this.users.setPlants(created.id, dto.plants)) ?? created)
         : created;
-    this.log.log({ msg: 'usuario creado', actorId: actor.id, userId: created.id, role: dto.role, orgId });
+    this.log.log({
+      msg: 'usuario creado',
+      actorId: actor.id,
+      userId: created.id,
+      role: dto.role,
+      orgId,
+    });
     await this.audit.record(actor, 'user.create', `user:${created.id}`, orgId, {
       email: created.email,
       role: created.role,
@@ -89,7 +95,9 @@ export class UsersService {
         throw new ForbiddenException('Sólo el personal de plataforma gestiona platform_admin');
       }
       if (dto.role === 'platform_admin' || target.role === 'platform_admin') {
-        throw new BadRequestException('El rol platform_admin no se puede asignar ni quitar con PATCH');
+        throw new BadRequestException(
+          'El rol platform_admin no se puede asignar ni quitar con PATCH',
+        );
       }
     }
     const changed = Object.keys(dto).filter(
@@ -134,7 +142,9 @@ export class UsersService {
     const unique = [...new Set(plants)];
     if (unique.length > 0) {
       if (target.orgId === null) {
-        throw new BadRequestException('Un platform_admin ve todas las plantas: no lleva asignaciones');
+        throw new BadRequestException(
+          'Un platform_admin ve todas las plantas: no lleva asignaciones',
+        );
       }
       await this.assertAssignable(actor, target.orgId, unique);
     }
@@ -142,7 +152,9 @@ export class UsersService {
     if (!user) throw new NotFoundException('Usuario no encontrado');
     await this.access.invalidate(id);
     this.log.log({ msg: 'plantas de usuario actualizadas', actorId: actor.id, userId: id, plants });
-    await this.audit.record(actor, 'user.plants', `user:${id}`, target.orgId, { plants: user.plants });
+    await this.audit.record(actor, 'user.plants', `user:${id}`, target.orgId, {
+      plants: user.plants,
+    });
     return this.view(user);
   }
 
@@ -171,23 +183,33 @@ export class UsersService {
       return own;
     }
     if (dto.role === 'platform_admin') {
-      if (dto.orgId !== undefined) throw new BadRequestException('Un platform_admin no pertenece a un cliente');
+      if (dto.orgId !== undefined)
+        throw new BadRequestException('Un platform_admin no pertenece a un cliente');
       if (dto.plants && dto.plants.length > 0) {
-        throw new BadRequestException('Un platform_admin ve todas las plantas: no lleva asignaciones');
+        throw new BadRequestException(
+          'Un platform_admin ve todas las plantas: no lleva asignaciones',
+        );
       }
       return null;
     }
     if (dto.orgId === undefined) throw new BadRequestException('orgId es obligatorio');
-    if (!(await this.orgs.findById(dto.orgId))) throw new NotFoundException('Cliente no encontrado');
+    if (!(await this.orgs.findById(dto.orgId)))
+      throw new NotFoundException('Cliente no encontrado');
     return dto.orgId;
   }
 
   /** Todas las plantas deben pertenecer al cliente `orgId`. Un admin recibe 403 genérico; plataforma, 400 con detalle. */
-  private async assertAssignable(actor: AuthUser, orgId: string | null, plants: string[]): Promise<void> {
+  private async assertAssignable(
+    actor: AuthUser,
+    orgId: string | null,
+    plants: string[],
+  ): Promise<void> {
     for (const plant of plants) {
       if ((await this.tenant.orgOf(plant)) === orgId && orgId !== null) continue;
       if (isPlatform(actor)) {
-        throw new BadRequestException(`La planta "${plant}" no existe o no pertenece al cliente del usuario`);
+        throw new BadRequestException(
+          `La planta "${plant}" no existe o no pertenece al cliente del usuario`,
+        );
       }
       throw new PlantAccessDenied(plant);
     }

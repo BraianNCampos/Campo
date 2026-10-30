@@ -76,7 +76,7 @@ export function ModelUploader({
       >
         {!compact && <IconUpload className="text-3xl text-muted" />}
         <p className="text-sm text-muted">
-          Arrastra aquí un archivo <span className="font-mono">.glb</span> (máx. {formatBytes(MODEL_MAX_BYTES)}) o
+          Arrastrá acá un archivo <span className="font-mono">.glb</span> (máx. {formatBytes(MODEL_MAX_BYTES)}) o
         </p>
         <label
           htmlFor={inputId}
@@ -84,7 +84,7 @@ export function ModelUploader({
             busy ? 'pointer-events-none opacity-50' : ''
           }`}
         >
-          <IconUpload className="text-base" /> Elegir archivo .glb
+          <IconUpload className="text-base" /> Elegí un archivo .glb
           <input
             ref={input}
             id={inputId}

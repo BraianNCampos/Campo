@@ -242,11 +242,13 @@ try {
 
     // ── dashboard (navegación interna: el estado demo en memoria se conserva) ──
     await page.getByRole('link', { name: 'Volver al panel' }).click();
-    await page.waitForURL(`${BASE}/`);
-    await page.locator('[data-testid="plant-select"], [aria-label="Activos"]').first().waitFor();
+    await page.waitForURL(`${BASE}/m/tanks`); // «/» lleva al primer módulo; la vista 3D es el módulo view3d
+    await page.locator('[data-testid="sidebar"] [data-testid="module-nav-view3d"]').click();
+    await page.waitForURL(`${BASE}/m/view3d`);
+    await page.locator('[aria-label="Activos"]').first().waitFor();
     await page.locator('[data-testid="asset-row-tk-nuevo"]').waitFor({ timeout: 30_000 });
     await page.locator('[data-testid="asset-row-tk-01"]').waitFor();
-    check((await page.locator('[data-testid^="asset-row-"]').count()) === 10, 'lista: 8 activos de demo + 2 nuevos');
+    check((await page.locator('[data-testid^="asset-row-"]').count()) === 22, 'lista: 20 activos de demo + 2 nuevos');
     const st = (id) => page.locator(`[data-testid="row-status-${id}"]`).textContent();
     check((await st('tk-nuevo')) === 'Sin datos' && (await st('sen-1')) === 'Sin datos', 'lista escritorio: los activos nuevos sin telemetría salen como «Sin datos»');
     check((await page.locator('[data-testid="row-value-tk-nuevo"]').count()) === 0, 'lista escritorio: «Sin datos» no muestra valor');
@@ -315,12 +317,14 @@ try {
     await audit(page, 'móvil admin planta con vista previa', '#main');
 
     await page.getByRole('link', { name: 'Panel', exact: true }).tap();
-    await page.waitForURL(`${BASE}/`);
+    await page.waitForURL(`${BASE}/m/tanks`);
+    await page.locator('[data-testid="nav-more"]').tap(); // con 7 módulos, la Vista 3D queda en «Más»
+    await page.locator('[data-testid="more-sheet"] [data-testid="module-nav-view3d"]').tap();
     await page.locator('[data-testid="tab-summary"]').waitFor();
     const card = page.locator('[data-testid="asset-card-sen-m"]');
     await card.waitFor({ timeout: 30_000 });
     check(/Sin datos/.test((await card.textContent()) ?? ''), 'móvil: la tarjeta del activo nuevo dice «Sin datos»');
-    check((await page.locator('[data-testid^="asset-card-"]').count()) === 9, 'móvil: 8 de demo + 1 nueva');
+    check((await page.locator('[data-testid^="asset-card-"]').count()) === 21, 'móvil: 20 de demo + 1 nueva');
     check((await page.locator('canvas').count()) === 0, 'móvil: el dashboard sigue sin canvas por defecto');
     await card.scrollIntoViewIfNeeded();
     await audit(page, 'móvil dashboard', '#main');

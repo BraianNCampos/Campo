@@ -33,10 +33,10 @@ export async function acknowledgeAlarm(id: string): Promise<void> {
     const status = err instanceof AckError ? err.status : 0;
     setNotice(
       status === 403
-        ? 'Tu rol no permite reconocer alarmas (requiere admin, engineer u operator).'
+        ? 'Tu rol no permite reconocer alarmas (hace falta ser admin, engineer u operator).'
         : status === 401
-          ? 'Sesión caducada. Vuelve a iniciar sesión.'
-          : 'No se pudo reconocer la alarma. Reintenta.',
+          ? 'Tu sesión caducó. Volvé a iniciar sesión.'
+          : 'No pudimos reconocer la alarma. Probá de nuevo.',
     );
   }
 }

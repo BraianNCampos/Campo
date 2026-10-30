@@ -72,8 +72,7 @@ export function cardExtras(i: ExtraInput): Extra[] {
     case 'machine': {
       if (v.state === undefined) return [];
       const ch = lastStateChange(i.series('state'));
-      const run = v.state >= 0.5;
-      return [{ label: run ? 'En marcha' : 'Detenida', value: ch ? sinceText(i.now - ch.since, ch.changed) : '' }].filter((e) => e.value !== '');
+      return [{ label: 'Desde', value: ch ? sinceText(i.now - ch.since, ch.changed) : '' }].filter((e) => e.value !== '');
     }
     case 'pump': {
       const out: Extra[] = [];

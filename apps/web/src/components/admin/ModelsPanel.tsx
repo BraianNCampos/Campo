@@ -11,7 +11,7 @@ import { ConfirmDialog } from './Modal';
 import type { Loaded } from './hooks';
 import { Button, card, cardList, EmptyState, ErrorState, LoadingBlock, tableWrap, td, th } from './ui';
 
-const when = (ts: number) => new Date(ts).toLocaleString('es-ES', { dateStyle: 'medium', timeStyle: 'short' });
+const when = (ts: number) => new Date(ts).toLocaleString('es-AR', { dateStyle: 'medium', timeStyle: 'short' });
 
 /** Modelos 3D (GLB) de la planta: lista con uso, subida y borrado con confirmación. */
 export function ModelsPanel({
@@ -59,7 +59,7 @@ export function ModelsPanel({
       {models.loading && !list && models.error == null && <LoadingBlock label="Cargando modelos…" />}
       {list && list.length === 0 && (
         <EmptyState icon={<IconCube />} title="Esta planta no tiene modelos 3D">
-          Sube un archivo .glb para usarlo en un activo.
+          Subí un archivo .glb para usarlo en un activo.
         </EmptyState>
       )}
       {list && list.length > 0 && (

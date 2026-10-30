@@ -9,7 +9,12 @@ import {
 } from '@campo/shared';
 import type Redis from 'ioredis';
 import type { PlantScope } from '../../src/auth/plant-access';
-import { OrgDeleteResult, OrgPatch, OrgRecord, OrgsRepository } from '../../src/orgs/orgs.repository';
+import {
+  OrgDeleteResult,
+  OrgPatch,
+  OrgRecord,
+  OrgsRepository,
+} from '../../src/orgs/orgs.repository';
 import type { AlarmRecord, AlarmRule, AlarmRuleInput } from '../../src/alarms/alarm.types';
 import { AlarmRulesRepository } from '../../src/alarms/alarm-rules.repository';
 import { AlarmsRepository, ListAlarmsFilter } from '../../src/alarms/alarms.repository';
@@ -527,4 +532,10 @@ export class MemoryModelsRepository extends ModelsRepository {
       if (this.rows[i].plant === plant) this.rows.splice(i, 1);
     return Promise.resolve(before - this.rows.length);
   }
+}
+
+/** Repositorio de clientes autónomo para tests unitarios (sin plantas registradas). */
+export function memoryOrgs(users: MemoryUsersRepository): MemoryOrgsRepository {
+  const noPlants = { plantsOf: () => [] as string[] } as unknown as MemoryPlantsRepository;
+  return new MemoryOrgsRepository(() => noPlants, users);
 }

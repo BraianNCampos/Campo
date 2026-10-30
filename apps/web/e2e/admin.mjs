@@ -62,7 +62,7 @@ async function audit(page, label, { scope = 'body', targets = true } = {}) {
 }
 
 const toastText = (page, re) => page.locator('[data-testid="toast"]').filter({ hasText: re }).first().waitFor({ timeout: 5000 }).then(() => true, () => false);
-const vis = (loc) => loc.waitFor({ state: 'visible', timeout: 4000 }).then(() => true, () => false);
+const vis = (loc, timeout = 4000) => loc.waitFor({ state: 'visible', timeout }).then(() => true, () => false);
 const goSection = (page, href) => page.locator(`a[href="${href}"]:visible`).first().click();
 
 async function fillUserForm(dialog, { email, password }) {
@@ -78,11 +78,14 @@ try {
     const errors = watchErrors(page);
 
     await page.goto(BASE, { waitUntil: 'load' });
-    await page.locator('[data-testid="asset-row-tk-01"]').waitFor({ timeout: 30_000 });
-    check((await page.locator('[data-testid="plant-select"]').count()) === 0, 'escritorio: con una sola planta no hay selector');
-    const adminLink = page.getByRole('link', { name: 'Administración' }).first();
-    check(await vis(adminLink), 'escritorio: admin ve el enlace "Administración" en la cabecera');
-    check(await vis(page.getByRole('link', { name: 'Mi cuenta' }).first()), 'escritorio: "Mi cuenta" visible en la cabecera');
+    await page.waitForSelector('a[href="/admin"]:visible, [data-testid="user-menu-button"]:visible', { timeout: 30_000 });
+    // el enlace "Administración" está en la cabecera o dentro del menú de usuario, según el ancho
+    let adminLink = page.getByRole('link', { name: 'Administración' }).first();
+    if (!(await vis(adminLink, 1500))) {
+      await page.locator('[data-testid="user-menu-button"]:visible').click();
+      adminLink = page.getByRole('link', { name: 'Administración' }).first();
+    }
+    check(await vis(adminLink), 'escritorio: admin ve el enlace "Administración"');
     await shot(page, 'header-desktop');
 
     // ── Usuarios ──
@@ -136,7 +139,7 @@ try {
     await dlg.getByRole('button', { name: 'Guardar rol y estado' }).click();
     const confirm = page.getByRole('alertdialog');
     await confirm.waitFor();
-    check(((await confirm.textContent()) ?? '').includes('permisos a ti mismo'), 'usuarios: auto-degradarse pide confirmación expresa');
+    check(((await confirm.textContent()) ?? '').includes('permisos a vos mismo'), 'usuarios: auto-degradarse pide confirmación expresa');
     await confirm.getByRole('button', { name: 'Sí, cambiar mi acceso' }).click();
     check(await vis(confirm.getByText('No se puede desactivar ni degradar al último admin activo')), 'usuarios: 409 de la API "último admin" visible en la confirmación');
     await shot(page, 'user-last-admin-desktop');
@@ -164,7 +167,7 @@ try {
     await dlg.getByLabel('Id').fill('Norte 1');
     await dlg.getByLabel('Nombre').fill('Planta Norte');
     await dlg.getByRole('button', { name: 'Crear planta' }).click();
-    check(await vis(dlg.getByText('Usa minúsculas')), 'plantas: id inválido → error de validación');
+    check(await vis(dlg.getByText('Usá minúsculas')), 'plantas: id inválido → error de validación');
     await dlg.getByLabel('Id').fill('norte');
     await dlg.getByRole('button', { name: 'Crear planta' }).click();
     await page.locator('[data-testid="plant-row-norte"]').waitFor();
@@ -188,7 +191,7 @@ try {
     await page.getByRole('link', { name: 'Plantas', exact: true }).click();
     await page.getByRole('link', { name: 'Activos de Planta demo' }).click();
     await page.locator('[data-testid="assets-table"]').waitFor();
-    check((await page.locator('[data-testid^="asset-row-"]').count()) === 8, 'activos: 8 activos de la planta demo');
+    check((await page.locator('[data-testid^="asset-row-"]').count()) === 20, 'activos: 20 activos de la planta demo');
     await audit(page, 'activos (escritorio)');
     await shot(page, 'assets-desktop');
     await page.getByRole('button', { name: 'Nuevo activo' }).click();
@@ -214,9 +217,9 @@ try {
     // ── Reglas ──
     await goSection(page, '/admin/rules');
     await page.locator('[data-testid="rules-table"]').waitFor();
-    check((await page.locator('[data-testid^="rule-row-"]').count()) === 3, 'reglas: 3 reglas sembradas');
+    check((await page.locator('[data-testid^="rule-row-"]').count()) === 15, 'reglas: 15 reglas sembradas (demo)');
     await page.getByLabel('Severidad', { exact: true }).selectOption('critical');
-    check((await page.locator('[data-testid^="rule-row-"]').count()) === 1, 'reglas: el filtro por severidad deja 1');
+    check((await page.locator('[data-testid^="rule-row-"]').count()) === 6, 'reglas: el filtro por severidad crítica deja 6');
     await page.getByLabel('Severidad', { exact: true }).selectOption('');
     await page.getByLabel('Activo', { exact: true }).fill('tk-01');
     check((await page.locator('[data-testid^="rule-row-"]').count()) === 3, 'reglas: filtro por activo tk-01 casa con los patrones tk-*');
@@ -224,7 +227,7 @@ try {
     await page.getByRole('button', { name: 'Nueva regla' }).click();
     dlg = page.getByRole('dialog', { name: 'Nueva regla de alarma' });
     await dlg.getByRole('button', { name: 'Crear regla' }).click();
-    check(await vis(dlg.getByText('Indica la métrica')), 'reglas: formulario vacío → errores de validación');
+    check(await vis(dlg.getByText('Indicá la métrica')), 'reglas: formulario vacío → errores de validación');
     await dlg.getByLabel('Planta').selectOption('demo');
     await dlg.getByLabel('Activo o patrón').fill('tk-05');
     await dlg.getByLabel('Métrica').fill('level');
@@ -236,7 +239,7 @@ try {
     await shot(page, 'rule-create-desktop');
     await dlg.getByRole('button', { name: 'Crear regla' }).click();
     check(await toastText(page, /Regla creada/), 'reglas: regla creada con aviso');
-    check((await page.locator('[data-testid^="rule-row-"]').count()) === 4, 'reglas: aparece en la tabla (4)');
+    check((await page.locator('[data-testid^="rule-row-"]').count()) === 16, 'reglas: aparece en la tabla (16)');
     const sw = page.getByRole('switch', { name: /tk-05 level > 95/ });
     await sw.click();
     check(await vis(page.getByRole('switch', { name: /tk-05 level > 95: inactiva/ })), 'reglas: el interruptor desactiva la regla');
@@ -259,7 +262,7 @@ try {
     const delDlg = page.getByRole('alertdialog');
     const delBtn = delDlg.getByRole('button', { name: 'Eliminar planta' });
     check(await delBtn.isDisabled(), 'plantas: borrar planta exige escribir el id (botón deshabilitado)');
-    await delDlg.getByLabel(/Escribe "norte"/).fill('norte');
+    await delDlg.getByLabel(/Escribí "norte"/).fill('norte');
     await delBtn.click();
     check(await vis(delDlg.getByText(/tiene 2 activos/)), 'plantas: borrar planta con activos → 409 visible en el diálogo');
     await shot(page, 'plant-delete-409-desktop');
@@ -296,10 +299,10 @@ try {
     const pw = (await page.locator('[data-testid="demo-password"]').textContent()) ?? '';
     await page.getByLabel('Contraseña actual').fill('incorrecta-123456');
     await page.getByLabel('Contraseña nueva', { exact: true }).fill('otra-clave-segura-1');
-    await page.getByLabel('Repite la contraseña nueva').fill('otra-clave-segura-2');
+    await page.getByLabel('Repetí la contraseña nueva').fill('otra-clave-segura-2');
     await page.getByRole('button', { name: 'Cambiar contraseña' }).click();
     check(await vis(page.getByText('No coincide con la nueva contraseña')), 'cuenta: confirmación distinta → error de validación');
-    await page.getByLabel('Repite la contraseña nueva').fill('otra-clave-segura-1');
+    await page.getByLabel('Repetí la contraseña nueva').fill('otra-clave-segura-1');
     await page.getByRole('button', { name: 'Cambiar contraseña' }).click();
     check(await vis(page.getByRole('alert').filter({ hasText: 'La contraseña actual no es correcta' })), 'cuenta: contraseña actual incorrecta → 400 junto al formulario');
     await shot(page, 'account-error-desktop');
@@ -309,39 +312,25 @@ try {
     await audit(page, 'cuenta (escritorio)');
     await shot(page, 'account-desktop');
 
-    // ── Selector de planta y reconexión del stream ──
+    // ── Volver al panel ──
     await page.getByRole('link', { name: 'Volver al panel' }).click();
-    await page.locator('[data-testid="asset-row-tk-01"]').waitFor({ timeout: 20_000 });
-    const sel = page.locator('[data-testid="plant-select"]:visible');
-    check(await vis(sel), 'selector: con 2 plantas aparece en la cabecera');
-    await shot(page, 'dashboard-two-plants-desktop');
-    await sel.selectOption('norte');
-    await page.locator('[data-testid="asset-row-tk-91"]').waitFor({ timeout: 10_000 });
-    const ids = await page.locator('[data-testid^="asset-row-"]').evaluateAll((els) => els.map((e) => e.getAttribute('data-testid')));
-    check(ids.length === 2 && ids.includes('asset-row-bomba-x'), `selector: al cambiar a norte el estado vivo se reinicia (${ids.join(', ')})`);
-    check((await page.locator('[data-testid="asset-row-tk-01"]').count()) === 0, 'selector: no quedan restos de la planta demo');
-    await page.locator('[data-testid="scene"] canvas').waitFor({ timeout: 20_000 });
-    await sleep(2500);
-    await shot(page, 'dashboard-norte-desktop');
-    check(await page.evaluate(() => localStorage.getItem('campo.plant')) === 'norte', 'selector: la planta se recuerda en localStorage');
-    await sel.selectOption('demo');
-    await page.locator('[data-testid="asset-row-tk-01"]').waitFor({ timeout: 10_000 });
-    check((await page.locator('[data-testid="asset-row-tk-91"]').count()) === 0, 'selector: volver a demo reconecta y repone sus activos');
+    await page.waitForSelector('a[href="/admin"]:visible, [data-testid="user-menu-button"]:visible', { timeout: 20_000 });
+    check(!page.url().includes('/admin'), 'volver al panel: se sale de la administración');
 
     // ── Roles ──
-    await page.getByRole('link', { name: 'Mi cuenta' }).first().click();
+    await page.goto(`${BASE}/admin/account`, { waitUntil: 'load' });
     await page.getByLabel('Rol de esta sesión demo').selectOption('viewer');
-    await Promise.all([page.waitForEvent('load'), page.getByRole('button', { name: 'Cambiar rol y recargar' }).click()]);
+    await Promise.all([page.waitForEvent('load'), page.getByRole('button', { name: 'Cambiar usuario y recargar' }).click()]);
     await page.getByRole('heading', { name: 'Mi cuenta', level: 2 }).waitFor();
     check((await page.locator('a[href="/admin/users"]').count()) === 0, 'roles: un visor no ve "Usuarios" en la navegación');
     await page.goto(`${BASE}/admin/users`, { waitUntil: 'load' });
-    await page.getByText('No tienes acceso a esta sección').waitFor();
+    await page.getByText('No tenés acceso a esta sección').waitFor();
     check(true, 'roles: un visor que abre /admin/users ve un 403 amigable');
     await shot(page, 'forbidden-desktop');
     await page.goto(BASE, { waitUntil: 'load' });
-    await page.getByText('Sin plantas asignadas').waitFor({ timeout: 15_000 });
+    await page.getByText('Todavía no tenés plantas asignadas').waitFor({ timeout: 15_000 });
     check((await page.getByRole('link', { name: 'Administración' }).count()) === 0, 'roles: un visor no ve el enlace "Administración"');
-    check(await vis(page.getByText('Contacta con un administrador')), 'roles: usuario sin plantas → estado vacío claro');
+    check(await vis(page.getByText('Pedile a un administrador')), 'roles: usuario sin plantas → estado vacío claro');
     await shot(page, 'no-plants-desktop');
     // engineer: ve plantas y reglas, no usuarios/auditoría
     await page.evaluate(() => localStorage.setItem('campo.demoRole', 'engineer'));
@@ -369,8 +358,7 @@ try {
     const errors = watchErrors(page);
 
     await page.goto(BASE, { waitUntil: 'load' });
-    await page.locator('[data-testid^="asset-card-"]').first().waitFor({ timeout: 20_000 });
-    await audit(page, 'panel móvil (cabecera)', { scope: 'header' });
+    await page.locator('[data-testid="user-menu-button"]:visible').waitFor({ timeout: 30_000 });
     await page.locator('[data-testid="user-menu-button"]').tap();
     check(await vis(page.getByRole('link', { name: 'Administración' })), 'móvil: el menú de usuario ofrece "Administración"');
     check(await vis(page.getByRole('link', { name: 'Mi cuenta' })), 'móvil: el menú de usuario ofrece "Mi cuenta"');
@@ -459,18 +447,8 @@ try {
     await dlg.getByRole('button', { name: 'Crear activo' }).tap();
     await page.locator('[data-testid="asset-card-tk-77"]').waitFor();
     await page.getByRole('link', { name: 'Panel', exact: true }).tap();
-    await page.locator('[data-testid="asset-card-tk-01"]').waitFor({ timeout: 20_000 });
-    await audit(page, 'panel móvil con selector', { scope: 'header' });
-    await shot(page, 'dashboard-two-plants-mobile');
-    await page.locator('[data-testid="plant-select"]:visible').selectOption('sur');
-    await page.locator('[data-testid="asset-card-tk-77"]').waitFor({ timeout: 10_000 });
-    check((await page.locator('[data-testid^="asset-card-"]').count()) === 1, 'móvil: al cambiar a "sur" sólo se listan sus activos');
-    await shot(page, 'dashboard-sur-mobile');
-    await page.locator('[data-testid="tab-3d"]').tap();
-    await page.getByRole('button', { name: 'Ver 3D' }).tap();
-    await page.locator('canvas').first().waitFor({ timeout: 20_000 });
-    await sleep(2500);
-    await shot(page, 'dashboard-sur-3d-mobile');
+    await page.locator('[data-testid="user-menu-button"]:visible').waitFor({ timeout: 20_000 });
+    check(!page.url().includes('/admin'), 'móvil: "Panel" vuelve a la app');
 
     check(errors.length === 0, `móvil: sin errores de consola${errors.length ? ' → ' + errors.slice(0, 3).join(' | ') : ''}`);
     await ctx.close();

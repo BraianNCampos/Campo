@@ -1,20 +1,28 @@
 'use client';
 
 import { useMemo, useState, type FormEvent } from 'react';
-import { MODEL_REF_PATTERN } from '@campo/shared';
-import type { AssetDef, AssetType, ModelInfo } from '@campo/shared';
+import { ASSET_KINDS, METRICS, MODEL_REF_PATTERN } from '@campo/shared';
+import type { AssetDef, AssetType, ModelInfo, ModuleId } from '@campo/shared';
 import { getAdminApi, ASSET_TYPES } from '@/lib/admin';
+import { ModuleDisabledError } from '@/lib/admin/errors';
 import { prettyJson } from '@/lib/admin/format';
 import { formatBytes } from '@/lib/admin/models';
 import type { AssetResult } from '@/lib/admin/types';
 import {
+  domainFormFrom,
+  domainFromMetadataText,
   fieldsFromMetadataText,
+  isTypeAllowed,
   layoutFormFrom,
   parseMetadata,
+  scaleMetricsFor,
+  syncDomainIntoText,
   syncMetadataText,
   validateAssetForm,
+  validateDomainForm,
   validateLayoutForm,
   type AssetForm,
+  type DomainForm,
   type FieldErrors,
   type LayoutForm,
 } from '@/lib/admin/validation';
@@ -26,11 +34,12 @@ import { Modal, ModalActions } from './Modal';
 import { ModelUploader } from './ModelUploader';
 import { Alert, ApiErrorAlert, Button } from './ui';
 
-export const TYPE_LABEL: Record<AssetType, string> = { tank: 'Tanque', pump: 'Bomba', valve: 'Válvula', sensor: 'Sensor' };
+/** Nombre legible de un tipo de activo (registro compartido). */
+export const typeLabel = (t: AssetType) => ASSET_KINDS[t]?.label ?? t;
 
 const UPLOAD = '__upload__';
 /** Tamaño sugerido (m) del GLB normalizado a 1 unidad, según el tipo. */
-const SCALE_HINT: Record<AssetType, string> = { tank: '3,5', pump: '2,5', valve: '1,2', sensor: '0,6' };
+const SCALE_HINT: Record<AssetType, string> = { tank: '3,5', pump: '2,5', valve: '1,2', sensor: '0,6', climate: '0,6', energy: '1,2', gas: '1,5', machine: '2,5', pressure: '0,6', flow: '0,8' };
 
 function initialForm(asset?: AssetDef): AssetForm {
   const meta = asset?.metadata ?? {};
@@ -42,6 +51,7 @@ function initialForm(asset?: AssetDef): AssetForm {
     layout: layoutFormFrom(meta),
     connectsTo: parseConnectsTo(meta),
     metadataText: Object.keys(meta).length > 0 ? prettyJson(meta) : '',
+    domain: domainFormFrom(meta),
   };
 }
 
@@ -60,10 +70,13 @@ export function AssetDialog({
   assets,
   models,
   onClose,
+  modules,
   onSaved,
   onModelUploaded,
 }: {
   plant: string;
+  /** Módulos contratados por el cliente dueño de la planta (`undefined` mientras se cargan: decide la API). */
+  modules?: readonly ModuleId[];
   asset?: AssetDef;
   /** catálogo de la planta (para elegir a qué activos se conecta) */
   assets: readonly AssetDef[];
@@ -78,13 +91,16 @@ export function AssetDialog({
   const [metaTouched, setMetaTouched] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [uploadMode, setUploadMode] = useState(false);
-  const { busy, error, run } = useSubmit();
+  const { busy, error, run, clearError } = useSubmit();
   const set = <K extends keyof AssetForm>(k: K, v: AssetForm[K]) => setForm((f) => ({ ...f, [k]: v }));
 
   const liveMeta = parseMetadata(form.metadataText);
   const jsonOk = liveMeta.ok;
   const metaError = (metaTouched || errors.metadata) && !liveMeta.ok ? liveMeta.error : errors.metadata;
   // números no válidos o fuera de rango: en vivo; «falta X o Z»: sólo tras intentar guardar
+  const domainErrors = form.domain ? validateDomainForm(form.domain, form.type).errors : {};
+  const moduleError = error instanceof ModuleDisabledError ? error.message : undefined;
+  const blocked = ASSET_TYPES.filter((t) => modules && !isTypeAllowed(t, modules) && t !== asset?.type);
   const layoutErrors = Object.fromEntries(Object.entries(validateLayoutForm(form.layout).errors).filter(([, m]) => submitted || !m.startsWith('Indica X y Z')));
 
   /** Los campos escriben en el JSON avanzado (sin tocar el resto de claves) y el JSON actualiza los campos. */
@@ -103,9 +119,19 @@ export function AssetDialog({
       return { ...f, connectsTo, ...(text !== null && { metadataText: text }) };
     });
   }
+  /** Los datos del equipo (capacidad, potencia contratada, escalas) también escriben en el JSON sin pisar otras claves. */
+  function setDomain(update: (d: DomainForm) => DomainForm) {
+    setForm((f) => {
+      const domain = update(f.domain ?? domainFormFrom({}));
+      const parsed = validateDomainForm(domain, f.type);
+      const text = Object.keys(parsed.errors).length === 0 ? syncDomainIntoText(f.metadataText, parsed.value) : null;
+      return { ...f, domain, ...(text !== null && { metadataText: text }) };
+    });
+  }
   function setMetadataText(text: string) {
     const fields = fieldsFromMetadataText(text);
-    setForm((f) => ({ ...f, metadataText: text, ...(fields ?? {}) }));
+    const domain = domainFromMetadataText(text);
+    setForm((f) => ({ ...f, metadataText: text, ...(fields ?? {}), ...(domain && { domain }) }));
   }
 
   const currentRef = form.model3dRef;
@@ -117,7 +143,7 @@ export function AssetDialog({
 
   async function submit(e: FormEvent) {
     e.preventDefault();
-    const { errors: errs, value } = validateAssetForm(form, { editing, keepRef: asset?.model3dRef });
+    const { errors: errs, value } = validateAssetForm(form, { editing, keepRef: asset?.model3dRef, modules, originalType: asset?.type });
     setErrors(errs);
     setSubmitted(true);
     setMetaTouched(true);
@@ -127,7 +153,7 @@ export function AssetDialog({
       asset
         ? api.updateAsset(plant, asset.id, {
             name: value.name,
-            type: value.type,
+            ...(value.type !== asset.type && { type: value.type }),
             metadata: value.metadata,
             // el valor antiguo (texto libre) sólo se reenvía si se cambia; si no, se omite
             ...(value.model3dRef !== asset.model3dRef && { model3dRef: value.model3dRef }),
@@ -154,18 +180,37 @@ export function AssetDialog({
             autoComplete="off"
             autoCapitalize="none"
             spellCheck={false}
-            hint={editing ? 'El id no se puede cambiar una vez creado.' : 'Es el que publica el sensor en MQTT (p. ej. tk-05). No se podrá cambiar.'}
+            hint={editing ? 'El id no se puede cambiar una vez creado.' : 'Es el que publica el sensor por MQTT (p. ej. tk-05). No se puede cambiar después.'}
             data-autofocus={editing ? undefined : ''}
           />
           <TextField label="Nombre" value={form.name} onChange={(e) => set('name', e.target.value)} error={errors.name} autoComplete="off" data-autofocus={editing ? '' : undefined} />
         </div>
         <div className="grid gap-4 sm:grid-cols-2">
-          <SelectField label="Tipo" value={form.type} onChange={(e) => set('type', e.target.value as AssetType)} error={errors.type}>
-            {ASSET_TYPES.map((t) => (
+          <SelectField
+            label="Tipo"
+            value={form.type}
+            onChange={(e) => {
+              clearError();
+              setErrors((x) => ({ ...x, type: '' }));
+              setForm((f) => ({ ...f, type: e.target.value as AssetType }));
+            }}
+            error={errors.type || moduleError}
+            hint={blocked.length > 0 ? 'Los tipos marcados como «no contratado» necesitan un módulo que no está contratado. Para sumarlo, contactá a Campos Ingeniería.' : undefined}
+          >
+            {ASSET_TYPES.filter((t) => !blocked.includes(t)).map((t) => (
               <option key={t} value={t}>
-                {TYPE_LABEL[t]}
+                {typeLabel(t)}
               </option>
             ))}
+            {blocked.length > 0 && (
+              <optgroup label="Requieren otro módulo">
+                {blocked.map((t) => (
+                  <option key={t} value={t} disabled>
+                    {typeLabel(t)} (no contratado)
+                  </option>
+                ))}
+              </optgroup>
+            )}
           </SelectField>
           <SelectField
             label="Modelo 3D"
@@ -203,8 +248,8 @@ export function AssetDialog({
         <fieldset className="rounded-xl border border-line p-3" disabled={!jsonOk}>
           <legend className="px-1 text-sm font-semibold">Disposición en la planta</legend>
           <p className="mb-3 text-xs text-muted">
-            Metros desde el centro. Deja X y Z vacíos para colocarlo automáticamente. La escala es el tamaño máximo del modelo en metros
-            {form.type ? ` (sugerida para ${TYPE_LABEL[form.type as AssetType].toLowerCase()}: ${SCALE_HINT[form.type as AssetType]})` : ''}.
+            Metros desde el centro. Dejá X y Z vacíos para colocarlo automáticamente. La escala es el tamaño máximo del modelo en metros
+            {form.type ? ` (sugerida para ${typeLabel(form.type as AssetType).toLowerCase()}: ${SCALE_HINT[form.type as AssetType]})` : ''}.
           </p>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
             {LAYOUT_INPUTS.map(({ key, label, err }) => (
@@ -221,12 +266,66 @@ export function AssetDialog({
               />
             ))}
           </div>
-          {!jsonOk && <p className="mt-2 text-xs text-warn">Corrige el JSON de metadatos para editar estos campos.</p>}
+          {!jsonOk && <p className="mt-2 text-xs text-warn">Corregí el JSON de metadatos para editar estos campos.</p>}
         </fieldset>
+
+        {form.domain && (form.type === 'tank' || form.type === 'energy' || scaleMetricsFor(form.type).length > 0) && (
+          <fieldset className="rounded-xl border border-line p-3" disabled={!jsonOk} data-testid="domain-fields">
+            <legend className="px-1 text-sm font-semibold">Datos del equipo (opcionales)</legend>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {form.type === 'tank' && (
+                <TextField
+                  label="Capacidad (m³)"
+                  inputMode="decimal"
+                  autoComplete="off"
+                  value={form.domain.capacityM3}
+                  onChange={(e) => setDomain((d) => ({ ...d, capacityM3: e.target.value }))}
+                  error={domainErrors.capacityM3}
+                  placeholder="60"
+                  hint="Sirve para mostrar cuánto líquido hay, no sólo el porcentaje."
+                />
+              )}
+              {form.type === 'energy' && (
+                <TextField
+                  label="Potencia contratada (kW)"
+                  inputMode="decimal"
+                  autoComplete="off"
+                  value={form.domain.contractedKw}
+                  onChange={(e) => setDomain((d) => ({ ...d, contractedKw: e.target.value }))}
+                  error={domainErrors.contractedKw}
+                  placeholder="220"
+                  hint="Se usa para avisar cuando el consumo se acerca a lo contratado."
+                />
+              )}
+            </div>
+            {scaleMetricsFor(form.type).length > 0 && (
+              <div className="mt-3 flex flex-col gap-3">
+                <p className="text-xs text-muted">Rango de las barras. Si lo dejás vacío se usa el habitual de cada medida.</p>
+                {scaleMetricsFor(form.type).map((m) => {
+                  const def = METRICS[m]!;
+                  const r = form.domain?.scale[m] ?? { min: '', max: '' };
+                  const put = (k: 'min' | 'max', v: string) => setDomain((d) => ({ ...d, scale: { ...d.scale, [m]: { ...(d.scale[m] ?? { min: '', max: '' }), [k]: v } } }));
+                  return (
+                    <fieldset key={m} className="grid grid-cols-2 gap-3" data-testid={`scale-${m}`}>
+                      <legend className="col-span-2 mb-1 text-sm font-semibold">
+                        {def.label}
+                        {def.unit ? ` (${def.unit})` : ''}
+                      </legend>
+                      <TextField label="Mínimo" inputMode="decimal" autoComplete="off" value={r.min} onChange={(e) => put('min', e.target.value)} placeholder={String(def.scale.min)} />
+                      <TextField label="Máximo" inputMode="decimal" autoComplete="off" value={r.max} onChange={(e) => put('max', e.target.value)} placeholder={String(def.scale.max)} />
+                      {domainErrors[`scale:${m}`] && <p className="col-span-2 text-sm font-medium text-crit">{domainErrors[`scale:${m}`]}</p>}
+                    </fieldset>
+                  );
+                })}
+              </div>
+            )}
+            {!jsonOk && <p className="mt-2 text-xs text-warn">Corregí el JSON de metadatos para editar estos campos.</p>}
+          </fieldset>
+        )}
 
         <fieldset className="rounded-xl border border-line p-3" disabled={!jsonOk}>
           <legend className="px-1 text-sm font-semibold">Conectado a</legend>
-          <p className="mb-2 text-xs text-muted">Dibuja una tubería desde este activo hasta los marcados.</p>
+          <p className="mb-2 text-xs text-muted">Se dibuja una tubería desde este activo hasta los marcados.</p>
           {candidates.length === 0 && orphans.length === 0 ? (
             <p className="text-sm text-muted">No hay otros activos en la planta.</p>
           ) : (
@@ -247,11 +346,12 @@ export function AssetDialog({
           onBlur={() => setMetaTouched(true)}
           error={metaError}
           spellCheck={false}
-          placeholder='{"capacityL": 5000}'
-          hint="Objeto JSON con datos libres del equipo. Incluye layout y connectsTo, que se mantienen sincronizados con los campos de arriba."
+          placeholder='{"capacityM3": 60}'
+          hint="Objeto JSON con datos libres del equipo. Incluye layout, connectsTo, capacityM3, contractedKw y scale, que se mantienen sincronizados con los campos de arriba."
+
         />
-        <ApiErrorAlert error={error} />
-        {submitted && Object.keys(layoutErrors).length > 0 && <Alert tone="error">Revisa la disposición en la planta: hay valores no válidos.</Alert>}
+        {!moduleError && <ApiErrorAlert error={error} />}
+        {submitted && Object.keys(layoutErrors).length > 0 && <Alert tone="error">Revisá la disposición en la planta: hay valores no válidos.</Alert>}
         <ModalActions>
           <Button onClick={onClose} disabled={busy}>
             Cancelar

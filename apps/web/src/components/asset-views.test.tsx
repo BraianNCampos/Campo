@@ -64,7 +64,7 @@ describe('lista de escritorio', () => {
     render(<AssetList />);
     expect(host.textContent).toContain('Cargando activos');
     act(() => useLiveStore.getState().setCatalogError(true));
-    expect(host.textContent).toContain('No se pudo cargar el catálogo');
+    expect(host.textContent).toContain('No pudimos cargar el catálogo');
     act(() => useLiveStore.getState().setCatalog([]));
     expect(host.textContent).toContain('no tiene activos en el catálogo');
   });
@@ -77,7 +77,7 @@ describe('tarjeta móvil', () => {
     const card = host.querySelector('[data-testid="asset-card-pump-9"]')!;
     expect(card.getAttribute('aria-label')).toBe('Bomba de riego: Sin datos');
     expect(card.textContent).toContain('Sin datos');
-    expect(card.textContent).toContain('Aún no ha llegado telemetría');
+    expect(card.textContent).toContain('Todavía no llegaron datos');
     expect(card.querySelector('[data-testid="value-pump-9"]')).toBeNull();
     expect(card.querySelector('canvas')).toBeNull();
     expect(card.textContent).not.toContain('En marcha');

@@ -21,7 +21,10 @@ export function resolveLimits(rules: AlarmRule[], assetIds: string[]): Limit[] {
         threshold: rule.threshold,
         severity: rule.severity,
       };
-      out.set(JSON.stringify([asset, rule.metric, rule.operator, rule.threshold, rule.severity]), limit);
+      out.set(
+        JSON.stringify([asset, rule.metric, rule.operator, rule.threshold, rule.severity]),
+        limit,
+      );
     }
   }
   const cmp = (a: string | number, b: string | number) => (a < b ? -1 : a > b ? 1 : 0);

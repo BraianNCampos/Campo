@@ -1,8 +1,9 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { Org } from '@campo/shared';
+import type { ModuleId, Org } from '@campo/shared';
 import { getAdminApi } from '@/lib/admin';
+import { useSessionStore } from '@/store/session-store';
 
 export interface Loaded<T> {
   data: T | undefined;
@@ -79,4 +80,16 @@ export function useSubmit() {
 export function useOrgs(enabled: boolean): Loaded<Org[]> {
   const loaded = useLoad(() => (enabled ? getAdminApi().listOrgs() : Promise.resolve([] as Org[])), [enabled]);
   return loaded;
+}
+
+/**
+ * Módulos contratados por un cliente: los de la sesión para el administrador de cliente; el personal de
+ * plataforma los pide del cliente dueño. `undefined` mientras se cargan (en ese caso decide la API).
+ */
+export function useOrgModules(orgId: string | undefined): ModuleId[] | undefined {
+  const me = useSessionStore((s) => s.me);
+  const platform = me?.role === 'platform_admin';
+  const org = useLoad(() => (platform && orgId ? getAdminApi().getOrg(orgId) : Promise.resolve(undefined)), [platform, orgId]);
+  if (!platform) return me?.org?.modules;
+  return org.data?.modules;
 }

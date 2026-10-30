@@ -75,7 +75,10 @@ export class PgPlantsRepository extends PlantsRepository {
   }
 
   async rename(id: string, name: string): Promise<Plant | null> {
-    const { rowCount } = await this.pool.query('UPDATE plants SET name = $2 WHERE id = $1', [id, name]);
+    const { rowCount } = await this.pool.query('UPDATE plants SET name = $2 WHERE id = $1', [
+      id,
+      name,
+    ]);
     if ((rowCount ?? 0) === 0) return null;
     return (await this.list({ ids: [id] }))[0] ?? null;
   }

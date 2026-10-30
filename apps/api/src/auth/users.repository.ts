@@ -150,7 +150,11 @@ export class PgUsersRepository extends UsersRepository {
       const before = cur.rows[0];
       const role = patch.role ?? before.role;
       const active = patch.active ?? before.active;
-      if (GUARDED_ROLES.includes(before.role) && before.active && !(role === before.role && active)) {
+      if (
+        GUARDED_ROLES.includes(before.role) &&
+        before.active &&
+        !(role === before.role && active)
+      ) {
         const others = await client.query<{ n: number }>(
           `SELECT count(*)::int AS n FROM users
             WHERE role = $2 AND active AND id <> $1 AND org_id IS NOT DISTINCT FROM $3`,
@@ -225,7 +229,10 @@ export class PgUsersRepository extends UsersRepository {
     try {
       await client.query('BEGIN');
       await client.query('SELECT pg_advisory_xact_lock($1)', [ADMIN_LOCK_KEY]);
-      const cur = await client.query<{ role: Role }>('SELECT role FROM users WHERE id = $1 FOR UPDATE', [id]);
+      const cur = await client.query<{ role: Role }>(
+        'SELECT role FROM users WHERE id = $1 FOR UPDATE',
+        [id],
+      );
       if (!cur.rows[0]) {
         await client.query('ROLLBACK');
         return null;

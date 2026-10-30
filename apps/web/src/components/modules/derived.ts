@@ -51,9 +51,10 @@ export function createThrottledDerived<T>(select: (s: LiveData) => T, equal: (a:
   };
 }
 
-export function useThrottledLive<T>(select: (s: LiveData) => T, equal: (a: T, b: T) => boolean, deps: readonly unknown[], intervalMs = 1000): T {
+/** `key` identifica el selector: cuando cambia, se crea un derivado nuevo (los selectores se pasan como cierres nuevos en cada render). */
+export function useThrottledLive<T>(key: string, select: (s: LiveData) => T, equal: (a: T, b: T) => boolean, intervalMs = 1000): T {
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const store = useMemo(() => createThrottledDerived(select, equal, intervalMs), deps);
+  const store = useMemo(() => createThrottledDerived(select, equal, intervalMs), [key]);
   return useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
 }
 
@@ -78,13 +79,13 @@ function summarize(module: ModuleId, s: LiveData): ModuleSummary {
 
 /** Resumen vivo de un módulo (activos, estados, KPIs), refrescado como máximo cada segundo. */
 export function useModuleSummary(module: ModuleId): ModuleSummary {
-  return useThrottledLive((s) => summarize(module, s), json, [module]);
+  return useThrottledLive(`summary:${module}`, (s) => summarize(module, s), json);
 }
 
 /** Insignias de atención por módulo (navegación). */
 export function useModuleBadges(modules: readonly ModuleId[]): Record<string, ModuleBadge> {
   const key = modules.join(',');
-  return useThrottledLive((s) => moduleBadges(key ? (key.split(',') as ModuleId[]) : [], s), sameBadges, [key]);
+  return useThrottledLive(`badges:${key}`, (s) => moduleBadges(key ? (key.split(',') as ModuleId[]) : [], s), sameBadges);
 }
 
 const EMPTY_ORGS: never[] = [];

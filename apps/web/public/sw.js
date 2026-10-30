@@ -5,7 +5,7 @@
  * - Nunca intercepta /api ni WebSocket.
  * Subir VERSION invalida las cachés anteriores.
  */
-const VERSION = 'v1';
+const VERSION = 'v2';
 const SHELL_CACHE = `campo-shell-${VERSION}`;
 const STATIC_CACHE = `campo-static-${VERSION}`;
 const RUNTIME_CACHE = `campo-runtime-${VERSION}`;
@@ -52,9 +52,11 @@ self.addEventListener('activate', (event) => {
 async function networkFirstNavigation(request) {
   try {
     const res = await fetch(request);
-    if (res.ok && new URL(request.url).pathname === '/') {
+    if (res.ok) {
+      // se guarda cada pantalla visitada (/, /m/*, /pared…) para poder abrirla sin red; '/' es además el shell de reserva
       const copy = res.clone();
-      caches.open(SHELL_CACHE).then((c) => c.put('/', copy));
+      const isRoot = new URL(request.url).pathname === '/';
+      caches.open(SHELL_CACHE).then((c) => c.put(isRoot ? '/' : request, copy));
     }
     return res;
   } catch {

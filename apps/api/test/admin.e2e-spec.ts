@@ -99,7 +99,12 @@ describe('Administración: plantas, activos, auditoría y revocación (e2e)', ()
         .post('/api/plants', admin)
         .send({ id: 'norte', name: '  Planta Norte ' })
         .expect(201);
-      expect(res.body).toEqual({ id: 'norte', name: 'Planta Norte', assets: 0, orgId: 'campos-demo' });
+      expect(res.body).toEqual({
+        id: 'norte',
+        name: 'Planta Norte',
+        assets: 0,
+        orgId: 'campos-demo',
+      });
       await api.post('/api/plants', admin).send({ id: 'norte', name: 'Otra' }).expect(409);
       await api.post('/api/plants', admin).send({ id: 'demo', name: 'Demo' }).expect(409); // por tener activos
       await api.post('/api/plants', admin).send({ id: 'BAD_ID', name: 'x' }).expect(400);
@@ -189,7 +194,9 @@ describe('Administración: plantas, activos, auditoría y revocación (e2e)', ()
         .send({ plants: ['norte'] })
         .expect(200);
       const mine = (await api.get('/api/plants', operator.token).expect(200)).body as Plant[];
-      expect(mine).toEqual([{ id: 'norte', name: 'Planta Norte', assets: 2, orgId: 'campos-demo' }]);
+      expect(mine).toEqual([
+        { id: 'norte', name: 'Planta Norte', assets: 2, orgId: 'campos-demo' },
+      ]);
 
       const eng = (await api.get('/api/plants', engineer.token).expect(200)).body as Plant[];
       expect(eng).toEqual([{ id: 'demo', name: 'demo', assets: 2, orgId: 'campos-demo' }]);
@@ -566,7 +573,10 @@ describe('Administración: plantas, activos, auditoría y revocación (e2e)', ()
         .send({ password: 'clave-secreta-larga-2', role: 'operator' })
         .expect(200);
       // una planta ajena (inexistente o de otro cliente) no se puede asignar: 403
-      await api.put(`/api/users/${id}/plants`, admin).send({ plants: ['demo', 'otra'] }).expect(403);
+      await api
+        .put(`/api/users/${id}/plants`, admin)
+        .send({ plants: ['demo', 'otra'] })
+        .expect(403);
       t.plants.register('otra', 'campos-demo');
       await api
         .put(`/api/users/${id}/plants`, admin)

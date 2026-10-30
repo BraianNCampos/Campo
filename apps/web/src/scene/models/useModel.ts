@@ -11,7 +11,7 @@ export type ModelState =
   | { status: 'ready'; model: LoadedModel }
   | { status: 'error'; reason: string };
 
-const reasonOf = (e: unknown): string => (e instanceof Error && e.message ? e.message : 'No se pudo cargar el modelo.');
+const reasonOf = (e: unknown): string => (e instanceof Error && e.message ? e.message : 'No pudimos cargar el modelo.');
 
 /**
  * Modelo GLB de una referencia `model:<uuid>` (carga perezosa, caché compartida). `none` si no hay

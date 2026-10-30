@@ -43,13 +43,19 @@ export class PlantsService {
   }
 
   /** `admin`: siempre en su cliente. `platform_admin`: `orgId` obligatorio (400). */
-  async create(id: string, name: string, requestedOrg: string | undefined, actor: AuthUser): Promise<Plant> {
+  async create(
+    id: string,
+    name: string,
+    requestedOrg: string | undefined,
+    actor: AuthUser,
+  ): Promise<Plant> {
     const orgId = await this.resolveOrg(actor, requestedOrg);
     if (!isPlatform(actor) && (await this.catalog.isLive(id))) {
       // Telemetría de una planta aún sin registrar: sólo plataforma puede adjudicarla a un cliente.
       throw new ConflictException('La planta ya existe');
     }
-    if (!(await this.repo.create(id, name, orgId))) throw new ConflictException('La planta ya existe');
+    if (!(await this.repo.create(id, name, orgId)))
+      throw new ConflictException('La planta ya existe');
     await this.notifier.changed(id);
     await this.audit.record(actor, 'plant.create', `plant:${id}`, orgId, { name });
     return { id, name, assets: 0, orgId };
@@ -101,7 +107,8 @@ export class PlantsService {
       return own;
     }
     if (requested === undefined) throw new BadRequestException('orgId es obligatorio');
-    if (!(await this.orgs.findById(requested))) throw new NotFoundException('Cliente no encontrado');
+    if (!(await this.orgs.findById(requested)))
+      throw new NotFoundException('Cliente no encontrado');
     return requested;
   }
 }

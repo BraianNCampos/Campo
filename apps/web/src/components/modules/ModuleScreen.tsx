@@ -170,7 +170,7 @@ export function ModuleScreen({ module }: { module: ModuleDef }) {
                   data-testid={`module-tab-${t.id}`}
                   onClick={() => setTab(t.id)}
                   className={`inline-flex min-h-11 items-center gap-2 border-b-2 px-4 text-sm font-semibold whitespace-nowrap ${
-                    on ? 'border-accent text-fg' : 'border-transparent text-muted hover:text-fg'
+                    on ? 'border-fg text-fg' : 'border-transparent text-muted hover:text-fg'
                   }`}
                 >
                   {t.label}

@@ -27,7 +27,10 @@ export class AlarmRulesService {
   }
 
   /** 404 si la regla no existe; 403 genérico si su planta es de otro cliente o no asignada. */
-  private async load(id: string, user: AuthUser): Promise<{ rule: AlarmRule; orgId: string | null }> {
+  private async load(
+    id: string,
+    user: AuthUser,
+  ): Promise<{ rule: AlarmRule; orgId: string | null }> {
     const rule = await this.repo.get(id);
     if (!rule) throw new NotFoundException('Regla no encontrada');
     return { rule, orgId: await this.tenant.assertPlant(user, rule.plant) };
@@ -66,7 +69,10 @@ export class AlarmRulesService {
     const changed = Object.keys(dto).filter(
       (k) => (dto as Record<string, unknown>)[k] !== undefined,
     );
-    await this.audit.record(user, 'rule.update', `rule:${id}`, orgId, { changed, plant: rule.plant });
+    await this.audit.record(user, 'rule.update', `rule:${id}`, orgId, {
+      changed,
+      plant: rule.plant,
+    });
     return rule;
   }
 

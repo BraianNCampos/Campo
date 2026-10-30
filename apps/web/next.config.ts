@@ -6,6 +6,8 @@ import type { NextConfig } from 'next';
 const repoRoot = path.resolve(__dirname, '../..');
 
 const nextConfig: NextConfig = {
+  // carpeta de salida configurable: permite construir en paralelo (p. ej. dos e2e a la vez) sin pisar `.next`
+  distDir: process.env.NEXT_DIST_DIR ?? '.next',
   output: 'standalone',
   reactStrictMode: true,
   poweredByHeader: false,

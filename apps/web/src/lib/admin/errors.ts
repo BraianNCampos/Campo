@@ -199,7 +199,7 @@ export class OrgNotEmptyError extends AdminApiError {
   ) {
     const parts = [plants ? plural(plants, 'planta', 'plantas') : null, users ? plural(users, 'usuario', 'usuarios') : null].filter(Boolean);
     const what = parts.length > 0 ? `Todavía tiene ${parts.join(' y ')}` : 'Todavía tiene plantas o usuarios';
-    super(`No se puede borrar el cliente. ${what}: eliminalos o pasalos a otro cliente antes de borrarlo.`, 409, 'conflict');
+    super(`No se puede borrar el cliente. ${what}, y sólo se puede borrar un cliente que ya no tiene plantas ni usuarios.`, 409, 'conflict');
     this.name = 'OrgNotEmptyError';
   }
 }

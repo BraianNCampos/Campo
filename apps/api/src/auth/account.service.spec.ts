@@ -2,7 +2,11 @@ import { BadRequestException, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
-import { MemoryAuditRepository, MemoryUsersRepository } from '../../test/support/memory-repos';
+import {
+  MemoryAuditRepository,
+  MemoryUsersRepository,
+  memoryOrgs,
+} from '../../test/support/memory-repos';
 import { AuditService } from '../audit/audit.service';
 import { parseEnv } from '../config/app-config';
 import { AccessService } from './access.service';
@@ -23,19 +27,28 @@ describe('AccountService.changePassword', () => {
   let access: AccessService;
   let svc: AccountService;
   let id: string;
-  const actor = () => ({ id, email: 'ana@campo.test', role: 'operator' as const, plants: [] });
+  const actor = () => ({
+    id,
+    email: 'ana@campo.test',
+    role: 'operator' as const,
+    plants: [],
+    org: { id: 'acme', name: 'Acme', modules: [] },
+  });
 
   beforeEach(async () => {
     users = new MemoryUsersRepository();
     audit = new MemoryAuditRepository();
-    auth = new AuthService(users, jwt, cfg);
-    access = new AccessService(users, new InMemoryInvalidationBus(), cfg);
+    const orgs = memoryOrgs(users);
+    await orgs.create({ id: 'acme', name: 'Acme', modules: [], active: true });
+    access = new AccessService(users, orgs, new InMemoryInvalidationBus(), cfg);
+    auth = new AuthService(users, jwt, access, cfg);
     access.onModuleInit();
     svc = new AccountService(users, auth, access, new AuditService(audit));
     id = (await users.create({
       email: 'ana@campo.test',
       passwordHash: await auth.hashPassword(CURRENT),
       role: 'operator',
+      orgId: 'acme',
     }))!.id;
   });
 

@@ -62,7 +62,7 @@ export function BottomBar({ moduleIds }: { moduleIds: readonly ModuleId[] }) {
           const b = badges[m.id];
           return (
             <Link key={m.id} prefetch={false} href={moduleHref(m.id)} data-testid={`module-nav-${m.id}`} aria-current={active ? 'page' : undefined} onClick={() => setMore(false)} className={tab(active)}>
-              {active && <span aria-hidden="true" className="absolute top-0 h-0.5 w-10 rounded-full bg-accent" />}
+              {active && <span aria-hidden="true" className="absolute top-0 h-0.5 w-10 rounded-full bg-fg" />}
               <span className="relative">
                 <Icon className="text-2xl" />
                 {b && b.attention > 0 && <span aria-hidden="true" className={`absolute -top-0.5 -right-1.5 size-2.5 rounded-full ring-2 ring-surface ${b.critical ? 'bg-crit' : 'bg-warn'}`} />}

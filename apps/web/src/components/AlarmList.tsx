@@ -32,7 +32,7 @@ export function AlarmList({
   if (alarms.length === 0) {
     return (
       <div className="flex flex-col items-center gap-2 rounded-2xl border border-line bg-surface px-4 py-8 text-center">
-        <IconCheck className="text-4xl text-ok" />
+        <IconCheck className="text-4xl text-calm" />
         <p className="font-semibold">Sin alarmas activas</p>
         <p className="text-sm text-muted">{emptyText}</p>
       </div>
@@ -66,7 +66,7 @@ export function AlarmList({
                   <button
                     type="button"
                     onClick={() => onSelect?.(a.asset)}
-                    className="mt-0.5 block min-h-6 text-left text-base font-semibold hover:underline"
+                    className="mt-0.5 block min-h-11 text-left text-base font-semibold hover:underline"
                   >
                     <AssetName id={a.asset} />
                   </button>

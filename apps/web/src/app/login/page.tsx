@@ -3,6 +3,7 @@
 import { Suspense, useEffect, useState, type FormEvent } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Wordmark } from '@/components/Brand';
+import { HexPattern } from '@/components/HexPattern';
 import { ApiError, login, setToken } from '@/lib/auth';
 import { config } from '@/lib/env';
 
@@ -29,7 +30,7 @@ function LoginForm() {
       else setToken(await login(config.apiUrl, email.trim(), password));
       router.replace('/');
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'No se pudo iniciar sesión');
+      setError(err instanceof ApiError ? err.message : 'No pudimos iniciar tu sesión');
       setBusy(false);
     }
   }
@@ -38,16 +39,19 @@ function LoginForm() {
     'min-h-12 w-full rounded-lg border border-line bg-bg px-3 text-base text-fg placeholder:text-muted/70';
 
   return (
-    <main id="main" className="mx-auto flex min-h-dvh max-w-sm flex-col justify-center gap-6 px-4 py-10">
+    <div className="relative min-h-dvh overflow-hidden">
+    <HexPattern />
+    <main id="main" className="relative mx-auto flex min-h-dvh max-w-sm flex-col justify-center gap-6 px-4 py-10">
       <div className="flex flex-col gap-2">
         <h1 className="m-0"><Wordmark className="text-5xl" /></h1>
         <p className="text-lg font-semibold leading-snug">
           Monitoreo y alarmas <span className="text-accent">para tu industria.</span>
         </p>
+        <p className="text-sm text-muted">Ingresá con tu cuenta para ver tu planta en tiempo real.</p>
       </div>
       {config.mock && (
-        <p className="rounded-lg border border-accent/60 bg-accent/15 px-3 py-2 text-sm text-accent">
-          Modo demo activo: no se requiere inicio de sesión.
+        <p className="rounded-lg border border-line bg-surface px-3 py-2 text-sm text-muted">
+          Estás en el modo demo: no hace falta iniciar sesión.
         </p>
       )}
       <form onSubmit={onSubmit} className="flex flex-col gap-4 rounded-2xl border border-line bg-surface p-5">
@@ -75,9 +79,9 @@ function LoginForm() {
           />
         </label>
         <details className="text-sm">
-          <summary className="min-h-11 cursor-pointer py-2.5 font-semibold text-muted">Tengo un token JWT</summary>
+          <summary className="min-h-11 cursor-pointer py-2.5 font-semibold text-muted">Tengo un token de acceso</summary>
           <input
-            aria-label="Token JWT"
+            aria-label="Token de acceso"
             value={rawToken}
             onChange={(e) => setRawToken(e.target.value)}
             className={`${field} mt-1 font-mono text-sm`}
@@ -97,7 +101,9 @@ function LoginForm() {
           {busy ? 'Entrando…' : 'Entrar'}
         </button>
       </form>
+      <p className="text-center text-xs text-muted">Un producto de Campos Ingeniería</p>
     </main>
+    </div>
   );
 }
 

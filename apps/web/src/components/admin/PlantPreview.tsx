@@ -43,7 +43,7 @@ export function PlantPreview({ assets }: { assets: readonly AssetDef[] | undefin
           <h3 id="preview-title" className="text-xl font-bold tracking-tight">
             Vista previa 3D
           </h3>
-          <p className="mt-1 text-sm text-muted">Así se dibuja la planta con la disposición y los modelos actuales. Arrastra para orbitar.</p>
+          <p className="mt-1 text-sm text-muted">Así se dibuja la planta con la disposición y los modelos actuales. Arrastrá para girar la vista.</p>
         </div>
         {isMobile && wanted && (
           <Button onClick={() => setWanted(false)}>Ocultar vista previa</Button>

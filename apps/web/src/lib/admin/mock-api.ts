@@ -193,9 +193,9 @@ export class MockAdminApi implements AdminApi {
 
   /** El módulo del tipo debe estar contratado por el cliente dueño de la planta (403 `module_disabled`). */
   private checkModule(plant: string, type: AssetDef['type']) {
-    const module = moduleForAssetType(type);
+    const needed = moduleForAssetType(type);
     const org = this.orgs.get(this.orgOfPlant(plant) ?? '');
-    if (module && org && !org.modules.includes(module)) throw new ModuleDisabledError(module);
+    if (needed && org && !org.modules.includes(needed)) throw new ModuleDisabledError(needed);
   }
 
   /** Errores de `model3dRef`, de `metadata` (layout, connectsTo, dominio) (400) y avisos no bloqueantes. */

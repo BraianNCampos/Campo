@@ -43,13 +43,13 @@ export async function login(apiUrl: string, email: string, password: string): Pr
       body: JSON.stringify({ email, password }),
     });
   } catch {
-    throw new ApiError('No se pudo contactar con el servidor', 0);
+    throw new ApiError('No pudimos conectarnos con el servidor', 0);
   }
-  if (res.status === 401 || res.status === 403) throw new ApiError('Credenciales inválidas', res.status);
+  if (res.status === 401 || res.status === 403) throw new ApiError('Correo o contraseña incorrectos', res.status);
   if (!res.ok) throw new ApiError(`Error del servidor (${res.status})`, res.status);
   const body: unknown = await res.json().catch(() => null);
   const token =
     typeof body === 'object' && body !== null && 'accessToken' in body ? (body as { accessToken: unknown }).accessToken : null;
-  if (typeof token !== 'string' || !token) throw new ApiError('Respuesta de login inválida', res.status);
+  if (typeof token !== 'string' || !token) throw new ApiError('El servidor respondió algo inesperado', res.status);
   return token;
 }

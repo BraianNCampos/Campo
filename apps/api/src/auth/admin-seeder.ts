@@ -53,7 +53,10 @@ export class AdminSeeder implements OnApplicationBootstrap {
       }
       if (existing.orgId) await this.warnIfNoAdmin(existing.orgId);
     } catch (err) {
-      this.log.error({ msg: 'no se pudo sembrar el platform_admin', error: (err as Error).message });
+      this.log.error({
+        msg: 'no se pudo sembrar el platform_admin',
+        error: (err as Error).message,
+      });
     }
   }
 

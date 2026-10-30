@@ -191,3 +191,14 @@ describe('métricas ofrecidas por tipo de activo', () => {
     expect(metricLabel('custom')).toBe('custom');
   });
 });
+
+describe('escala: sólo métricas con barra', () => {
+  it('los contadores acumulados no tienen barra de rango', async () => {
+    const { scaleMetricsFor } = await import('./validation');
+    expect(scaleMetricsFor('energy')).toEqual(['kw', 'pf']);
+    expect(scaleMetricsFor('gas')).toEqual(['flow']);
+    expect(scaleMetricsFor('tank')).toEqual(['level', 'temp']);
+    expect(scaleMetricsFor('sensor')).toEqual([]);
+    expect(scaleMetricsFor('')).toEqual([]);
+  });
+});

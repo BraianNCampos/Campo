@@ -29,7 +29,7 @@ export function AssetCard({ id }: { id: string }) {
   const meta = STATUS_META[status];
   const v = state?.values ?? {};
   const main = kind === 'tank' ? 'level' : kind === 'pump' ? 'rpm' : kind === 'valve' ? 'position' : (Object.keys(v)[0] ?? 'value');
-  const color = status === 'ok' ? 'var(--color-ok)' : `var(--color-${status === 'critical' ? 'crit' : status === 'bad' ? 'bad' : 'warn'})`;
+  const color = status === 'ok' ? 'var(--color-calm-bar)' : `var(--color-${status === 'critical' ? 'crit' : status === 'bad' ? 'bad' : 'warn'})`;
   const running = pumpRunning(v);
 
   return (
@@ -54,7 +54,7 @@ export function AssetCard({ id }: { id: string }) {
 
       {status === 'nodata' ? (
         <p data-testid={`nodata-${id}`} className="mt-3 text-sm text-muted">
-          Aún no ha llegado telemetría de este activo.
+          Todavía no llegaron datos de este activo.
         </p>
       ) : (
         <>
@@ -78,7 +78,7 @@ export function AssetCard({ id }: { id: string }) {
           )}
           {kind === 'pump' && (
             <p className="mt-3 flex items-center justify-between text-sm text-muted">
-              <span className={`inline-flex items-center gap-1.5 font-semibold ${running ? 'text-ok' : 'text-muted'}`}>
+              <span className={`inline-flex items-center gap-1.5 font-semibold ${running ? 'text-calm' : 'text-muted'}`}>
                 {running ? <IconPower className="text-base" /> : <IconPause className="text-base" />}
                 {running ? 'En marcha' : 'Detenida'}
               </span>

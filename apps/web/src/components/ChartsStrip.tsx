@@ -32,7 +32,7 @@ export function ChartsStrip() {
               type="button"
               aria-pressed={windowSec === w.s}
               onClick={() => setWindowSec(w.s)}
-              className={`min-h-8 px-3 text-xs font-semibold ${windowSec === w.s ? 'bg-accent text-bg' : 'text-muted hover:bg-surface-2'}`}
+              className={`min-h-11 px-3 text-xs font-semibold ${windowSec === w.s ? 'bg-surface-2 text-fg' : 'text-muted hover:bg-surface-2'}`}
             >
               {w.label}
             </button>
@@ -40,9 +40,9 @@ export function ChartsStrip() {
         </div>
       </header>
       {!id ? (
-        <p className="m-auto text-sm text-muted">Selecciona un equipo para ver sus curvas.</p>
+        <p className="m-auto text-sm text-muted">Elegí un equipo para ver sus curvas.</p>
       ) : metrics === '' ? (
-        <p className="m-auto text-sm text-muted">Aún no ha llegado telemetría de este activo.</p>
+        <p className="m-auto text-sm text-muted">Todavía no llegaron datos de este activo.</p>
       ) : (
         <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 lg:grid-cols-2">
           {metrics.split(',').filter(Boolean).map((m) => (

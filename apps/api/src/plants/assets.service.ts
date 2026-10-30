@@ -77,9 +77,10 @@ export class AssetsService {
       throw new BadRequestException('name y type no pueden ser null');
     }
     this.checkMetadata(dto.metadata ?? undefined, id);
-    const current = dto.type !== undefined || typeof dto.model3dRef === 'string'
-      ? await this.repo.get(plant, id)
-      : null;
+    const current =
+      dto.type !== undefined || typeof dto.model3dRef === 'string'
+        ? await this.repo.get(plant, id)
+        : null;
     // Cambiar el tipo a uno de un módulo no contratado se rechaza; editar un activo ya existente no.
     if (dto.type !== undefined && dto.type !== null && dto.type !== current?.type) {
       await this.assertModule(orgId, dto.type);
@@ -124,7 +125,9 @@ export class AssetsService {
       compileAssetPattern(r.asset).test(id),
     ).length;
     await this.notifier.changed(plant);
-    await this.audit.record(actor, 'asset.delete', `asset:${plant}/${id}`, orgId, { affectedRules });
+    await this.audit.record(actor, 'asset.delete', `asset:${plant}/${id}`, orgId, {
+      affectedRules,
+    });
     return { deleted: true, affectedRules };
   }
 
@@ -134,7 +137,8 @@ export class AssetsService {
    */
   private async assertModule(orgId: string | null, type: AssetType): Promise<void> {
     const org = orgId ? await this.orgs.findById(orgId) : null;
-    if (!org) throw new NotFoundException('Planta no registrada: créela primero (POST /api/plants)');
+    if (!org)
+      throw new NotFoundException('Planta no registrada: créela primero (POST /api/plants)');
     const module = moduleForAssetType(type);
     if (module && !org.modules.includes(module)) {
       throw new ForbiddenException({

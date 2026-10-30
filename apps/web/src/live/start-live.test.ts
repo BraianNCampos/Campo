@@ -221,7 +221,14 @@ describe('startLive en modo demo', () => {
 
     const stopDemo = startLive('demo');
     await new Promise((r) => setTimeout(r, 400));
-    expect(useLiveStore.getState().assetIds).toHaveLength(8);
+    const d = useLiveStore.getState();
+    expect(d.assetIds).toHaveLength(20); // los 20 activos sembrados de la planta demo, todos con telemetría
+    for (const id of d.assetIds) expect(Object.keys(d.assets[id]?.values ?? {}).length, id).toBeGreaterThan(0);
+    expect(d.assets['clima-01']?.values.temp).toBeTypeOf('number');
+    expect(d.assets['en-linea1']?.values.kwh).toBeTypeOf('number');
+    expect([0, 1]).toContain(d.assets['maq-01']?.values.state);
+    expect(d.limitsReady).toBe(true); // límites de DEMO_LIMITS
+    expect(d.limitsByAsset['tk-01']?.length).toBeGreaterThan(0);
     stopDemo();
 
     const stopNorte = startLive('norte');

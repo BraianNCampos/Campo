@@ -13,6 +13,7 @@ export function ConnectionChip() {
   const online = useOnline();
 
   let label: string;
+  let calm = false;
   let cls: string;
   let Icon = IconWifi;
   if (!online) {
@@ -21,11 +22,13 @@ export function ConnectionChip() {
     Icon = IconOffline;
   } else if (mode === 'mock') {
     label = 'Demo';
-    cls = 'text-accent border-accent/60 bg-accent/15';
+    cls = 'text-muted border-line';
+    calm = true;
     Icon = IconCube;
   } else if (connection === 'open') {
     label = fromCache ? 'En línea (caché)' : 'En línea';
-    cls = 'text-ok border-ok/60 bg-ok/15';
+    cls = 'text-calm border-calm-bar/50';
+    calm = true;
   } else if (connection === 'unauthorized') {
     label = 'Sesión caducada';
     cls = 'text-crit border-crit/70 bg-crit/15';
@@ -39,10 +42,10 @@ export function ConnectionChip() {
     <span
       role="status"
       data-testid="connection-chip"
-      className={`inline-flex min-h-8 items-center gap-1.5 rounded-full border px-3 text-sm font-semibold ${cls}`}
+      className={`inline-flex min-h-8 items-center gap-1.5 rounded-full border px-3 text-sm font-semibold max-sm:min-w-8 max-sm:justify-center max-sm:px-2 ${cls}`}
     >
       <Icon className="text-base" />
-      {label}
+      <span className={calm ? 'max-sm:sr-only' : ''}>{label}</span>
       {fromCache && online && mode === 'live' && connection !== 'open' && <span className="sr-only"> datos de caché</span>}
     </span>
   );

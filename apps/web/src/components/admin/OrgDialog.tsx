@@ -102,7 +102,6 @@ export function OrgDialog({ org, onClose, onSaved }: { org?: Org; onClose: () =>
             autoComplete="off"
             autoCapitalize="none"
             spellCheck={false}
-            className="font-mono"
             hint={editing ? 'El id no se puede cambiar.' : 'Minúsculas, números, "-" o "_". No se podrá cambiar después.'}
           />
           <ModuleSwitches value={modules} onChange={setModules} error={errors.modules} />

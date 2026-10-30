@@ -90,7 +90,12 @@ export class ModelsService {
   }
 
   /** 409 con la lista de activos que lo usan; no se borra nada mientras haya referencias. */
-  async remove(plant: string, orgId: string | null, id: string, actor: AuthUser): Promise<{ deleted: true }> {
+  async remove(
+    plant: string,
+    orgId: string | null,
+    id: string,
+    actor: AuthUser,
+  ): Promise<{ deleted: true }> {
     const info = await this.repo.getInfo(id);
     if (!info || info.plant !== plant) throw new NotFoundException('Modelo no encontrado');
     const assets = await this.repo.assetsUsing(plant, id);
@@ -104,7 +109,10 @@ export class ModelsService {
     }
     if (!(await this.repo.delete(plant, id))) throw new NotFoundException('Modelo no encontrado');
     await this.notifier.changed(plant);
-    await this.audit.record(actor, 'model.delete', `model:${plant}/${id}`, orgId, { name: info.name, id });
+    await this.audit.record(actor, 'model.delete', `model:${plant}/${id}`, orgId, {
+      name: info.name,
+      id,
+    });
     return { deleted: true };
   }
 }

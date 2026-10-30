@@ -22,7 +22,7 @@ export default function Plant3D() {
       bounds={layout.bounds}
       data={liveSceneData}
       shadowKey={entries.map((e) => e.id).join()}
-      label="Gemelo digital 3D de la planta. Usa la lista de activos para seleccionar equipos con teclado."
+      label="Gemelo digital 3D de la planta. Usá la lista de activos para elegir equipos con el teclado."
       onMissed={() => select(null)}
     >
       <SceneEntities key={plant} entries={entries} layout={layout} />

@@ -47,7 +47,7 @@ export function AssetPanel({ id, className = '' }: { id: string; className?: str
         <StatusBadge status={status} size="sm" />
         {uncataloged && <UncatalogedTag />}
         {kind === 'pump' && (
-          <span className={`inline-flex items-center gap-1 text-xs font-semibold ${pumpRunning(state?.values) ? 'text-ok' : 'text-muted'}`}>
+          <span className={`inline-flex items-center gap-1 text-xs font-semibold ${pumpRunning(state?.values) ? 'text-calm' : 'text-muted'}`}>
             {pumpRunning(state?.values) ? <IconPower /> : <IconPause />}
             {pumpRunning(state?.values) ? 'En marcha' : 'Detenida'}
           </span>
@@ -56,10 +56,10 @@ export function AssetPanel({ id, className = '' }: { id: string; className?: str
       {modelProblem && (
         <p data-testid="model-unavailable" title={modelProblem} className="mt-2 flex items-center gap-1.5 text-xs text-muted">
           <IconInfo className="shrink-0 text-sm" />
-          Modelo no disponible: se muestra el modelo genérico.
+          Modelo no disponible: mostramos el modelo genérico.
         </p>
       )}
-      {status === 'nodata' && <p className="mt-3 text-sm text-muted">Aún no ha llegado telemetría de este activo.</p>}
+      {status === 'nodata' && <p className="mt-3 text-sm text-muted">Todavía no llegaron datos de este activo.</p>}
       <dl className="mt-3 grid grid-cols-2 gap-3">
         {entries.map(([k, v]) => (
           <div key={k}>

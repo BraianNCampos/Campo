@@ -20,7 +20,8 @@ export const viewAsLabel = (v: ViewAs): string => VIEW_AS_OPTIONS.find((o) => o.
  * Cambia el cliente con el que se ve la demo y recarga el estado. La recarga completa reinicia sesión, plantas, stream y
  * API en memoria (mismo criterio que el cambio de rol demo), y `/` lleva al primer módulo del nuevo cliente.
  */
-export function switchViewAs(value: ViewAs, reload: () => void = () => window.location.assign('/')): void {
+// eslint-disable-next-line @next/next/no-location-assign-relative-destination
+export function switchViewAs(value: ViewAs, reload: () => void = () => window.location.assign('/') /* recarga completa a propósito */): void {
   setDemoOrgId(value === 'platform' ? null : value);
   reload();
 }

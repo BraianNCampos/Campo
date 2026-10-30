@@ -54,8 +54,11 @@ export class OrgsService {
   }
 
   async update(id: string, dto: UpdateOrgDto, actor: AuthUser): Promise<Org> {
-    const changed = Object.keys(dto).filter((k) => (dto as Record<string, unknown>)[k] !== undefined);
-    if (changed.length === 0) throw new BadRequestException('Nada que modificar (name, modules o active)');
+    const changed = Object.keys(dto).filter(
+      (k) => (dto as Record<string, unknown>)[k] !== undefined,
+    );
+    if (changed.length === 0)
+      throw new BadRequestException('Nada que modificar (name, modules o active)');
     const before = (await this.repo.findById(id)) ?? this.notFound();
     // Desactivar corta las sesiones de TODO el cliente y, a diferencia de un simple 401 mientras esté
     // inactivo, las deja revocadas: al reactivarlo hay que iniciar sesión de nuevo (como con un usuario).
@@ -80,7 +83,9 @@ export class OrgsService {
     const res = await this.repo.delete(id);
     if (res === 'not_found') this.notFound();
     if (res === 'has_children') {
-      throw new ConflictException('El cliente tiene plantas o usuarios: elimínelos antes de borrarlo');
+      throw new ConflictException(
+        'El cliente tiene plantas o usuarios: elimínelos antes de borrarlo',
+      );
     }
     await this.access.invalidateOrg(id);
     this.log.log({ msg: 'cliente eliminado', actorId: actor.id, orgId: id });
@@ -98,7 +103,12 @@ export class OrgsService {
       orgId,
     });
     if (!created) throw new ConflictException('El email ya está registrado');
-    this.log.log({ msg: 'administrador de cliente creado', actorId: actor.id, orgId, userId: created.id });
+    this.log.log({
+      msg: 'administrador de cliente creado',
+      actorId: actor.id,
+      orgId,
+      userId: created.id,
+    });
     await this.audit.record(actor, 'org.admin.create', `user:${created.id}`, orgId, {
       email: created.email,
     });

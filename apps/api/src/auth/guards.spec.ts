@@ -27,7 +27,13 @@ function ctx(
 describe('JwtAuthGuard', () => {
   // El token afirma "admin", pero manda lo que diga la base.
   const claims = { id: 'u1', email: 'a@b.c', role: 'admin' as const, tv: 0 };
-  const fromDb: AuthUser = { id: 'u1', email: 'a@b.c', role: 'viewer', plants: ['demo'] };
+  const fromDb: AuthUser = {
+    id: 'u1',
+    email: 'a@b.c',
+    role: 'viewer',
+    plants: ['demo'],
+    org: null,
+  };
   const verify = jest.fn((t: string) => Promise.resolve(t === 'good' ? claims : null));
   const getAccess = jest.fn((id: string) => Promise.resolve(id === 'u1' ? fromDb : null));
   const guard = new JwtAuthGuard(
@@ -101,7 +107,7 @@ describe('JwtAuthGuard', () => {
 describe('RolesGuard', () => {
   const guard = new RolesGuard(new Reflector());
   const asUser = (role: Role): Partial<AuthenticatedRequest> => ({
-    user: { id: 'u', email: 'e', role, plants: [] },
+    user: { id: 'u', email: 'e', role, plants: [], org: null },
   });
 
   it('sin @Roles basta con estar autenticado', () => {
@@ -124,6 +130,18 @@ describe('RolesGuard', () => {
 
   it('admin siempre pasa', () => {
     expect(guard.canActivate(ctx(asUser('admin'), { roles: ['operator'] }))).toBe(true);
+  });
+
+  it('platform_admin pasa siempre; admin no pasa donde se nombra platform_admin', () => {
+    expect(guard.canActivate(ctx(asUser('platform_admin'), { roles: ['operator'] }))).toBe(true);
+    expect(guard.canActivate(ctx(asUser('platform_admin'), { roles: ['platform_admin'] }))).toBe(
+      true,
+    );
+    for (const role of ['admin', 'engineer', 'operator', 'viewer'] as const) {
+      expect(() => guard.canActivate(ctx(asUser(role), { roles: ['platform_admin'] }))).toThrow(
+        ForbiddenException,
+      );
+    }
   });
 
   it('deniega si hay @Roles pero no hay usuario', () => {

@@ -13,12 +13,12 @@ export function ViewAsSelect({ className = '' }: { className?: string }) {
   if (!config.mock) return null;
   return (
     <label className={`flex flex-col gap-1 text-xs font-semibold text-muted ${className}`}>
-      Ver como
+      <span>Ver como</span>
       <select
         data-testid="view-as"
         defaultValue={value}
         onChange={(e) => switchViewAs(e.target.value as ViewAs)}
-        className="min-h-11 w-full rounded-lg border border-line bg-bg px-2 text-sm font-semibold text-fg"
+        className="min-h-11 w-full rounded-lg border border-line bg-bg px-2 text-[13px] font-semibold text-fg"
       >
         {VIEW_AS_OPTIONS.map((o) => (
           <option key={o.value} value={o.value}>

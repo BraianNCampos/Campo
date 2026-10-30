@@ -10,7 +10,7 @@ export function formatRelativeTime(ts: number, now = Date.now()): string {
 }
 
 export function formatAbsoluteTime(ts: number): string {
-  return new Date(ts).toLocaleString('es-ES', { dateStyle: 'medium', timeStyle: 'medium' });
+  return new Date(ts).toLocaleString('es-AR', { dateStyle: 'medium', timeStyle: 'medium' });
 }
 
 export const prettyJson = (v: unknown): string => JSON.stringify(v, null, 2);

@@ -29,7 +29,13 @@ export function toAuthUser(
   org: OrgSummary | null,
 ): AuthUser {
   const all = u.role === 'admin' || u.role === 'platform_admin';
-  return { id: u.id, email: u.email, role: u.role, plants: all ? [ALL_PLANTS] : [...u.plants], org };
+  return {
+    id: u.id,
+    email: u.email,
+    role: u.role,
+    plants: all ? [ALL_PLANTS] : [...u.plants],
+    org,
+  };
 }
 
 /**

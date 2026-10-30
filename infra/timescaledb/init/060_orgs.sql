@@ -25,9 +25,12 @@ ON CONFLICT (id) DO NOTHING;
 
 -- Plantas y usuarios: pertenencia ----------------------------------------------------------------------
 -- plants.org_id NOT NULL. Las plantas que sólo existían por activos, asignaciones, reglas, alarmas o modelos
--- se registran antes (nombre = id) para poder asignarlas a un cliente.
-INSERT INTO plants (id, name)
-SELECT p, p FROM (
+-- se registran antes (nombre = id) para poder asignarlas a un cliente. La columna se añade primero (nullable)
+-- para que el INSERT con org_id explícito sea válido también cuando ya es NOT NULL (segunda ejecución).
+ALTER TABLE plants ADD COLUMN IF NOT EXISTS org_id TEXT REFERENCES organizations (id);
+
+INSERT INTO plants (id, name, org_id)
+SELECT p, p, 'campos-demo' FROM (
     SELECT plant AS p FROM assets
     UNION SELECT plant FROM user_plants
     UNION SELECT plant FROM alarm_rules
@@ -36,7 +39,6 @@ SELECT p, p FROM (
 ) AS known
 ON CONFLICT (id) DO NOTHING;
 
-ALTER TABLE plants ADD COLUMN IF NOT EXISTS org_id TEXT REFERENCES organizations (id);
 UPDATE plants SET org_id = 'campos-demo' WHERE org_id IS NULL;
 ALTER TABLE plants ALTER COLUMN org_id SET NOT NULL;
 CREATE INDEX IF NOT EXISTS plants_org_idx ON plants (org_id);

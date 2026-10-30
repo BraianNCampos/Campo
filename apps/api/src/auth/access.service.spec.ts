@@ -1,4 +1,8 @@
-import { MemoryUsersRepository } from '../../test/support/memory-repos';
+import {
+  MemoryOrgsRepository,
+  MemoryUsersRepository,
+  memoryOrgs,
+} from '../../test/support/memory-repos';
 import { parseEnv } from '../config/app-config';
 import { AccessService } from './access.service';
 import { InMemoryInvalidationBus } from './auth-invalidation';
@@ -12,11 +16,12 @@ const cfg = (ttl: number) =>
 
 describe('AccessService', () => {
   let users: MemoryUsersRepository;
+  let orgs: MemoryOrgsRepository;
   let bus: InMemoryInvalidationBus;
   let id: string;
 
   const make = (ttl = 30_000) => {
-    const svc = new AccessService(users, bus, cfg(ttl));
+    const svc = new AccessService(users, orgs, bus, cfg(ttl));
     svc.onModuleInit();
     return svc;
   };
@@ -24,8 +29,15 @@ describe('AccessService', () => {
   beforeEach(async () => {
     jest.useFakeTimers();
     users = new MemoryUsersRepository();
+    orgs = memoryOrgs(users);
+    await orgs.create({ id: 'acme', name: 'Acme', modules: ['tanks'], active: true });
     bus = new InMemoryInvalidationBus();
-    const u = await users.create({ email: 'ana@campo.test', passwordHash: 'x', role: 'operator' });
+    const u = await users.create({
+      email: 'ana@campo.test',
+      passwordHash: 'x',
+      role: 'operator',
+      orgId: 'acme',
+    });
     id = u!.id;
     await users.setPlants(id, ['demo']);
   });
@@ -39,6 +51,7 @@ describe('AccessService', () => {
       email: 'ana@campo.test',
       role: 'operator',
       plants: ['demo'],
+      org: { id: 'acme', name: 'Acme', modules: ['tanks'] },
     });
   });
 
@@ -47,8 +60,89 @@ describe('AccessService', () => {
       email: 'a@campo.test',
       passwordHash: 'x',
       role: 'admin',
+      orgId: 'acme',
     }))!;
     expect((await make().getAccess(admin.id))?.plants).toEqual(['*']);
+  });
+
+  it('platform_admin -> plants ["*"] y org null; sin cliente un rol normal no es válido', async () => {
+    const platform = (await users.create({
+      email: 'p@campo.test',
+      passwordHash: 'x',
+      role: 'platform_admin',
+      orgId: null,
+    }))!;
+    await expect(make().getAccess(platform.id)).resolves.toMatchObject({
+      role: 'platform_admin',
+      plants: ['*'],
+      org: null,
+    });
+    // estados imposibles en la base (CHECK users_org_role_check): se deniegan en vez de abrir acceso
+    const orphan = (await users.create({
+      email: 'o@campo.test',
+      passwordHash: 'x',
+      role: 'viewer',
+      orgId: null,
+    }))!;
+    await expect(make(0).getAccess(orphan.id)).resolves.toBeNull();
+    users.users.find((u) => u.id === platform.id)!.orgId = 'acme';
+    await expect(make(0).getAccess(platform.id)).resolves.toBeNull();
+  });
+
+  describe('cliente', () => {
+    it('cliente desactivado o inexistente -> null; reactivado vuelve a entrar', async () => {
+      const svc = make(0);
+      await orgs.update('acme', { active: false });
+      await expect(svc.getAccess(id)).resolves.toBeNull();
+      await orgs.update('acme', { active: true });
+      await expect(svc.getAccess(id)).resolves.toMatchObject({ id });
+      orgs.orgs.delete('acme');
+      await expect(svc.getAccess(id)).resolves.toBeNull();
+    });
+
+    it('un cambio del cliente no se ve hasta invalidarlo (o expirar el TTL); invalidateOrg lo aplica al instante', async () => {
+      const svc = make();
+      await svc.getAccess(id);
+      await orgs.update('acme', { active: false, modules: ['gas'] });
+      expect((await svc.getAccess(id))?.org?.modules).toEqual(['tanks']); // aún cacheado
+      await svc.invalidateOrg('acme');
+      await expect(svc.getAccess(id)).resolves.toBeNull();
+      await orgs.update('acme', { active: true });
+      await svc.invalidateOrg('acme');
+      expect((await svc.getAccess(id))?.org?.modules).toEqual(['gas']);
+    });
+
+    it('invalidateOrg sólo limpia a los usuarios de ese cliente', async () => {
+      await orgs.create({ id: 'otro', name: 'Otro', modules: [], active: true });
+      const other = (await users.create({
+        email: 'z@campo.test',
+        passwordHash: 'x',
+        role: 'admin',
+        orgId: 'otro',
+      }))!;
+      const svc = make();
+      await svc.getAccess(id);
+      await svc.getAccess(other.id);
+      const before = users.reads;
+      await svc.invalidateOrg('acme');
+      await svc.getAccess(other.id);
+      expect(users.reads).toBe(before); // el de otro cliente sigue en caché
+      await svc.getAccess(id);
+      expect(users.reads).toBe(before + 1);
+    });
+
+    it('invalidateOrg publica `org:<id>`, emite en orgInvalidations$ y la otra réplica limpia su caché', async () => {
+      const a = make();
+      const b = make();
+      const seen: string[] = [];
+      b.orgInvalidations$.subscribe((x) => seen.push(x));
+      await b.getAccess(id);
+      await orgs.update('acme', { active: false });
+      expect(await b.getAccess(id)).not.toBeNull();
+      await a.invalidateOrg('acme');
+      expect(seen).toEqual(['acme']);
+      await expect(b.getAccess(id)).resolves.toBeNull();
+    });
   });
 
   it('no existe o inactivo -> null', async () => {
@@ -136,7 +230,7 @@ describe('AccessService', () => {
         publish: () => Promise.reject(new Error('redis caído')),
         subscribe: () => () => undefined,
       };
-      const svc = new AccessService(users, failing, cfg(30_000));
+      const svc = new AccessService(users, orgs, failing, cfg(30_000));
       await svc.getAccess(id);
       await users.update(id, { active: false });
       await expect(svc.invalidate(id)).resolves.toBeUndefined();

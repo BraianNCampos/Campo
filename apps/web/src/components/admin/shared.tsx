@@ -23,7 +23,7 @@ export const ROLE_HELP: Record<Role, string> = {
 };
 
 export function RoleBadge({ role }: { role: Role }) {
-  return <Badge tone={role === 'admin' || role === 'platform_admin' ? 'info' : 'neutral'}>{ROLE_LABEL[role]}</Badge>;
+  return <Badge tone={role === 'platform_admin' ? 'info' : 'neutral'}>{ROLE_LABEL[role]}</Badge>;
 }
 
 export const moduleLabel = (id: ModuleId) => MODULES.find((m) => m.id === id)?.label ?? id;
@@ -68,7 +68,7 @@ export function ActiveBadge({ active }: { active: boolean }) {
 }
 
 export function PlantChips({ role, plants }: { role: Role; plants: string[] }) {
-  if (role === 'admin' || role === 'platform_admin') return <Badge tone="info">Todas</Badge>;
+  if (role === 'admin' || role === 'platform_admin') return <Badge>Todas</Badge>;
   if (plants.length === 0) return <span className="text-sm text-muted">Sin plantas</span>;
   return (
     <span className="flex flex-wrap gap-1">

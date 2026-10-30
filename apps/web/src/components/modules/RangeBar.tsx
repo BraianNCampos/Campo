@@ -5,13 +5,13 @@ import { scalePct } from '@/lib/modules/scale';
 const fmt = (v: number) => (Math.abs(v) >= 1000 ? Math.round(v).toString() : String(Math.round(v * 10) / 10));
 
 /** Marcas de límite que se pueden rotular sin pisarse (separadas ≥ 11 % y lejos de los extremos). */
-export function labelledLimits(limits: readonly Limit[], scale: Scale): Limit[] {
+export function labelledLimits(limits: readonly Limit[], scale: Scale, edge = 6, gap = 11): Limit[] {
   const out: Limit[] = [];
   const sorted = [...limits].sort((a, b) => a.threshold - b.threshold);
   let lastPct = -100;
   for (const l of sorted) {
     const p = scalePct(l.threshold, scale);
-    if (p < 6 || p > 94 || p - lastPct < 11) continue;
+    if (p < edge || p > 100 - edge || p - lastPct < gap) continue;
     out.push(l);
     lastPct = p;
   }
@@ -35,7 +35,7 @@ export function RangeBar({
   big?: boolean;
 }) {
   const pct = value === undefined ? 0 : scalePct(value, scale);
-  const labelled = labelledLimits(limits, scale);
+  const labelled = big ? labelledLimits(limits, scale, 14, 18) : labelledLimits(limits, scale);
   return (
     <div className="w-full">
       <div

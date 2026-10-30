@@ -95,10 +95,13 @@ export class AlarmEngine implements OnModuleInit, OnModuleDestroy {
       if (owned.get(a.plant)) persisted.push(a);
       else {
         unowned++;
-        await this.safe('cerrar alarma sin planta', () => this.alarms.markCleared(a.id, Date.now()));
+        await this.safe('cerrar alarma sin planta', () =>
+          this.alarms.markCleared(a.id, Date.now()),
+        );
       }
     }
-    if (unowned > 0) this.log.warn({ msg: 'alarmas de plantas sin cliente cerradas', count: unowned });
+    if (unowned > 0)
+      this.log.warn({ msg: 'alarmas de plantas sin cliente cerradas', count: unowned });
     const orphans = this.evaluator.restore(persisted, Date.now());
     this.restored = true;
     for (const a of persisted) {

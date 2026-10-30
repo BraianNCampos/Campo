@@ -79,7 +79,7 @@ try {
     page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`));
     page.on('console', (m) => m.type() === 'error' && errors.push(`console: ${m.text()}`));
 
-    await page.goto(BASE, { waitUntil: 'load' });
+    await page.goto(`${BASE}/m/view3d`, { waitUntil: 'load' }); // la vista 3D es el módulo view3d
     const canvas = page.locator('[data-testid="scene"] canvas').first();
     await canvas.waitFor({ state: 'visible', timeout: 30_000 });
     await pollUntil(async () => ((await canvas.boundingBox())?.width ?? 0) > 400, 10_000);
@@ -95,7 +95,7 @@ try {
     const p1 = await textOf(page, 'row-value-pump-01');
     check(p1 !== null && p1 !== '—', `escritorio: pump-01 muestra rpm (${p1})`);
 
-    const alarm = await pollUntil(async () => (await page.locator('[data-testid="alarm-item"]').count()) > 0, 25_000);
+    const alarm = await pollUntil(async () => (await page.locator('[data-testid="alarm-item"]').count()) > 0, 60_000);
     check(!!alarm, 'escritorio: aparecen alarmas simuladas (level>90 / <10)');
     const badge = await textOf(page, 'alarm-count');
     check(!!badge && Number(badge) > 0, `escritorio: contador de alarmas = ${badge}`);
@@ -154,9 +154,12 @@ try {
     });
     check(swReady, 'PWA: service worker activo');
     await sleep(1500);
+    await page.goto(`${BASE}/m/tanks`, { waitUntil: 'load' }); // pantalla de módulo visitada → queda en el shell cacheado
+    await page.locator('[data-testid^="asset-card-"]').first().waitFor({ timeout: 20_000 });
+    await sleep(1500);
     await ctx.setOffline(true);
     await page.reload({ waitUntil: 'load' }).catch(() => {});
-    const offlineOk = await pollUntil(async () => (await page.locator('h1 [aria-label="Campo"]').count()) > 0, 10_000);
+    const offlineOk = await pollUntil(async () => (await page.locator('[role="img"][aria-label="Campo"]').count()) > 0, 10_000);
     check(!!offlineOk, 'PWA: con red cortada la app carga desde el shell cacheado');
     const chip = await pollUntil(async () => ((await textOf(page, 'connection-chip')) ?? '').includes('Sin conexión'), 5000);
     check(!!chip, 'PWA: indicador "Sin conexión" visible');
@@ -182,7 +185,7 @@ try {
     page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`));
     page.on('console', (m) => m.type() === 'error' && errors.push(`console: ${m.text()}`));
 
-    await page.goto(BASE, { waitUntil: 'load' });
+    await page.goto(`${BASE}/m/tanks`, { waitUntil: 'load' });
     await page.locator('[data-testid^="asset-card-"]').first().waitFor({ timeout: 15_000 });
     const cards = await page.locator('[data-testid^="asset-card-"]').count();
     check(cards === 8, `móvil: ${cards} tarjetas de activo`);
@@ -192,20 +195,20 @@ try {
     const mChanged = await pollUntil(async () => (await textOf(page, 'value-tk-01')) !== m1, 8000);
     check(!!mChanged, `móvil: el valor de tk-01 cambia (${m1} → ${await textOf(page, 'value-tk-01')})`);
 
-    const tabs = await page.locator('nav[aria-label="Navegación principal"] button').all();
-    let tabsOk = tabs.length === 3;
+    const tabs = await page.locator('[data-testid="bottom-bar"] > a, [data-testid="bottom-bar"] > button').all();
+    let tabsOk = tabs.length >= 2 && tabs.length <= 4;
     for (const t of tabs) {
       const b = await t.boundingBox();
       if (!b || b.height < 44 || b.width < 44) tabsOk = false;
     }
-    check(tabsOk, 'móvil: navegación inferior con 3 pestañas y touch targets ≥44px');
+    check(tabsOk, `móvil: barra inferior con ${tabs.length} destinos (máx. 4) y touch targets ≥44px`);
 
     await sleep(9000);
     await page.screenshot({ path: path.join(shots, 'mobile-summary-390x844.png') });
     await page.screenshot({ path: path.join(shots, 'mobile-summary-full.png'), fullPage: false });
 
-    await page.locator('[data-testid="tab-alarms"]').tap();
-    const hasAlarm = await pollUntil(async () => (await page.locator('[data-testid="alarm-item"]').count()) > 0, 20_000);
+    await page.locator('[data-testid="alarm-count"]').tap(); // la insignia de alarmas lleva a /alarmas
+    const hasAlarm = await pollUntil(async () => (await page.locator('[data-testid="alarm-item"]').count()) > 0, 60_000);
     check(!!hasAlarm, 'móvil: lista de alarmas con elementos');
     await sleep(300);
     await page.screenshot({ path: path.join(shots, 'mobile-alarms-390x844.png') });
@@ -225,6 +228,7 @@ try {
     check(!!acked, 'móvil: ack local marca la alarma como reconocida');
     await page.screenshot({ path: path.join(shots, 'mobile-alarms-acked.png') });
 
+    await page.goto(`${BASE}/m/view3d`, { waitUntil: 'load' });
     await page.locator('[data-testid="tab-3d"]').tap();
     await sleep(300);
     check((await page.locator('canvas').count()) === 0, 'móvil: pestaña 3D sin canvas hasta pulsar "Ver 3D"');

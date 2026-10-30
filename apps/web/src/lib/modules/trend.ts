@@ -57,7 +57,7 @@ export function computeTrend(series: Series, scale: Scale | undefined, now?: num
   const perHour = slopePerHour(series, now);
   if (perHour === null) return null;
   const span = scale ? scale.max - scale.min : 0;
-  const limit = span > 0 ? span * STEADY_FRACTION_PER_HOUR : 0;
+  const limit = span > 0 ? span * STEADY_FRACTION_PER_HOUR : 1e-6; // sin escala, sólo el ruido numérico es «estable»
   const direction: TrendDirection = Math.abs(perHour) < limit ? 'steady' : perHour > 0 ? 'up' : 'down';
   return { direction, perHour };
 }
@@ -69,7 +69,7 @@ export const TREND_ARROW: Record<TrendDirection, string> = { steady: '→', up: 
 export function formatRate(perHour: number, unit: string, decimals = 1): string {
   const abs = Math.abs(perHour);
   const d = abs >= 100 ? 0 : abs >= 10 ? Math.min(decimals, 1) : decimals;
-  const num = `${perHour < 0 ? '−' : '+'}${abs.toFixed(d)}`;
+  const num = `${perHour < 0 ? '−' : '+'}${Number(abs.toFixed(d))}`;
   if (!unit) return `${num} por hora`;
   return unit.endsWith('/h') ? `${num} ${unit} por hora` : `${num} ${unit}/h`;
 }

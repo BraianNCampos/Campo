@@ -2,7 +2,7 @@
 
 import { useState, type FormEvent, type ReactNode } from 'react';
 import type { ManagedUser, Role } from '@campo/shared';
-import { getAdminApi, ROLES } from '@/lib/admin';
+import { getAdminApi, CLIENT_ROLES } from '@/lib/admin';
 import { validatePassword } from '@/lib/admin/validation';
 import { usePlantStore } from '@/store/plant-store';
 import { useSessionStore } from '@/store/session-store';
@@ -30,7 +30,10 @@ export function UserDialog({ user, users, onClose, onChanged }: { user: ManagedU
   const plants = usePlantStore((s) => s.plants);
   const me = useSessionStore((s) => s.me);
   const isSelf = me?.id === user.id;
-  const lastAdmin = user.role === 'admin' && user.active && users.filter((u) => u.role === 'admin' && u.active).length <= 1;
+  const isStaff = user.role === 'platform_admin'; // personal de Campos Ingeniería: sin cliente ni plantas propias
+  const sameGroup = (u: ManagedUser) => u.role === user.role && u.active && u.org?.id === user.org?.id;
+  const lastAdmin = (user.role === 'admin' || isStaff) && user.active && users.filter(sameGroup).length <= 1;
+  const clientPlants = plants.filter((p) => p.orgId === user.org?.id); // sólo plantas del cliente del usuario
 
   const [role, setRole] = useState<Role>(user.role);
   const [active, setActive] = useState(user.active);
@@ -43,7 +46,7 @@ export function UserDialog({ user, users, onClose, onChanged }: { user: ManagedU
   const sessSub = useSubmit();
 
   const roleDirty = role !== user.role || active !== user.active;
-  const degrades = isSelf && user.role === 'admin' && (role !== 'admin' || !active);
+  const degrades = isSelf && (user.role === 'admin' || isStaff) && (role !== user.role || !active);
   const plantsDirty = [...assigned].sort().join() !== [...user.plants].sort().join();
 
   /** Lanza si la API rechaza (409 último admin, 403…). */
@@ -79,12 +82,23 @@ export function UserDialog({ user, users, onClose, onChanged }: { user: ManagedU
 
   return (
     <>
-      <Modal title={`Gestionar usuario`} description={<span className="break-all">{user.email}{isSelf ? ' (tú)' : ''}</span>} onClose={onClose} size="lg">
+      <Modal
+        title="Gestionar usuario"
+        description={
+          <span className="break-all">
+            {user.email}
+            {isSelf ? ' (vos)' : ''}
+            {user.org ? ` · ${user.org.name}` : ' · Campos Ingeniería'}
+          </span>
+        }
+        onClose={onClose}
+        size="lg"
+      >
         <div className="flex flex-col gap-5">
           <Section title="Rol y estado">
             <form onSubmit={onRoleSubmit} className="flex flex-col gap-3">
               <SelectField label="Rol" value={role} onChange={(e) => setRole(e.target.value as Role)} hint={ROLE_HELP[role]}>
-                {ROLES.map((r) => (
+                {(isStaff ? (['platform_admin'] as const) : CLIENT_ROLES).map((r) => (
                   <option key={r} value={r}>
                     {ROLE_LABEL[r]}
                   </option>
@@ -92,10 +106,10 @@ export function UserDialog({ user, users, onClose, onChanged }: { user: ManagedU
               </SelectField>
               <CheckField label="Usuario activo" checked={active} onChange={(e) => setActive(e.target.checked)} hint="Un usuario inactivo no puede iniciar sesión." />
               {lastAdmin && (
-                <Alert tone="warning">Es el último administrador activo: la API no permitirá degradarlo ni desactivarlo.</Alert>
+                <Alert tone="warning">Es el último administrador activo: no se va a poder degradarlo ni desactivarlo hasta que haya otro.</Alert>
               )}
               {degrades && (
-                <Alert tone="warning">Estás cambiando tu propio acceso. Perderás los permisos de administrador en cuanto guardes.</Alert>
+                <Alert tone="warning">Estás cambiando tu propio acceso. Vas a perder los permisos de administrador en cuanto guardes.</Alert>
               )}
               <ApiErrorAlert error={roleSub.error} />
               <div>
@@ -107,18 +121,21 @@ export function UserDialog({ user, users, onClose, onChanged }: { user: ManagedU
           </Section>
 
           <Section title="Plantas asignadas">
-            <form onSubmit={(e) => void savePlants(e)} className="flex flex-col gap-3">
-              {user.role === 'admin' ? (
-                <p className="text-sm text-muted">Los administradores acceden a todas las plantas; las asignaciones no se aplican.</p>
-              ) : null}
-              <PlantChecklist plants={plants} value={assigned} onChange={setAssigned} />
-              <ApiErrorAlert error={plantsSub.error} />
-              <div>
-                <Button type="submit" variant="primary" busy={plantsSub.busy} disabled={!plantsDirty}>
-                  Guardar plantas
-                </Button>
-              </div>
-            </form>
+            {user.role === 'admin' || isStaff ? (
+              <p className="text-sm text-muted">
+                {isStaff ? 'El personal de Campos Ingeniería ve todas las plantas de todos los clientes.' : 'Los administradores ven todas las plantas de su cliente; las asignaciones no se aplican.'}
+              </p>
+            ) : (
+              <form onSubmit={(e) => void savePlants(e)} className="flex flex-col gap-3">
+                <PlantChecklist plants={clientPlants} value={assigned} onChange={setAssigned} />
+                <ApiErrorAlert error={plantsSub.error} />
+                <div>
+                  <Button type="submit" variant="primary" busy={plantsSub.busy} disabled={!plantsDirty}>
+                    Guardar plantas
+                  </Button>
+                </div>
+              </form>
+            )}
           </Section>
 
           <Section title="Restablecer contraseña">
@@ -170,8 +187,8 @@ export function UserDialog({ user, users, onClose, onChanged }: { user: ManagedU
 
       {pending === 'self-degrade' && (
         <ConfirmDialog
-          title="¿Quitarte permisos a ti mismo?"
-          description="Vas a degradar o desactivar tu propia cuenta de administrador. Perderás el acceso a Usuarios y Auditoría y no podrás deshacerlo tú."
+          title="¿Querés quitarte permisos a vos mismo?"
+          description="Vas a degradar o desactivar tu propia cuenta de administrador. Vas a perder el acceso a Usuarios y Auditoría y no vas a poder deshacerlo vos."
           confirmLabel="Sí, cambiar mi acceso"
           onConfirm={saveRole}
           onClose={() => setPending(null)}
@@ -180,7 +197,7 @@ export function UserDialog({ user, users, onClose, onChanged }: { user: ManagedU
       {pending === 'deactivate' && (
         <ConfirmDialog
           title="Desactivar usuario"
-          description={`${user.email} dejará de poder iniciar sesión y sus sesiones se cerrarán.${isSelf ? ' Es tu propia cuenta.' : ''}`}
+          description={`${user.email} dejará de poder iniciar sesión y sus sesiones se van a cerrar.${isSelf ? ' Es tu propia cuenta.' : ''}`}
           confirmLabel="Desactivar"
           onConfirm={async () => {
             const u = await api.updateUser(user.id, { active: false });
@@ -194,7 +211,7 @@ export function UserDialog({ user, users, onClose, onChanged }: { user: ManagedU
       {pending === 'revoke' && (
         <ConfirmDialog
           title="Revocar sesiones"
-          description={`Se cerrarán todas las sesiones de ${user.email}.`}
+          description={`Se cierran todas las sesiones de ${user.email}.`}
           confirmLabel="Revocar sesiones"
           onConfirm={async () => {
             onChanged(await api.revokeUserSessions(user.id));
@@ -206,13 +223,13 @@ export function UserDialog({ user, users, onClose, onChanged }: { user: ManagedU
       {pending === 'password' && (
         <ConfirmDialog
           title="Restablecer contraseña"
-          description={`Se cambiará la contraseña de ${user.email} y se cerrarán sus sesiones.`}
+          description={`Se cambia la contraseña de ${user.email} y se cierran sus sesiones.`}
           confirmLabel="Restablecer"
           onConfirm={async () => {
             const u = await api.updateUser(user.id, { password });
             setPassword('');
             onChanged(u);
-            toast.success(`Contraseña de ${u.email} restablecida; sus sesiones se han cerrado.`);
+            toast.success(`Contraseña de ${u.email} restablecida; sus sesiones se cerraron.`);
           }}
           onClose={() => setPending(null)}
         />

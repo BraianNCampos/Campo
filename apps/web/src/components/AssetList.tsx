@@ -27,7 +27,7 @@ function Row({ id }: { id: string }) {
         onClick={() => select(selected ? null : id)}
         data-testid={`asset-row-${id}`}
         className={`flex min-h-11 w-full items-center gap-3 rounded-xl border px-3 py-1.5 text-left transition-colors ${
-          selected ? 'border-accent bg-accent/10' : 'border-transparent hover:bg-surface-2'
+          selected ? 'border-fg/50 bg-surface-2' : 'border-transparent hover:bg-surface-2'
         }`}
       >
         <KIcon className="shrink-0 text-xl text-muted" />

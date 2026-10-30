@@ -12,7 +12,6 @@ import { mulberry32 } from './simulator';
 
 export const COUNTER_SPEEDUP = 30;
 
-const TAU = Math.PI * 2;
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 const smooth = (x: number) => x * x * (3 - 2 * x);
 const round = (v: number, d: number) => Math.round(v * 10 ** d) / 10 ** d;

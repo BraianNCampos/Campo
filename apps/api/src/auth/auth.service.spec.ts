@@ -1,7 +1,13 @@
 import { UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { parseEnv } from '../config/app-config';
-import { MemoryUsersRepository } from '../../test/support/memory-repos';
+import {
+  MemoryOrgsRepository,
+  MemoryUsersRepository,
+  memoryOrgs,
+} from '../../test/support/memory-repos';
+import { AccessService } from './access.service';
+import { InMemoryInvalidationBus } from './auth-invalidation';
 import { AuthService } from './auth.service';
 
 const cfg = parseEnv({ JWT_SECRET: 's'.repeat(40), NODE_ENV: 'test', BCRYPT_ROUNDS: '4' });
@@ -9,15 +15,20 @@ const cfg = parseEnv({ JWT_SECRET: 's'.repeat(40), NODE_ENV: 'test', BCRYPT_ROUN
 describe('AuthService', () => {
   const jwt = new JwtService({ secret: cfg.jwtSecret, signOptions: { expiresIn: '1h' } });
   let users: MemoryUsersRepository;
+  let orgs: MemoryOrgsRepository;
   let svc: AuthService;
 
   beforeEach(async () => {
     users = new MemoryUsersRepository();
-    svc = new AuthService(users, jwt, cfg);
+    orgs = memoryOrgs(users);
+    await orgs.create({ id: 'acme', name: 'Acme', modules: ['tanks'], active: true });
+    const access = new AccessService(users, orgs, new InMemoryInvalidationBus(), cfg);
+    svc = new AuthService(users, jwt, access, cfg);
     await users.create({
       email: 'ana@campo.test',
       passwordHash: await svc.hashPassword('secreto-123'),
       role: 'operator',
+      orgId: 'acme',
     });
   });
 
@@ -41,6 +52,32 @@ describe('AuthService', () => {
     await expect(svc.login('ana@campo.test', 'mala')).rejects.toBeInstanceOf(UnauthorizedException);
     await expect(svc.login('nadie@campo.test', 'secreto-123')).rejects.toThrow(
       'Credenciales inválidas',
+    );
+  });
+
+  it('login devuelve el cliente del usuario (org) y null para platform_admin', async () => {
+    const { user } = await svc.login('ana@campo.test', 'secreto-123');
+    expect(user.org).toEqual({ id: 'acme', name: 'Acme', modules: ['tanks'] });
+    await users.create({
+      email: 'p@campo.test',
+      passwordHash: await svc.hashPassword('secreto-123'),
+      role: 'platform_admin',
+      orgId: null,
+    });
+    const platform = await svc.login('p@campo.test', 'secreto-123');
+    expect(platform.user).toMatchObject({ role: 'platform_admin', org: null, plants: ['*'] });
+  });
+
+  it('un cliente desactivado (o inexistente) no inicia sesión: mismo 401 que una contraseña errónea', async () => {
+    await orgs.update('acme', { active: false });
+    await expect(svc.login('ana@campo.test', 'secreto-123')).rejects.toThrow(
+      'Credenciales inválidas',
+    );
+    await orgs.update('acme', { active: true });
+    await expect(svc.login('ana@campo.test', 'secreto-123')).resolves.toHaveProperty('accessToken');
+    orgs.orgs.delete('acme');
+    await expect(svc.login('ana@campo.test', 'secreto-123')).rejects.toBeInstanceOf(
+      UnauthorizedException,
     );
   });
 

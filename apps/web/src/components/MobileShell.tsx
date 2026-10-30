@@ -27,7 +27,7 @@ export function MobileShell() {
             aria-selected={tab === id}
             data-testid={`tab-${id}`}
             onClick={() => setTab(id)}
-            className={`min-h-11 border-b-2 px-4 text-sm font-semibold ${tab === id ? 'border-accent text-fg' : 'border-transparent text-muted'}`}
+            className={`min-h-11 border-b-2 px-4 text-sm font-semibold ${tab === id ? 'border-fg text-fg' : 'border-transparent text-muted'}`}
           >
             {label}
           </button>
