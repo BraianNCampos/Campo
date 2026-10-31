@@ -1,36 +1,34 @@
-import type { AlarmEvent } from '@campo/shared';
+import { countAlarms, isListed, rankAlarms, type AlarmCounts, type LiveAlarm } from './alarm-lifecycle';
 
 export const FOOTER_TOP = 3;
 
+export { rankAlarms };
+
 export interface AlarmSummary {
+  counts: AlarmCounts;
+  /** lista activa (sin reconocer + normalizadas sin reconocer + reconocidas) */
+  total: number;
   critical: number;
   warning: number;
-  total: number;
-  /** activas sin reconocer */
   unacked: number;
-  /** las más importantes: críticas primero, sin reconocer primero, más recientes primero */
-  top: AlarmEvent[];
+  rtnUnacked: number;
+  shelved: number;
+  /** las más importantes de la lista activa */
+  top: LiveAlarm[];
 }
 
-/** Orden de importancia de las alarmas activas (misma regla que la lista completa). */
-export function rankAlarms(alarms: Iterable<AlarmEvent>): AlarmEvent[] {
-  return [...alarms].sort(
-    (a, b) =>
-      (b.severity === 'critical' ? 1 : 0) - (a.severity === 'critical' ? 1 : 0) ||
-      Number(!!a.acknowledged) - Number(!!b.acknowledged) ||
-      b.ts - a.ts ||
-      a.id.localeCompare(b.id),
-  );
-}
-
-/** Resumen para el pie global: conteo por prioridad y las 3 más importantes. */
-export function summarizeAlarms(alarms: Record<string, AlarmEvent>, top = FOOTER_TOP): AlarmSummary {
-  const list = Object.values(alarms).filter((a) => a.state === 'active');
+/** Resumen para el pie global: conteo por ciclo de vida y prioridad, y las 3 más importantes. */
+export function summarizeAlarms(alarms: Record<string, LiveAlarm>, top = FOOTER_TOP): AlarmSummary {
+  const all = Object.values(alarms);
+  const counts = countAlarms(all);
   return {
-    critical: list.filter((a) => a.severity === 'critical').length,
-    warning: list.filter((a) => a.severity === 'warning').length,
-    total: list.length,
-    unacked: list.filter((a) => !a.acknowledged).length,
-    top: rankAlarms(list).slice(0, top),
+    counts,
+    total: counts.list.total,
+    critical: counts.list.critical,
+    warning: counts.list.warning,
+    unacked: counts.unacked.total,
+    rtnUnacked: counts.rtn_unacked.total,
+    shelved: counts.shelved.total,
+    top: rankAlarms(all.filter(isListed)).slice(0, top),
   };
 }

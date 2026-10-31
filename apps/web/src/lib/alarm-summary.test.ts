@@ -9,7 +9,7 @@ const map = (...l: AlarmEvent[]) => Object.fromEntries(l.map((x) => [x.id, x]));
 
 describe('resumen de alarmas del pie global', () => {
   it('sin alarmas: todo en cero', () => {
-    expect(summarizeAlarms({})).toEqual({ critical: 0, warning: 0, total: 0, unacked: 0, top: [] });
+    expect(summarizeAlarms({})).toMatchObject({ critical: 0, warning: 0, total: 0, unacked: 0, rtnUnacked: 0, shelved: 0, top: [] });
   });
   it('cuenta por prioridad y sin reconocer', () => {
     const s = summarizeAlarms(map(a('1', { severity: 'critical' }), a('2'), a('3', { acknowledged: true }), a('4', { severity: 'critical', acknowledged: true })));
@@ -30,5 +30,15 @@ describe('resumen de alarmas del pie global', () => {
   });
   it('ignora las alarmas ya limpiadas', () => {
     expect(summarizeAlarms(map(a('1', { state: 'cleared' }))).total).toBe(0);
+  });
+  it('cuenta por ciclo de vida: sin reconocer, normalizadas sin reconocer y postergadas (fuera del total)', () => {
+    const s = summarizeAlarms(
+      map(
+        a('u'), a('r', { state: 'cleared', lifecycle: 'rtn_unacked' }), a('k', { lifecycle: 'acked', acknowledged: true }),
+        a('s', { lifecycle: 'shelved', shelvedUntil: 9 }), a('c', { state: 'cleared', lifecycle: 'closed' }),
+      ),
+    );
+    expect(s).toMatchObject({ total: 3, unacked: 1, rtnUnacked: 1, shelved: 1 });
+    expect(s.top.map((x) => x.id)).toEqual(['u', 'r', 'k']);
   });
 });

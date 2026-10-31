@@ -2,7 +2,9 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import type { AlarmEvent } from '@campo/shared';
 import { emptyBatch } from '@/lib/batcher';
 import { clearHistory, readSeries } from './history';
-import { reduceBatch, severityByAsset, sortAlarms, useLiveStore } from './live-store';
+import {
+  mergeAlarm, reduceBatch, selectAlarmCounts, selectAlarmList, selectAssetNotices, selectShelved, severityByAsset, sortAlarms, useLiveStore,
+} from './live-store';
 
 const alarm = (over: Partial<AlarmEvent>): AlarmEvent => ({
   type: 'alarm', id: 'a1', ruleId: 'r', plant: 'demo', asset: 'tk-01', metric: 'level',
@@ -158,5 +160,99 @@ describe('alarmas WS como upsert por id (contrato de la API)', () => {
     }
     expect(Object.keys(useLiveStore.getState().alarms)).toHaveLength(1);
     expect(useLiveStore.getState().alarms.a1?.value).toBe(93);
+  });
+});
+
+describe('ciclo de vida ISA-18.2 en el store', () => {
+  const push = (...list: AlarmEvent[]) => {
+    const b = emptyBatch();
+    b.alarms = list;
+    useLiveStore.getState().applyBatch(b);
+  };
+  const rich = { kind: 'HH' as const, rationale: { description: 'Nivel muy alto', consequence: 'Rebalse', response: 'Cerrar válvula' } };
+
+  it('conserva kind, rationale y lifecycle, y los mantiene si el evento siguiente no los trae', () => {
+    push(alarm({ id: 'a1', lifecycle: 'unacked', ...rich }));
+    push(alarm({ id: 'a1', lifecycle: 'acked', acknowledged: true, value: 96 }));
+    const a = useLiveStore.getState().alarms.a1!;
+    expect(a).toMatchObject({ lifecycle: 'acked', kind: 'HH', value: 96, acknowledged: true });
+    expect(a.rationale?.response).toBe('Cerrar válvula');
+  });
+
+  it('normalizada sin reconocer sigue en la lista con clearedAt; al reconocerla se cierra', () => {
+    push(alarm({ id: 'a1', lifecycle: 'unacked', ts: 100 }));
+    push(alarm({ id: 'a1', state: 'cleared', lifecycle: 'rtn_unacked', ts: 200 }));
+    let s = useLiveStore.getState();
+    expect(selectAlarmList(s).map((x) => x.id)).toEqual(['a1']);
+    expect(s.alarms.a1?.clearedAt).toBe(200);
+    expect(s.alarmSeverityByAsset).toEqual({}); // ya no es una condición activa
+    expect(selectAssetNotices(s)['tk-01']).toEqual({ severity: 'critical', lifecycle: 'rtn_unacked' });
+    expect(useLiveStore.getState().ackLocal('a1')).toBeDefined();
+    s = useLiveStore.getState();
+    expect(s.alarms.a1).toBeUndefined();
+    push(alarm({ id: 'a1', state: 'cleared', lifecycle: 'closed', ts: 300 }));
+    expect(useLiveStore.getState().alarms.a1).toBeUndefined();
+  });
+
+  it('postergadas salen de la lista activa y de los contadores de la lista; selectShelved las expone', () => {
+    push(
+      alarm({ id: 'u', lifecycle: 'unacked' }),
+      alarm({ id: 'k', lifecycle: 'acked', severity: 'warning', asset: 'tk-02' }),
+      alarm({ id: 's2', lifecycle: 'shelved', shelvedUntil: 900, shelvedReason: 'mantenimiento', asset: 'tk-03' }),
+      alarm({ id: 's1', lifecycle: 'shelved', shelvedUntil: 500, severity: 'warning', asset: 'tk-04' }),
+    );
+    const s = useLiveStore.getState();
+    expect(selectAlarmList(s).map((x) => x.id)).toEqual(['u', 'k']);
+    expect(selectShelved(s).map((x) => x.id)).toEqual(['s1', 's2']);
+    expect(selectShelved(s)[1]?.shelvedReason).toBe('mantenimiento');
+    const c = selectAlarmCounts(s);
+    expect(c.list).toEqual({ critical: 1, warning: 1, total: 2 });
+    expect(c.unacked.total).toBe(1);
+    expect(c.acked.warning).toBe(1);
+    expect(c.shelved).toEqual({ critical: 1, warning: 1, total: 2 });
+    expect(s.alarmSeverityByAsset).toEqual({ 'tk-01': 'critical', 'tk-02': 'warning' });
+  });
+
+  it('al reanunciarse una postergada se limpian los campos de shelving', () => {
+    push(alarm({ id: 'a1', lifecycle: 'shelved', shelvedUntil: 500, shelvedReason: 'x', ts: 100 }));
+    push(alarm({ id: 'a1', lifecycle: 'unacked', ts: 600 }));
+    const a = useLiveStore.getState().alarms.a1!;
+    expect(a.shelvedUntil).toBeUndefined();
+    expect(a.shelvedReason).toBeUndefined();
+  });
+
+  it('selectores memoizados: misma referencia si `alarms` no cambia', () => {
+    push(alarm({ id: 'a1' }));
+    const s = useLiveStore.getState();
+    expect(selectAlarmList(s)).toBe(selectAlarmList(s));
+    expect(selectAlarmCounts(s)).toBe(selectAlarmCounts(s));
+    const b = emptyBatch();
+    b.telemetry.x = { ts: 1, quality: 'good', values: { v: 1 } };
+    useLiveStore.getState().applyBatch(b);
+    expect(selectAlarmList(useLiveStore.getState())).toBe(selectAlarmList(s));
+  });
+
+  it('ignora eventos más viejos que el guardado; restoreAlarm revierte un ack optimista', () => {
+    push(alarm({ id: 'a1', lifecycle: 'unacked', ts: 500 }));
+    push(alarm({ id: 'a1', lifecycle: 'acked', ts: 100 }));
+    expect(useLiveStore.getState().alarms.a1?.lifecycle).toBe('unacked');
+    const prev = useLiveStore.getState().ackLocal('a1')!;
+    expect(useLiveStore.getState().alarms.a1?.lifecycle).toBe('acked');
+    useLiveStore.getState().restoreAlarm(prev);
+    expect(selectAlarmCounts(useLiveStore.getState()).unacked.total).toBe(1);
+  });
+
+  it('el revert antiguo (acknowledged:false con lifecycle acked) cuenta como sin reconocer', () => {
+    push(alarm({ id: 'a1', lifecycle: 'unacked' }));
+    useLiveStore.getState().ackLocal('a1');
+    const a = useLiveStore.getState().alarms.a1!;
+    useLiveStore.setState({ alarms: { a1: { ...a, acknowledged: false } } });
+    expect(selectAlarmCounts(useLiveStore.getState()).unacked.total).toBe(1);
+  });
+
+  it('mergeAlarm: evento cleared sin lifecycle (legado) cierra; upsertAlarms aplica una lista', () => {
+    expect(mergeAlarm(undefined, alarm({ state: 'cleared' }))).toBeNull();
+    useLiveStore.getState().upsertAlarms([alarm({ id: 'x', lifecycle: 'rtn_unacked', state: 'cleared' }), alarm({ id: 'y' })]);
+    expect(Object.keys(useLiveStore.getState().alarms).sort()).toEqual(['x', 'y']);
   });
 });

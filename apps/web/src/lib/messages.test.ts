@@ -57,3 +57,22 @@ describe('mensaje catalog', () => {
     expect(parseServerMessage({ type: 'catalog', plant: '' })).toBeNull();
   });
 });
+
+describe('alarmas ISA-18.2 en el parser', () => {
+  const base = { type: 'alarm', id: 'a', plant: 'p', asset: 'x', metric: 'level', severity: 'critical', state: 'active' };
+  it('conserva kind, lifecycle, rationale y shelving', () => {
+    const m = parseServerMessage({
+      ...base, kind: 'HH', lifecycle: 'shelved', shelvedUntil: 123, shelvedReason: 'mantenimiento',
+      rationale: { description: ' Nivel alto ', consequence: 'Rebalse', response: '', extra: 1 },
+    });
+    expect(m).toMatchObject({ kind: 'HH', lifecycle: 'shelved', shelvedUntil: 123, shelvedReason: 'mantenimiento', rationale: { description: 'Nivel alto', consequence: 'Rebalse' } });
+    expect((m as { rationale: object }).rationale).not.toHaveProperty('response');
+  });
+  it('descarta valores inválidos de kind y lifecycle', () => {
+    const m = parseServerMessage({ ...base, kind: 'XX', lifecycle: 'raro', rationale: 5, shelvedUntil: 'x' });
+    expect(m).not.toHaveProperty('kind');
+    expect(m).not.toHaveProperty('lifecycle');
+    expect(m).not.toHaveProperty('rationale');
+    expect(m).not.toHaveProperty('shelvedUntil');
+  });
+});
