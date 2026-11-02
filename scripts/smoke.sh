@@ -39,8 +39,8 @@ ok "login admin"
 AUTH="authorization: Bearer $TOKEN"
 
 echo "Datos en vivo (Redis)"
-assets20() { [ "$(curl -sf "$API_URL/api/plants/demo/state" -H "$AUTH" | json 'len(d.get("assets", d))')" = 20 ]; }
-wait_for "estado de 20 activos (todos los módulos)" assets20
+assets24() { [ "$(curl -sf "$API_URL/api/plants/demo/state" -H "$AUTH" | json 'len(d.get("assets", d))')" = 24 ]; }
+wait_for "estado de 24 activos con telemetría (todos los módulos; la nave es decorativa)" assets24
 
 echo "Histórico (TimescaleDB)"
 rows() { [ "$($DB -c 'select count(*) from telemetry')" -gt 100 ]; }
@@ -54,7 +54,7 @@ wait_for "agregado continuo telemetry_1m con datos" hist1m
 
 echo "Administración"
 curl -sf "$API_URL/api/me" -H "$AUTH" | json 'sys.exit(0 if d["role"] == "platform_admin" and d["org"] is None and d["plants"] == ["*"] else 1)' && ok "GET /api/me (personal de plataforma, sin cliente)" || fail "/api/me"
-curl -sf "$API_URL/api/plants" -H "$AUTH" | json 'sys.exit(0 if any(p["id"] == "demo" and p["assets"] == 20 for p in d) and any(p["id"] == "tanques" for p in d) else 1)' && ok "GET /api/plants incluye demo (20 activos) y tanques" || fail "/api/plants"
+curl -sf "$API_URL/api/plants" -H "$AUTH" | json 'sys.exit(0 if any(p["id"] == "demo" and p["assets"] == 25 for p in d) and any(p["id"] == "tanques" for p in d) else 1)' && ok "GET /api/plants incluye demo (25 activos) y tanques" || fail "/api/plants"
 curl -sf "$API_URL/api/audit?limit=5" -H "$AUTH" >/dev/null && ok "GET /api/audit (solo admin)" || fail "/api/audit"
 [ "$(curl -s -o /dev/null -w '%{http_code}' "$API_URL/api/audit")" = 401 ] && ok "auditoría sin token -> 401" || fail "auditoría sin proteger"
 
@@ -125,5 +125,26 @@ curl -sf "$API_URL/api/alarms/$AID/journal" -H "$AUTH" | jx 'types = [e["type"] 
 [ "$(code -X POST "$API_URL/api/alarms/$AID/shelve" -H "$CAUTH" -H "$JH" -d '{"minutes":5,"reason":"intento ajeno"}')" = 403 ] && ok "postergar una alarma de otro cliente -> 403" || fail "aislamiento: shelve"
 curl -sf -X DELETE "$API_URL/api/alarm-rules/$RULE" -H "$AUTH" >/dev/null || fail "borrar regla de prueba"
 sleep 2; [ -z "$(findalarm active)" ] && ok "al borrar la regla, su alarma se cierra" || fail "alarma huérfana tras borrar la regla"
+
+echo "Tags y control de llenado (orden real: API -> MQTT -> simulador -> acuse -> telemetría)"
+curl -sf "$API_URL/api/plants/demo/assets" -H "$AUTH" | json 'sys.exit(0 if {a["id"]: a.get("tag") for a in d}.get("tk-01") == "TNK-101" and {a["id"]: a.get("tag") for a in d}.get("silo-01") == "TNK-301" and {a["id"]: a.get("tag") for a in d}.get("nave-01") is None else 1)' && ok "los activos sembrados tienen su tag (TNK-101, TNK-301…); la nave decorativa no" || fail "tags sembrados"
+[ "$(code "$API_URL/api/plants/tanques/assets/tk-a/commands/preview" -H "$CAUTH" -H "$JH" -d '{"command":"stop"}')" = 403 ] && ok "un cliente sin el módulo de control no puede ordenar -> 403 (module_disabled)" || fail "control sin contratar"
+[ "$(code "$API_URL/api/plants/demo/assets/tk-01/commands/preview" -H "$CAUTH" -H "$JH" -d '{"command":"stop"}')" = 403 ] && ok "ordenar en la planta de otro cliente -> 403" || fail "aislamiento: órdenes"
+[ "$(code "$API_URL/api/plants/demo/orders" -H "$CAUTH")" = 403 ] && ok "el registro de órdenes de otro cliente -> 403" || fail "aislamiento: registro de órdenes"
+curl -sf "$API_URL/api/plants/demo/assets/tk-01/interlocks" -H "$AUTH" | json 'sys.exit(0 if all(i["ok"] for i in d) and len(d) >= 5 else 1)' && ok "enclavamientos de TNK-101 todos en verde" || fail "enclavamientos"
+LVL=$(curl -sf "$API_URL/api/plants/demo/state" -H "$AUTH" | json 'int(d.get("assets", d)["tk-01"]["values"]["level"])')
+if [ "$LVL" -gt 50 ]; then CMD=drain; TGT=$((LVL - 10)); else CMD=fill; TGT=$((LVL + 10)); fi
+PV=$(curl -sf -X POST "$API_URL/api/plants/demo/assets/tk-01/commands/preview" -H "$AUTH" -H "$JH" -d "{\"command\":\"$CMD\",\"target\":$TGT}") || fail "preview"
+CID=$(printf '%s' "$PV" | json 'd["confirmId"]'); [ -n "$CID" ] && ok "vista previa ($CMD TNK-101 a $TGT %): confirmId de un solo uso" || fail "preview bloqueada: $PV"
+ORD=$(curl -sf -X POST "$API_URL/api/plants/demo/assets/tk-01/commands" -H "$AUTH" -H "$JH" -d "{\"confirmId\":\"$CID\"}") || fail "ejecutar orden"
+OID=$(printf '%s' "$ORD" | json 'd["id"]'); ok "orden creada ($OID)"
+[ "$(code -X POST "$API_URL/api/plants/demo/assets/tk-01/commands" -H "$AUTH" -H "$JH" -d "{\"confirmId\":\"$CID\"}")" = 409 ] && ok "el confirmId no se puede reutilizar -> 409" || fail "confirmId reutilizable"
+[ "$(code -X POST "$API_URL/api/orders/$OID/cancel" -H "$CAUTH")" = 403 ] && ok "cancelar la orden de otro cliente -> 403" || fail "aislamiento: cancelar"
+ostatus() { curl -sf "$API_URL/api/plants/demo/orders?asset=tk-01&limit=5" -H "$AUTH" | json 'next((o["status"] for o in d if o["id"] == "'"$OID"'"), "")'; }
+t=0; ST=""; while [ "$ST" != done ]; do ST=$(ostatus); case $ST in rejected|failed|timeout|cancelled) fail "la orden terminó en $ST";; esac; t=$((t + 3)); [ "$t" -ge 90 ] && fail "la orden no terminó (estado: $ST)"; [ "$ST" = done ] || sleep 3; done
+ok "el simulador aceptó, ejecutó y completó la orden (pending → accepted → running → done)"
+NOW=$(curl -sf "$API_URL/api/plants/demo/state" -H "$AUTH" | json 'int(round(d.get("assets", d)["tk-01"]["values"]["level"]))')
+[ "$((NOW - TGT))" -le 2 ] && [ "$((TGT - NOW))" -le 2 ] && ok "el nivel real llegó al objetivo ($NOW % ≈ $TGT %)" || fail "el nivel no siguió a la orden ($NOW vs $TGT)"
+curl -sf "$API_URL/api/audit?limit=50" -H "$AUTH" | json 'sys.exit(0 if any(e["action"] == "order.create" for e in d) else 1)' && ok "la orden quedó en la auditoría (order.create)" || fail "auditoría de órdenes"
 
 echo; echo "Prueba de humo superada."
