@@ -5,7 +5,7 @@ import type { AlarmEvent } from '@campo/shared';
 import { formatAgo } from '@/lib/math';
 import { metricMeta } from '@/lib/metrics';
 import { acknowledgeAlarm } from '@/live/alarm-actions';
-import { sortAlarms, useLiveStore } from '@/store/live-store';
+import { selectAlarmList, useLiveStore } from '@/store/live-store';
 import { IconCheck, IconCritical, IconWarning } from './icons';
 import { AssetName } from './AssetName';
 import { useNow } from './hooks';
@@ -24,9 +24,9 @@ export function AlarmList({
   canAck?: boolean;
   emptyText?: string;
 }) {
-  const alarmsMap = useLiveStore((s) => s.alarms);
+  const list = useLiveStore(selectAlarmList);
   const notice = useLiveStore((s) => s.notice);
-  const alarms = useMemo(() => sortAlarms(alarmsMap).filter((a) => !filter || filter(a)), [alarmsMap, filter]);
+  const alarms = useMemo(() => list.filter((a) => !filter || filter(a)), [list, filter]);
   const now = useNow(1000);
 
   if (alarms.length === 0) {

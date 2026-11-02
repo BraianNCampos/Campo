@@ -2,7 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import type { Pool } from 'pg';
 import type { PlantScope } from '../auth/plant-access';
 import { PG_POOL } from '../database/tokens';
-import type { AlarmRule, AlarmRuleInput } from './alarm.types';
+import { AlarmRule, AlarmRuleInput, resolveRule } from './alarm.types';
 
 export abstract class AlarmRulesRepository {
   /** `scope` restringe por cliente y/o plantas (ver PlantScope; `{}` = sin restricción, sólo uso interno y platform_admin). */
@@ -24,12 +24,21 @@ interface RuleRow {
   for_seconds: number;
   hysteresis: number;
   enabled: boolean;
+  kind: AlarmRule['kind'];
+  roc_window_seconds: number;
+  roc_direction: AlarmRule['rocDirection'];
+  off_delay_seconds: number;
+  suppress_when: AlarmRule['suppressWhen'];
+  description: string | null;
+  consequence: string | null;
+  response: string | null;
+  out_of_service_reason: string | null;
   created_at: Date;
   updated_at: Date;
 }
 
 const COLUMNS =
-  'id, plant, asset, metric, operator, threshold, severity, for_seconds, hysteresis, enabled, created_at, updated_at';
+  'id, plant, asset, metric, operator, threshold, severity, for_seconds, hysteresis, enabled, kind, roc_window_seconds, roc_direction, off_delay_seconds, suppress_when, description, consequence, response, out_of_service_reason, created_at, updated_at';
 
 /** Campo de la API -> columna. Lista blanca: nada del cliente llega al SQL como identificador. */
 const PATCH_COLUMNS: Record<keyof AlarmRuleInput, string> = {
@@ -42,22 +51,41 @@ const PATCH_COLUMNS: Record<keyof AlarmRuleInput, string> = {
   forSeconds: 'for_seconds',
   hysteresis: 'hysteresis',
   enabled: 'enabled',
+  kind: 'kind',
+  rocWindowSeconds: 'roc_window_seconds',
+  rocDirection: 'roc_direction',
+  offDelaySeconds: 'off_delay_seconds',
+  suppressWhen: 'suppress_when',
+  description: 'description',
+  consequence: 'consequence',
+  response: 'response',
+  outOfServiceReason: 'out_of_service_reason',
 };
 
-const toRule = (r: RuleRow): AlarmRule => ({
-  id: r.id,
-  plant: r.plant,
-  asset: r.asset,
-  metric: r.metric,
-  operator: r.operator,
-  threshold: Number(r.threshold),
-  severity: r.severity,
-  forSeconds: r.for_seconds,
-  hysteresis: Number(r.hysteresis),
-  enabled: r.enabled,
-  createdAt: r.created_at.getTime(),
-  updatedAt: r.updated_at.getTime(),
-});
+const toRule = (r: RuleRow): AlarmRule =>
+  resolveRule({
+    id: r.id,
+    plant: r.plant,
+    asset: r.asset,
+    metric: r.metric,
+    operator: r.operator,
+    threshold: Number(r.threshold),
+    severity: r.severity,
+    forSeconds: r.for_seconds,
+    hysteresis: Number(r.hysteresis),
+    enabled: r.enabled,
+    kind: r.kind,
+    rocWindowSeconds: r.roc_window_seconds,
+    rocDirection: r.roc_direction,
+    offDelaySeconds: r.off_delay_seconds,
+    suppressWhen: r.suppress_when,
+    description: r.description,
+    consequence: r.consequence,
+    response: r.response,
+    outOfServiceReason: r.out_of_service_reason,
+    createdAt: r.created_at.getTime(),
+    updatedAt: r.updated_at.getTime(),
+  });
 
 @Injectable()
 export class PgAlarmRulesRepository extends AlarmRulesRepository {
@@ -85,9 +113,13 @@ export class PgAlarmRulesRepository extends AlarmRulesRepository {
   }
 
   async create(i: AlarmRuleInput): Promise<AlarmRule> {
+    const r = resolveRule({ ...i, id: '', createdAt: 0, updatedAt: 0 });
     const { rows } = await this.pool.query<RuleRow>(
-      `INSERT INTO alarm_rules (plant, asset, metric, operator, threshold, severity, for_seconds, hysteresis, enabled)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING ${COLUMNS}`,
+      `INSERT INTO alarm_rules (plant, asset, metric, operator, threshold, severity, for_seconds, hysteresis, enabled,
+                                kind, roc_window_seconds, roc_direction, off_delay_seconds, suppress_when,
+                                description, consequence, response, out_of_service_reason)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::jsonb, $15, $16, $17, $18)
+       RETURNING ${COLUMNS}`,
       [
         i.plant,
         i.asset,
@@ -98,6 +130,15 @@ export class PgAlarmRulesRepository extends AlarmRulesRepository {
         i.forSeconds,
         i.hysteresis,
         i.enabled,
+        r.kind,
+        r.rocWindowSeconds,
+        r.rocDirection,
+        r.offDelaySeconds,
+        r.suppressWhen ? JSON.stringify(r.suppressWhen) : null,
+        r.description,
+        r.consequence,
+        r.response,
+        r.outOfServiceReason,
       ],
     );
     return toRule(rows[0]);
@@ -108,7 +149,13 @@ export class PgAlarmRulesRepository extends AlarmRulesRepository {
     const values: unknown[] = [id];
     for (const key of Object.keys(PATCH_COLUMNS) as (keyof AlarmRuleInput)[]) {
       if (patch[key] === undefined) continue;
-      values.push(patch[key]);
+      const v = patch[key];
+      if (key === 'suppressWhen') {
+        values.push(v === null ? null : JSON.stringify(v));
+        sets.push(`suppress_when = $${values.length}::jsonb`);
+        continue;
+      }
+      values.push(v);
       sets.push(`${PATCH_COLUMNS[key]} = $${values.length}`);
     }
     if (sets.length === 0) return this.get(id);

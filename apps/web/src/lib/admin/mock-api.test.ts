@@ -117,12 +117,37 @@ describe('MockAdminApi: reglas', () => {
   it('CRUD y validación estilo class-validator', async () => {
     const api = make();
     const r = await api.createRule({ ...base });
-    expect(await api.updateRule(r.id, { enabled: false })).toMatchObject({ enabled: false, threshold: 80 });
+    // fuera de servicio exige un motivo (≥ 3 caracteres) y queda auditado (docs §12.1)
+    expect((await err(api.updateRule(r.id, { enabled: false }))).kind).toBe('validation');
+    expect((await err(api.updateRule(r.id, { enabled: false, outOfServiceReason: 'ab' }))).kind).toBe('validation');
+    expect(await api.updateRule(r.id, { enabled: false, outOfServiceReason: 'sensor en calibración' })).toMatchObject({ enabled: false, threshold: 80, outOfServiceReason: 'sensor en calibración' });
+    expect((await api.listAudit()).some((a) => a.action === 'rule.out_of_service' && a.target === `rule:${r.id}`)).toBe(true);
+    expect(await api.updateRule(r.id, { enabled: true })).not.toHaveProperty('outOfServiceReason');
     const bad = await err(api.createRule({ ...base, asset: 'TK 1', threshold: Number.NaN, forSeconds: 90_000 }));
     expect(bad.kind).toBe('validation');
     expect(bad.details.length).toBe(3);
     await api.deleteRule(r.id);
     expect((await err(api.deleteRule(r.id))).kind).toBe('not_found');
+  });
+
+  it('campos de §12.1: tipo derivado, DEV sin setpoint no es evaluable, validación de ROC y supresión', async () => {
+    const api = make();
+    const hh = await api.createRule({ ...base, severity: 'critical' });
+    expect(hh).toMatchObject({ kind: 'HH', evaluable: true });
+    // los tanques de demo tienen setpoint de nivel (docs §12.4) pero no de temperatura: DEV de temp no es evaluable
+    expect((await api.createRule({ ...base, kind: 'DEV', metric: 'temp', threshold: 6 })).evaluable).toBe(false);
+    expect((await api.createRule({ ...base, kind: 'DEV', threshold: 6 })).evaluable).toBe(true);
+    const roc = await err(api.createRule({ ...base, kind: 'ROC', rocWindowSeconds: 5, rocDirection: 'rise' as const, offDelaySeconds: -1 }));
+    expect(roc.details.length).toBe(2);
+    const sup = await err(api.createRule({ ...base, suppressWhen: { asset: 'pump-*', metric: 'rpm', operator: 'lt', value: 1 } }));
+    expect(sup.kind).toBe('validation');
+    const ok = await api.createRule({ ...base, kind: 'ROC', rocWindowSeconds: 30, rocDirection: 'rise', offDelaySeconds: 10, suppressWhen: { asset: 'pump-01', metric: 'rpm', operator: 'lt', value: 1 }, description: 'd', consequence: 'c', response: 'r' });
+    expect(ok).toMatchObject({ kind: 'ROC', rocWindowSeconds: 30, suppressWhen: { asset: 'pump-01' }, consequence: 'c' });
+    // null vacía lo opcional
+    const cleared = await api.updateRule(ok.id, { suppressWhen: null, description: null });
+    expect(cleared).not.toHaveProperty('suppressWhen');
+    expect(cleared).not.toHaveProperty('description');
+    expect((await err(api.createRule({ ...base, description: 'x'.repeat(201) }))).kind).toBe('validation');
   });
 
   it('403 si la planta no es del usuario', async () => {

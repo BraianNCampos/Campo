@@ -6,6 +6,8 @@ import type Redis from 'ioredis';
 import { AppModule } from '../../src/app.module';
 import { configureApp } from '../../src/app.setup';
 import { AlarmRulesRepository } from '../../src/alarms/alarm-rules.repository';
+import { AlarmHealthRepository } from '../../src/alarms/alarm-health.repository';
+import { AlarmJournalRepository } from '../../src/alarms/alarm-journal.repository';
 import { AlarmsRepository } from '../../src/alarms/alarms.repository';
 import { AuthService } from '../../src/auth/auth.service';
 import { PlantCatalog } from '../../src/auth/plant-catalog';
@@ -20,6 +22,8 @@ import { OrgsRepository } from '../../src/orgs/orgs.repository';
 import { PlantsRepository } from '../../src/plants/plants.repository';
 import { REDIS, REDIS_SUB } from '../../src/redis/tokens';
 import {
+  MemoryAlarmHealthRepository,
+  MemoryAlarmJournalRepository,
   MemoryAlarmRulesRepository,
   MemoryAlarmsRepository,
   MemoryAssetsRepository,
@@ -48,6 +52,8 @@ export interface TestApp {
   users: MemoryUsersRepository;
   rules: MemoryAlarmRulesRepository;
   alarms: MemoryAlarmsRepository;
+  journal: MemoryAlarmJournalRepository;
+  health: MemoryAlarmHealthRepository;
   history: MemoryHistoryRepository;
   assets: MemoryAssetsRepository;
   models: MemoryModelsRepository;
@@ -85,6 +91,16 @@ export async function createTestApp(overrides: Partial<AppConfig> = {}): Promise
   const rules = new MemoryAlarmRulesRepository((p) => plants.orgOf(p));
   const alarms = new MemoryAlarmsRepository((p) => plants.orgOf(p));
   const history = new MemoryHistoryRepository();
+  const journal = new MemoryAlarmJournalRepository((id) => {
+    const u = users.users.find((x) => x.id === id);
+    return u ? u.email : null;
+  });
+  const health = new MemoryAlarmHealthRepository(
+    alarms,
+    journal,
+    rules,
+    (p) => plants.orgOf(p) !== null,
+  );
   plants.onRemoved.push(
     (id) => {
       for (const [rid, r] of rules.rules) if (r.plant === id) rules.rules.delete(rid);
@@ -134,6 +150,10 @@ export async function createTestApp(overrides: Partial<AppConfig> = {}): Promise
     .useValue(rules)
     .overrideProvider(AlarmsRepository)
     .useValue(alarms)
+    .overrideProvider(AlarmJournalRepository)
+    .useValue(journal)
+    .overrideProvider(AlarmHealthRepository)
+    .useValue(health)
     .overrideProvider(HistoryRepository)
     .useValue(history)
     .compile();
@@ -184,6 +204,8 @@ export async function createTestApp(overrides: Partial<AppConfig> = {}): Promise
     users,
     rules,
     alarms,
+    journal,
+    health,
     history,
     assets,
     models,

@@ -34,10 +34,19 @@ export const AUDIT_FIELDS = {
     'forSeconds',
     'hysteresis',
     'enabled',
+    'kind',
+    'offDelaySeconds',
+    'rocWindowSeconds',
+    'rocDirection',
   ],
   'rule.update': ['changed', 'plant'],
   'rule.delete': ['plant', 'asset', 'metric'],
+  // Fuera de servicio: el motivo es texto operativo libre (≤300), no un dato sensible.
+  'rule.out_of_service': ['plant', 'asset', 'metric', 'reason'],
   'alarm.ack': ['plant', 'asset', 'metric', 'severity'],
+  'alarm.shelve': ['plant', 'asset', 'metric', 'severity', 'minutes'],
+  'alarm.unshelve': ['plant', 'asset', 'metric', 'severity'],
+  'plant.alarm_policy': ['ratePerDay', 'peak10min', 'staleHours'],
 } as const satisfies Record<string, readonly string[]>;
 
 export type AuditAction = keyof typeof AUDIT_FIELDS;

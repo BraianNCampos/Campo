@@ -75,3 +75,24 @@ describe('modo de alto contraste (luz solar)', () => {
     for (const n of ['calm-bar', 'crit']) expect(contrast(t(n), t('surface')), n).toBeGreaterThanOrEqual(3);
   });
 });
+
+describe('paneles de vidrio (.glass)', () => {
+  const alpha = Number(/--glass-alpha:\s*([0-9.]+)/.exec(css)?.[1]);
+  /** Lo peor que puede quedar detrás del vidrio: blanco puro (resplandor del 3D) y el fondo oscuro de la escena. */
+  const BACKDROPS = ['#ffffff', '#0d141d', '#8fa3b8'];
+  it('define una opacidad mínima razonable', () => {
+    expect(alpha).toBeGreaterThanOrEqual(0.8);
+    expect(alpha).toBeLessThanOrEqual(1);
+  });
+  it('texto fg y muted ≥ 4.5:1 sobre el vidrio aun en el peor fondo del 3D', () => {
+    for (const back of BACKDROPS) {
+      const glass = mix(token('surface'), back, alpha);
+      for (const n of ['fg', 'muted', 'warn', 'crit', 'calm']) expect(contrast(token(n), glass), `${n} sobre vidrio/${back}`).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+  it('degrada a superficie sólida sin backdrop-filter y en alto contraste', () => {
+    expect(css).toMatch(/\.glass\s*\{[^}]*background:\s*var\(--color-surface\)/);
+    expect(css).toMatch(/@supports\s*\(\(-webkit-backdrop-filter: blur\(1px\)\)\s*or\s*\(backdrop-filter: blur\(1px\)\)\)\s*\{\s*\.glass/);
+    expect(css).toMatch(/html\[data-theme='contrast'\]\s*\.glass\s*\{[^}]*backdrop-filter:\s*none/);
+  });
+});

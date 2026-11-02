@@ -3,7 +3,7 @@ import type { AlarmEvent } from '@campo/shared';
 import { emptyBatch } from '@/lib/batcher';
 import { clearHistory, readSeries } from './history';
 import {
-  mergeAlarm, reduceBatch, selectAlarmCounts, selectAlarmList, selectAssetNotices, selectShelved, severityByAsset, sortAlarms, useLiveStore,
+  mergeAlarm, nextLatency, reduceBatch, selectAlarmCounts, selectAlarmList, selectAssetNotices, selectShelved, severityByAsset, sortAlarms, useLiveStore,
 } from './live-store';
 
 const alarm = (over: Partial<AlarmEvent>): AlarmEvent => ({
@@ -254,5 +254,24 @@ describe('ciclo de vida ISA-18.2 en el store', () => {
     expect(mergeAlarm(undefined, alarm({ state: 'cleared' }))).toBeNull();
     useLiveStore.getState().upsertAlarms([alarm({ id: 'x', lifecycle: 'rtn_unacked', state: 'cleared' }), alarm({ id: 'y' })]);
     expect(Object.keys(useLiveStore.getState().alarms).sort()).toEqual(['x', 'y']);
+  });
+});
+
+describe('latencia extremo a extremo', () => {
+  const b = (ts: number) => {
+    const x = emptyBatch();
+    x.telemetry.a = { ts, quality: 'good', values: { v: 1 } };
+    return x;
+  };
+  it('media móvil de now − ts; ignora desfases absurdos y lotes sin telemetría', () => {
+    expect(nextLatency(null, b(900), 1000)).toBe(100);
+    expect(nextLatency(100, b(800), 1000)).toBeCloseTo(120);
+    expect(nextLatency(100, b(0), 10 ** 9)).toBe(100); // reloj desfasado
+    expect(nextLatency(null, emptyBatch(), 1000)).toBeNull();
+    expect(nextLatency(null, b(1100), 1000)).toBe(0); // adelantado unos ms: 0
+  });
+  it('applyBatch la guarda en el store', () => {
+    useLiveStore.getState().applyBatch(b(950), 1000);
+    expect(useLiveStore.getState().latencyMs).toBe(50);
   });
 });

@@ -1,5 +1,5 @@
-import { HomeRedirect } from '@/components/modules/HomeRedirect';
+import { PlantOverview } from '@/components/overview/PlantOverview';
 
 export default function Page() {
-  return <HomeRedirect />;
+  return <PlantOverview />;
 }

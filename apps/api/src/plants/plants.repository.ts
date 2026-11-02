@@ -102,6 +102,7 @@ export class PgPlantsRepository extends PlantsRepository {
         [id],
       );
       await client.query('DELETE FROM alarm_rules WHERE plant = $1', [id]);
+      await client.query('DELETE FROM alarm_events WHERE plant = $1', [id]); // incluye supresiones (sin alarma)
       await client.query('DELETE FROM alarms WHERE plant = $1', [id]);
       await client.query('DELETE FROM asset_models WHERE plant = $1', [id]);
       await client.query('COMMIT');

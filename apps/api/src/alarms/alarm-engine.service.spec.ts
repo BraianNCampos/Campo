@@ -6,6 +6,8 @@ import { AuditService } from '../audit/audit.service';
 import { parseEnv } from '../config/app-config';
 import type { BusMessage, RealtimeBus } from '../redis/realtime-bus';
 import {
+  MemoryAlarmJournalRepository,
+  MemoryAssetsRepository,
   MemoryAlarmRulesRepository,
   MemoryAlarmsRepository,
   MemoryAuditRepository,
@@ -60,11 +62,24 @@ describe('AlarmEngine', () => {
   let engine: AlarmEngine;
   let published: AlarmEvent[];
   let ruleId: string;
+  let journal: MemoryAlarmJournalRepository;
+  const mkEngine = () =>
+    new AlarmEngine(
+      rules,
+      alarms,
+      { messages$: bus.asObservable() } as unknown as RealtimeBus,
+      redis,
+      cfg,
+      catalog,
+      journal,
+      new MemoryAssetsRepository(),
+    );
 
   beforeEach(async () => {
     ({ redis, sub } = createRedisMocks());
     rules = new MemoryAlarmRulesRepository();
     alarms = new MemoryAlarmsRepository();
+    journal = new MemoryAlarmJournalRepository();
     bus = new Subject<BusMessage>();
     await redis.flushall();
     const list: AlarmEvent[] = [];
@@ -84,14 +99,7 @@ describe('AlarmEngine', () => {
       enabled: true,
     });
     ruleId = rule.id;
-    engine = new AlarmEngine(
-      rules,
-      alarms,
-      { messages$: bus.asObservable() } as unknown as RealtimeBus,
-      redis,
-      cfg,
-      catalog,
-    );
+    engine = mkEngine();
     await engine.onModuleInit();
   });
 
@@ -167,7 +175,7 @@ describe('AlarmEngine', () => {
     await flush();
     const id = published[0].id;
 
-    const svc = new AlarmsService(alarms, engine, redis, audit, tenant);
+    const svc = new AlarmsService(alarms, engine, journal, audit, tenant);
     const rec = await svc.ack(id, operator, 9000);
     expect(rec).toMatchObject({
       acknowledged: true,
@@ -195,7 +203,7 @@ describe('AlarmEngine', () => {
   });
 
   it('ack de una alarma inexistente -> NotFound', async () => {
-    const svc = new AlarmsService(alarms, engine, redis, audit, tenant);
+    const svc = new AlarmsService(alarms, engine, journal, audit, tenant);
     await expect(svc.ack('00000000-0000-4000-8000-0000000000ff', platform)).rejects.toThrow(
       'Alarma no encontrada',
     );
@@ -219,14 +227,7 @@ describe('AlarmEngine', () => {
     engine.onModuleDestroy();
     await redis.flushall();
 
-    const engine2 = new AlarmEngine(
-      rules,
-      alarms,
-      { messages$: bus.asObservable() } as unknown as RealtimeBus,
-      redis,
-      cfg,
-      catalog,
-    );
+    const engine2 = mkEngine();
     await engine2.onModuleInit();
     expect(Object.keys(await redis.hgetall(redisKeys.activeAlarms('demo')))).toHaveLength(1);
     engine2.onTelemetry(tel(97), 20_000);
@@ -262,14 +263,7 @@ describe('AlarmEngine', () => {
       message: 'm',
       acknowledged: false,
     });
-    const engine2 = new AlarmEngine(
-      rules,
-      alarms,
-      { messages$: bus.asObservable() } as unknown as RealtimeBus,
-      redis,
-      cfg,
-      catalog,
-    );
+    const engine2 = mkEngine();
     await engine2.onModuleInit();
     expect(alarms.alarms.get('orphan-1')?.state).toBe('cleared');
     expect(await redis.hgetall(redisKeys.activeAlarms('huerfana'))).toEqual({});
@@ -282,7 +276,7 @@ describe('AlarmEngine', () => {
     engine.onTelemetry(tel(95), 5000);
     await flush();
     const id = published[0].id;
-    const svc = new AlarmsService(alarms, engine, redis, audit, tenant);
+    const svc = new AlarmsService(alarms, engine, journal, audit, tenant);
     const other = { ...operator, org: { ...ORG, id: 'B' } };
     await expect(svc.ack(id, other, 9000)).rejects.toThrow('No tiene acceso a esta planta');
     expect(alarms.alarms.get(id)?.acknowledged).toBe(false);

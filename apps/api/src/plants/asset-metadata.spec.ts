@@ -100,3 +100,25 @@ describe('unknownConnections', () => {
     expect(unknownConnections({ connectsTo: [] }, new Set())).toEqual([]);
   });
 });
+
+describe('metadata.setpoints (§12.4)', () => {
+  it('acepta {métrica: número finito}', () => {
+    expect(assetMetadataError({ setpoints: { level: 60, temp: -5.5 } }, 'tk-01')).toBeNull();
+    expect(assetMetadataError({ setpoints: {} }, 'tk-01')).toBeNull();
+  });
+
+  it.each([
+    ['no es objeto', 60],
+    ['lista', [60]],
+    ['null', null],
+    ['valor texto', { level: '60' }],
+    ['valor NaN', { level: Number.NaN }],
+    ['valor infinito', { level: Infinity }],
+    ['valor null', { level: null }],
+    ['valor objeto', { level: { v: 1 } }],
+    ['métrica inválida', { 'a b': 1 }],
+    ['demasiadas métricas', Object.fromEntries(Array.from({ length: 33 }, (_, i) => [`m${i}`, i]))],
+  ])('rechaza %s', (_n, setpoints) => {
+    expect(assetMetadataError({ setpoints }, 'tk-01')).toMatch(/setpoints/);
+  });
+});

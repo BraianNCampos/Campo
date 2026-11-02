@@ -1,7 +1,7 @@
 'use client';
 
 import { canAckAlarms } from '@/lib/modules/nav';
-import { useLiveStore } from '@/store/live-store';
+import { selectAlarmList, useLiveStore } from '@/store/live-store';
 import { useSessionStore } from '@/store/session-store';
 import { AlarmList } from './AlarmList';
 import { useEffect } from 'react';
@@ -14,7 +14,7 @@ import { useActiveModuleIds } from './modules/derived';
 export function GlobalAlarms() {
   const role = useSessionStore((s) => s.me?.role);
   const router = useRouter();
-  const count = useLiveStore((s) => Object.keys(s.alarms).length);
+  const count = useLiveStore(selectAlarmList).length;
   const active = useActiveModuleIds();
   useEffect(() => {
     document.title = 'Alarmas · Campo';

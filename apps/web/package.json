@@ -11,9 +11,11 @@
     "test": "vitest run",
     "e2e": "node e2e/run.mjs",
     "e2e:admin": "node e2e/admin.mjs",
+    "e2e:alarms": "node e2e/alarms.mjs",
     "e2e:models": "node e2e/models.mjs",
     "e2e:modules": "node e2e/modules.mjs",
-    "e2e:orgs": "node e2e/orgs.mjs"
+    "e2e:orgs": "node e2e/orgs.mjs",
+    "e2e:plant": "node e2e/plant.mjs"
   },
   "dependencies": {
     "@fontsource/barlow": "^5.3.0",

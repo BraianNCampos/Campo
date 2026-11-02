@@ -15,22 +15,28 @@ import { startMockSource } from './mock-source';
 import { LiveClient, type WsFactory } from './ws-client';
 
 /** Alarmas activas al (re)conectar: el snapshot WS no las incluye. Best-effort. */
-async function fetchActiveAlarms(plant: string, push: (m: ServerMessage) => void, isCurrent: () => boolean): Promise<void> {
+async function fetchAlarmsOf(state: 'active' | 'shelved', plant: string, push: (m: ServerMessage) => void, isCurrent: () => boolean): Promise<void> {
   try {
     const token = getToken();
-    const res = await fetch(`${config.apiUrl}/api/alarms?state=active&plant=${encodeURIComponent(plant)}`, {
+    const res = await fetch(`${config.apiUrl}/api/alarms?state=${state}&plant=${encodeURIComponent(plant)}`, {
       headers: token ? { authorization: `Bearer ${token}` } : {},
     });
     if (!res.ok || !isCurrent()) return;
     const list: unknown = await res.json();
     if (!Array.isArray(list) || !isCurrent()) return;
     for (const item of list) {
-      const m = parseServerMessage({ type: 'alarm', state: 'active', ...(item as object) });
+      // `state=active` devuelve la lista (unacked, acked, rtn_unacked); `shelved` las postergadas (docs §12.2)
+      const m = parseServerMessage({ type: 'alarm', state: 'active', ...(item as object), ...(state === 'shelved' ? { lifecycle: 'shelved' } : {}) });
       if (m && m.type === 'alarm' && m.plant === plant) push(m as AlarmEvent);
     }
   } catch {
     /* sin red: seguimos con lo que llegue por WS */
   }
+}
+
+/** Alarmas de la lista y postergadas al (re)conectar: el snapshot WS no las incluye. Best-effort. */
+function fetchActiveAlarms(plant: string, push: (m: ServerMessage) => void, isCurrent: () => boolean): Promise<void> {
+  return Promise.all([fetchAlarmsOf('active', plant, push, isCurrent), fetchAlarmsOf('shelved', plant, push, isCurrent)]).then(() => undefined);
 }
 
 /** Red o servidor caído: se reintenta. 403/404 (planta sin acceso o borrada): no. */

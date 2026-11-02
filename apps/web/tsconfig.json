@@ -41,7 +41,11 @@
     ".next-mod/types/**/*.ts",
     ".next-mod/dev/types/**/*.ts",
     ".next-check/types/**/*.ts",
-    ".next-check/dev/types/**/*.ts"
+    ".next-check/dev/types/**/*.ts",
+    ".next-alarms/types/**/*.ts",
+    ".next-alarms/dev/types/**/*.ts",
+    ".next-plant/types/**/*.ts",
+    ".next-plant/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",

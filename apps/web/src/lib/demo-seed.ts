@@ -3,6 +3,8 @@ import type { AssetDef, AssetType, Limit } from '@campo/shared';
 /**
  * Catálogo y límites de los clientes de demostración (modo demo sin backend). Coinciden con las semillas
  * SQL de `060_orgs.sql` (docs/architecture.md §11.3). Compartido por el stream simulado y el MockAdminApi.
+ * `metadata.setpoints` (docs §12.4): nivel 60 % en tanques, temperatura 20 °C en clima, presión 6 bar en `pres-01`;
+ * los simuladores (`PlantSimulator`, `SeedSimulator`) oscilan alrededor de estos valores.
  */
 const a = (plant: string, id: string, name: string, type: AssetType, metadata: Record<string, unknown> = {}, model3dRef: string | null = null): AssetDef => ({
   plant, id, name, type, model3dRef, metadata,
@@ -10,16 +12,16 @@ const a = (plant: string, id: string, name: string, type: AssetType, metadata: R
 
 export const DEMO_ASSETS: Record<string, AssetDef[]> = {
   demo: [
-    a('demo', 'tk-01', 'Tanque 01', 'tank', { capacityM3: 60 }, 'tank'), // 'tank' = valor antiguo de texto libre (se trata como sin modelo)
-    a('demo', 'tk-02', 'Tanque 02', 'tank', { capacityM3: 60 }),
-    a('demo', 'tk-03', 'Tanque 03', 'tank', { capacityM3: 60 }),
-    a('demo', 'tk-04', 'Tanque 04', 'tank', { capacityM3: 60 }),
+    a('demo', 'tk-01', 'Tanque 01', 'tank', { capacityM3: 60, setpoints: { level: 60 } }, 'tank'), // 'tank' = valor antiguo de texto libre (se trata como sin modelo)
+    a('demo', 'tk-02', 'Tanque 02', 'tank', { capacityM3: 60, setpoints: { level: 60 } }),
+    a('demo', 'tk-03', 'Tanque 03', 'tank', { capacityM3: 60, setpoints: { level: 60 } }),
+    a('demo', 'tk-04', 'Tanque 04', 'tank', { capacityM3: 60, setpoints: { level: 60 } }),
     a('demo', 'pump-01', 'Bomba 01', 'pump'),
     a('demo', 'pump-02', 'Bomba 02', 'pump'),
     a('demo', 'valve-01', 'Válvula 01', 'valve'),
     a('demo', 'valve-02', 'Válvula 02', 'valve'),
-    a('demo', 'clima-01', 'Cámara 1', 'climate'),
-    a('demo', 'clima-02', 'Depósito de insumos', 'climate'),
+    a('demo', 'clima-01', 'Cámara 1', 'climate', { setpoints: { temp: 20 } }),
+    a('demo', 'clima-02', 'Depósito de insumos', 'climate', { setpoints: { temp: 20 } }),
     a('demo', 'en-linea1', 'Línea de producción 1', 'energy', { contractedKw: 220 }),
     a('demo', 'en-compresores', 'Compresores', 'energy', { contractedKw: 130 }),
     a('demo', 'en-clima', 'Climatización y frío', 'energy', { contractedKw: 118 }),
@@ -28,12 +30,12 @@ export const DEMO_ASSETS: Record<string, AssetDef[]> = {
     a('demo', 'maq-01', 'Envasadora', 'machine'),
     a('demo', 'maq-02', 'Cinta transportadora', 'machine'),
     a('demo', 'maq-03', 'Mezcladora', 'machine'),
-    a('demo', 'pres-01', 'Presión de aire comprimido', 'pressure'),
+    a('demo', 'pres-01', 'Presión de aire comprimido', 'pressure', { setpoints: { pressure: 6 } }),
     a('demo', 'cau-01', 'Agua de proceso', 'flow'),
   ],
   tanques: [
-    a('tanques', 'tk-a', 'Agua de proceso', 'tank', { capacityM3: 40 }),
-    a('tanques', 'tk-b', 'Gasoil', 'tank', { capacityM3: 40 }),
+    a('tanques', 'tk-a', 'Agua de proceso', 'tank', { capacityM3: 40, setpoints: { level: 60 } }),
+    a('tanques', 'tk-b', 'Gasoil', 'tank', { capacityM3: 40, setpoints: { level: 60 } }),
   ],
 };
 

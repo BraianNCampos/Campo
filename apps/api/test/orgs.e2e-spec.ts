@@ -492,6 +492,7 @@ describe('Clientes, módulos y límites (e2e)', () => {
         threshold: 40,
         severity: 'warning',
         enabled: false,
+        outOfServiceReason: 'fuera de servicio para la prueba',
       });
       // reglas de otra planta y de otro cliente: no deben aparecer
       await api
@@ -510,12 +511,54 @@ describe('Clientes, módulos y límites (e2e)', () => {
 
     it('cualquier rol con acceso resuelve las reglas activas contra los activos existentes, en orden estable', async () => {
       const expected: Limit[] = [
-        { asset: 'en-1', metric: 'kw', operator: 'gt', threshold: 100, severity: 'warning' },
-        { asset: 'en-1', metric: 'kw', operator: 'gt', threshold: 120, severity: 'critical' },
-        { asset: 'tk-01', metric: 'level', operator: 'lt', threshold: 10, severity: 'warning' },
-        { asset: 'tk-01', metric: 'level', operator: 'gt', threshold: 90, severity: 'critical' },
-        { asset: 'tk-02', metric: 'level', operator: 'lt', threshold: 10, severity: 'warning' },
-        { asset: 'tk-02', metric: 'level', operator: 'gt', threshold: 90, severity: 'critical' },
+        {
+          asset: 'en-1',
+          metric: 'kw',
+          operator: 'gt',
+          threshold: 100,
+          severity: 'warning',
+          kind: 'HI',
+        },
+        {
+          asset: 'en-1',
+          metric: 'kw',
+          operator: 'gt',
+          threshold: 120,
+          severity: 'critical',
+          kind: 'HH',
+        },
+        {
+          asset: 'tk-01',
+          metric: 'level',
+          operator: 'lt',
+          threshold: 10,
+          severity: 'warning',
+          kind: 'LO',
+        },
+        {
+          asset: 'tk-01',
+          metric: 'level',
+          operator: 'gt',
+          threshold: 90,
+          severity: 'critical',
+          kind: 'HH',
+        },
+        {
+          asset: 'tk-02',
+          metric: 'level',
+          operator: 'lt',
+          threshold: 10,
+          severity: 'warning',
+          kind: 'LO',
+        },
+        {
+          asset: 'tk-02',
+          metric: 'level',
+          operator: 'gt',
+          threshold: 90,
+          severity: 'critical',
+          kind: 'HH',
+        },
       ];
       for (const token of [admin, viewer, platform]) {
         const res = await api.get('/api/plants/lim-1/limits', token).expect(200);

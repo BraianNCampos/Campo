@@ -8,8 +8,12 @@ import { computeTrend, trendText, type Trend } from '@/lib/modules/trend';
 import { fmtNum } from '@/lib/modules/kpis';
 import { readSeries } from '@/store/history';
 import { useNow, useHistoryVersion } from '../hooks';
-import { IconPause, IconPower, KIND_ICON } from '../icons';
+import { IconCritical, IconPause, IconPower, IconWarning, KIND_ICON } from '../icons';
 import { Sparkline } from '../Sparkline';
+import { deviationModel } from '@/lib/modules/deviation';
+import { LIFECYCLE_LABEL } from '@/lib/alarm-lifecycle';
+import { useTrendStore } from '../trend/trend-store';
+import { DeviationBarView } from './DeviationBar';
 import { RangeBar } from './RangeBar';
 import { StatusChip, statusColor } from './StatusChip';
 import { useCardData } from './useCardData';
@@ -31,6 +35,23 @@ function MachineValue({ running }: { running: boolean }) {
     <p className={`flex items-center gap-2 text-[28px] leading-none font-bold ${running ? 'text-fg' : 'text-muted'}`}>
       <Icon className="text-[26px]" />
       {running ? 'En marcha' : 'Detenida'}
+    </p>
+  );
+}
+
+/** Aviso de alarma en la tarjeta: icono + texto + color (nunca sólo color). */
+function AlarmNotice({ id, notice }: { id: string; notice: NonNullable<ReturnType<typeof useCardData>['notice']> }) {
+  const crit = notice.severity === 'critical';
+  const Icon = crit ? IconCritical : IconWarning;
+  const text = notice.lifecycle === 'rtn_unacked' ? LIFECYCLE_LABEL.rtn_unacked : notice.lifecycle === 'acked' ? 'Alarma activa, reconocida' : 'Alarma activa, sin reconocer';
+  return (
+    <p
+      data-testid={`alarm-notice-${id}`}
+      data-lifecycle={notice.lifecycle}
+      className={`mt-3 flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-[13px] font-bold ${crit ? 'border-crit/70 bg-crit/15 text-crit' : 'border-warn/70 bg-warn/15 text-warn'}`}
+    >
+      <Icon className="shrink-0 text-base" />
+      {text}
     </p>
   );
 }
@@ -66,21 +87,33 @@ function ModuleCardBase({ id }: { id: string }) {
   const tone =
     d.status === 'alarm' ? (d.severity === 'warning' ? 'border-warn' : 'border-crit ring-1 ring-crit') : d.status === 'near' ? 'border-warn/60' : 'border-line';
   const noData = d.status === 'nodata';
+  const openTrend = useTrendStore((s) => s.show);
+  const dev = !isMachine && d.scale ? deviationModel({ value: d.value, setpoint: d.setpoint, limits: d.limits, scale: d.scale, alarm: d.status === 'alarm' }) : null;
+  const unitLabel = metricMeta(d.metric).label;
 
   return (
     <article
       data-testid={`asset-card-${id}`}
       data-status={d.status}
       aria-label={`${d.name}: ${kind?.label ?? 'Equipo'}`}
-      className={`flex flex-col rounded-xl border bg-surface p-4 ${tone}`}
+      className={`relative flex flex-col rounded-xl border bg-surface p-4 ${tone}`}
     >
       <header className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <h3 className="flex items-center gap-2 text-[15px] leading-tight font-semibold">
-            <Icon className="shrink-0 text-lg text-muted" />
-            <span className="truncate">{d.name}</span>
+          <h3 className="text-[15px] leading-tight font-semibold">
+            {/* todo el área de la tarjeta abre la tendencia (after: cubre la tarjeta) */}
+            <button
+              type="button"
+              data-testid={`trend-open-${id}`}
+              aria-label={`Ver tendencia de ${unitLabel.toLowerCase()} de ${d.name}`}
+              onClick={() => openTrend(id, d.metric)}
+              className="flex min-h-11 w-full items-center gap-2 rounded-md text-left after:absolute after:inset-0 after:rounded-xl after:content-['']"
+            >
+              <Icon className="shrink-0 text-lg text-muted" />
+              <span className="truncate">{d.name}</span>
+            </button>
           </h3>
-          <p className="mt-0.5 truncate pl-7 font-mono text-[11px] text-muted">{id}</p>
+          <p className="-mt-2 truncate pl-7 font-mono text-[11px] text-muted">{id}</p>
         </div>
         <StatusChip status={d.status} severity={d.severity} data={`status-${id}`} />
       </header>
@@ -110,7 +143,11 @@ function ModuleCardBase({ id }: { id: string }) {
           </div>
           {!isMachine && d.scale && (
             <div className="mt-3">
+              {dev ? (
+                <DeviationBarView model={dev} label={`${unitLabel} de ${d.name}`} unit={d.unit} decimals={d.decimals} />
+              ) : (
               <RangeBar value={d.value} scale={d.scale} limits={d.limits} color={color} label={`${metricMeta(d.metric).label} de ${d.name}`} unit={d.unit} setpoint={d.setpoint} />
+              )}
             </div>
           )}
           {!isMachine && (
@@ -118,6 +155,7 @@ function ModuleCardBase({ id }: { id: string }) {
               <Sparkline asset={id} metric={d.metric} height={34} color={color} />
             </div>
           )}
+          {d.notice && <AlarmNotice id={id} notice={d.notice} />}
           <Footer id={id} def={d.def} values={d.state?.values} />
         </>
       )}

@@ -8,6 +8,7 @@ export const LAYOUT_LIMITS = {
   maxScale: 50,
   maxConnections: 32,
   maxScaleMetrics: 32,
+  maxSetpoints: 32,
 } as const;
 
 const METRIC_KEY = /^[A-Za-z0-9_.-]{1,64}$/;
@@ -90,6 +91,22 @@ function scaleError(scale: unknown): string | null {
   return null;
 }
 
+/** `setpoints: {[métrica]: número finito}` (§12.4): setpoint de cada métrica para las alarmas de desviación. */
+function setpointsError(sp: unknown): string | null {
+  if (!isObject(sp)) return 'metadata.setpoints debe ser un objeto {métrica: número}';
+  const metrics = Object.keys(sp);
+  if (metrics.length > LAYOUT_LIMITS.maxSetpoints) {
+    return `metadata.setpoints admite como máximo ${LAYOUT_LIMITS.maxSetpoints} métricas`;
+  }
+  for (const metric of metrics) {
+    if (!METRIC_KEY.test(metric)) return `metadata.setpoints: métrica "${metric}" inválida`;
+    if (!isNumber(sp[metric])) {
+      return `metadata.setpoints.${metric} debe ser un número finito`;
+    }
+  }
+  return null;
+}
+
 /**
  * Valida las claves conocidas de `metadata` (el resto es libre). Devuelve el primer error en español o null.
  * `selfId` = id del activo, para impedir que se conecte consigo mismo.
@@ -110,6 +127,10 @@ export function assetMetadataError(
   }
   if (metadata['scale'] !== undefined) {
     const e = scaleError(metadata['scale']);
+    if (e) return e;
+  }
+  if (metadata['setpoints'] !== undefined) {
+    const e = setpointsError(metadata['setpoints']);
     if (e) return e;
   }
   if (metadata['connectsTo'] !== undefined) return connectsToError(metadata['connectsTo'], selfId);

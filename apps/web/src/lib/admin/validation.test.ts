@@ -1,54 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import {
-  describeRule,
   emptyLayoutForm,
-  emptyRuleForm,
   parseMetadata,
   passwordStrength,
   ruleMatchesAsset,
   validateAssetForm,
   validatePasswordChange,
   validatePlantForm,
-  validateRuleForm,
   validateUserForm,
-  type RuleForm,
 } from './validation';
 
-const rule = (over: Partial<RuleForm> = {}): RuleForm => ({ ...emptyRuleForm('demo'), asset: 'tk-*', metric: 'level', threshold: '90', ...over });
-
-describe('validateRuleForm (coherente con CreateRuleDto)', () => {
-  it('regla válida → valor tipado', () => {
-    const { errors, value } = validateRuleForm(rule({ forSeconds: '5', hysteresis: '2.5', severity: 'critical' }));
-    expect(errors).toEqual({});
-    expect(value).toEqual({ plant: 'demo', asset: 'tk-*', metric: 'level', operator: 'gt', threshold: 90, severity: 'critical', forSeconds: 5, hysteresis: 2.5, enabled: true });
-  });
-  it('rechaza lo que rechazaría el servidor', () => {
-    expect(validateRuleForm(rule({ plant: '' })).errors.plant).toBeDefined();
-    expect(validateRuleForm(rule({ asset: 'TK-01' })).errors.asset).toBeDefined();
-    expect(validateRuleForm(rule({ asset: '' })).errors.asset).toBeDefined();
-    expect(validateRuleForm(rule({ asset: '*' })).errors.asset).toBeUndefined();
-    expect(validateRuleForm(rule({ metric: 'a b' })).errors.metric).toBeDefined();
-    expect(validateRuleForm(rule({ threshold: '' })).errors.threshold).toBeDefined();
-    expect(validateRuleForm(rule({ threshold: 'abc' })).errors.threshold).toBeDefined();
-    expect(validateRuleForm(rule({ threshold: 'Infinity' })).errors.threshold).toBeDefined();
-    expect(validateRuleForm(rule({ forSeconds: '1.5' })).errors.forSeconds).toBeDefined();
-    expect(validateRuleForm(rule({ forSeconds: '-1' })).errors.forSeconds).toBeDefined();
-    expect(validateRuleForm(rule({ forSeconds: '86401' })).errors.forSeconds).toBeDefined();
-    expect(validateRuleForm(rule({ forSeconds: '86400' })).errors.forSeconds).toBeUndefined();
-    expect(validateRuleForm(rule({ hysteresis: '-0.1' })).errors.hysteresis).toBeDefined();
-    expect(validateRuleForm(rule({ operator: '' })).errors.operator).toBeDefined();
-  });
-  it('umbrales negativos y decimales válidos', () => {
-    expect(validateRuleForm(rule({ threshold: '-5.5', operator: 'lte' })).value?.threshold).toBe(-5.5);
-  });
-});
-
-describe('describeRule / ruleMatchesAsset', () => {
-  it('explica activación y normalización con histéresis', () => {
-    expect(describeRule({ metric: 'level', operator: 'gt', threshold: 90, forSeconds: 5, hysteresis: 2 })).toBe('Se activa cuando level > 90 durante 5 s; se normaliza al bajar a 88.');
-    expect(describeRule({ metric: 'level', operator: 'lt', threshold: 10, forSeconds: 0, hysteresis: 2 })).toContain('subir a 12');
-    expect(describeRule({ metric: 'temp', operator: 'gte', threshold: 30, forSeconds: 0, hysteresis: 0 })).toContain('al dejar de cumplirse');
-  });
+describe('ruleMatchesAsset', () => {
   it('patrones con *', () => {
     expect(ruleMatchesAsset('tk-*', 'tk-01')).toBe(true);
     expect(ruleMatchesAsset('*', 'x')).toBe(true);

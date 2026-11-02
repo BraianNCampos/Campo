@@ -10,7 +10,7 @@ import { useActiveModuleIds, useModuleSummary } from '../modules/derived';
 import { KpiStrip } from '../modules/KpiStrip';
 import { MODULE_ICON } from '../modules/module-meta';
 import { NoModules } from '../modules/NoModules';
-import { useLiveStore } from '@/store/live-store';
+import { selectAlarmList, useLiveStore } from '@/store/live-store';
 import { usePlantStore } from '@/store/plant-store';
 import { WallCard } from './WallCard';
 import { useAspect, useWakeLock, useWallRotation } from './useWall';
@@ -60,9 +60,9 @@ function Panel({ module }: { module: ModuleDef }) {
 }
 
 function CriticalBanner() {
-  const alarms = useLiveStore((s) => s.alarms);
+  const list = useLiveStore(selectAlarmList);
   const catalog = useLiveStore((s) => s.catalog);
-  const crit = useMemo(() => Object.values(alarms).filter((a) => a.severity === 'critical'), [alarms]);
+  const crit = useMemo(() => list.filter((a) => a.severity === 'critical'), [list]);
   if (crit.length === 0) return null;
   const first = crit[0]!;
   return (

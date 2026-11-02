@@ -5,7 +5,8 @@ import { ASSET_KINDS, METRICS, type AssetDef, type AssetState, type Limit, type 
 import { resolveScale, type Scale } from '@/lib/modules/scale';
 import { cardStatus, setpointOf, type CardStatus } from '@/lib/modules/status';
 import { assetLabel } from '@/lib/assets';
-import { useLiveStore } from '@/store/live-store';
+import type { AssetAlarmNotice } from '@/lib/alarm-lifecycle';
+import { selectAssetNotices, useLiveStore } from '@/store/live-store';
 
 const NO_LIMITS: Limit[] = [];
 
@@ -25,6 +26,8 @@ export interface CardData {
   setpoint: number | undefined;
   unit: string;
   decimals: number;
+  /** aviso de alarma del activo: activa (sin reconocer o reconocida) o normalizada sin reconocer */
+  notice: AssetAlarmNotice | undefined;
 }
 
 /** Datos de una tarjeta con selectores finos: sólo se re-renderiza cuando cambia ESTE activo. */
@@ -34,6 +37,7 @@ export function useCardData(id: string): CardData {
   const severity = useLiveStore((s) => s.alarmSeverityByAsset[id]);
   const all = useLiveStore((s) => s.limitsByAsset[id]) ?? NO_LIMITS;
   const catalogReady = useLiveStore((s) => s.catalogReady);
+  const notice = useLiveStore((s) => selectAssetNotices(s)[id]);
   return useMemo(() => {
     const metric = def ? ASSET_KINDS[def.type].primaryMetric : 'value';
     const limits = all.filter((l) => l.metric === metric);
@@ -52,6 +56,7 @@ export function useCardData(id: string): CardData {
       setpoint: setpointOf(def, state?.values, metric),
       unit: m?.unit ?? '',
       decimals: m?.decimals ?? 1,
+      notice,
     };
-  }, [id, def, state, severity, all, catalogReady]);
+  }, [id, def, state, severity, all, catalogReady, notice]);
 }

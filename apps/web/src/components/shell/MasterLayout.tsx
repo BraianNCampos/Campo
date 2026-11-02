@@ -8,6 +8,7 @@ import { useIsMobile } from '../hooks';
 import { useActiveModuleIds } from '../modules/derived';
 import { OfflineBanner } from '../OfflineBanner';
 import { Skeleton } from '../SessionGate';
+import { TrendPanel } from '../trend/TrendPanel';
 import { AlarmFooter } from './AlarmFooter';
 import { BottomBar } from './BottomBar';
 import { Sidebar } from './Sidebar';
@@ -40,6 +41,7 @@ export function MasterLayout({ children }: { children: ReactNode }) {
         </div>
       </div>
       <AlarmFooter />
+      <TrendPanel />
       {isMobile && <BottomBar moduleIds={moduleIds} />}
     </div>
   );

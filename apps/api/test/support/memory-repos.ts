@@ -1,7 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import {
+  DEFAULT_ALARM_POLICY,
   redisKeys,
   type AlarmEvent,
+  type AlarmPolicy,
   type AuditEntry,
   type ModelInfo,
   type Org,
@@ -15,7 +17,20 @@ import {
   OrgRecord,
   OrgsRepository,
 } from '../../src/orgs/orgs.repository';
-import type { AlarmRecord, AlarmRule, AlarmRuleInput } from '../../src/alarms/alarm.types';
+import {
+  AlarmRecord,
+  AlarmRule,
+  AlarmRuleInput,
+  lifecycleOf,
+  matchesListState,
+} from '../../src/alarms/alarm.types';
+import { AlarmHealthRepository } from '../../src/alarms/alarm-health.repository';
+import {
+  AlarmJournalRepository,
+  JournalEntry,
+  JournalRow,
+} from '../../src/alarms/alarm-journal.repository';
+import { Activation, HealthData, summarizeActivations } from '../../src/alarms/alarm-kpis';
 import { AlarmRulesRepository } from '../../src/alarms/alarm-rules.repository';
 import { AlarmsRepository, ListAlarmsFilter } from '../../src/alarms/alarms.repository';
 import { AuditRepository, AuditQuery, NewAuditEntry } from '../../src/audit/audit.repository';
@@ -390,14 +405,24 @@ export class MemoryAlarmsRepository extends AlarmsRepository {
   }
 
   insert(a: AlarmEvent): Promise<void> {
-    this.alarms.set(a.id, { ...a, state: 'active', acknowledged: false });
+    this.alarms.set(a.id, { ...a, state: 'active', acknowledged: false, lifecycle: 'unacked' });
     return Promise.resolve();
   }
 
-  markCleared(id: string, clearedAt: number): Promise<AlarmRecord | null> {
+  markCleared(id: string, clearedAt: number, forceClose = false): Promise<AlarmRecord | null> {
     const cur = this.alarms.get(id);
     if (!cur) return Promise.resolve(null);
-    const next: AlarmRecord = { ...cur, state: 'cleared', clearedAt };
+    if (cur.state !== 'active') return Promise.resolve(cur);
+    const closed = forceClose || cur.acknowledged || lifecycleOf(cur) === 'shelved';
+    const next: AlarmRecord = {
+      ...cur,
+      state: 'cleared',
+      clearedAt,
+      lifecycle: closed ? 'closed' : 'rtn_unacked',
+    };
+    delete next.shelvedUntil;
+    delete next.shelvedReason;
+    delete next.shelvedBy;
     this.alarms.set(id, next);
     return Promise.resolve(next);
   }
@@ -405,15 +430,51 @@ export class MemoryAlarmsRepository extends AlarmsRepository {
   ack(id: string, userId: string, at: number) {
     const cur = this.alarms.get(id);
     if (!cur) return Promise.resolve(null);
-    if (cur.acknowledged) return Promise.resolve({ record: cur, changed: false });
+    const lc = lifecycleOf(cur);
+    if (cur.acknowledged || (lc !== 'unacked' && lc !== 'rtn_unacked')) {
+      return Promise.resolve({ record: cur, changed: false });
+    }
     const next: AlarmRecord = {
       ...cur,
       acknowledged: true,
       acknowledgedBy: userId,
       acknowledgedAt: at,
+      lifecycle: cur.state === 'cleared' ? 'closed' : 'acked',
     };
     this.alarms.set(id, next);
     return Promise.resolve({ record: next, changed: true });
+  }
+
+  shelve(id: string, until: number, userId: string, reason: string): Promise<AlarmRecord | null> {
+    const cur = this.alarms.get(id);
+    const lc = cur && lifecycleOf(cur);
+    if (!cur || cur.state !== 'active' || (lc !== 'unacked' && lc !== 'acked')) {
+      return Promise.resolve(null);
+    }
+    const next: AlarmRecord = {
+      ...cur,
+      lifecycle: 'shelved',
+      shelvedUntil: until,
+      shelvedReason: reason,
+      shelvedBy: userId,
+    };
+    this.alarms.set(id, next);
+    return Promise.resolve(next);
+  }
+
+  unshelve(id: string): Promise<AlarmRecord | null> {
+    const cur = this.alarms.get(id);
+    if (!cur || cur.state !== 'active' || lifecycleOf(cur) !== 'shelved') {
+      return Promise.resolve(null);
+    }
+    const next: AlarmRecord = { ...cur, lifecycle: 'unacked', acknowledged: false };
+    delete next.acknowledgedBy;
+    delete next.acknowledgedAt;
+    delete next.shelvedUntil;
+    delete next.shelvedReason;
+    delete next.shelvedBy;
+    this.alarms.set(id, next);
+    return Promise.resolve(next);
   }
 
   findById(id: string): Promise<AlarmRecord | null> {
@@ -425,7 +486,7 @@ export class MemoryAlarmsRepository extends AlarmsRepository {
       [...this.alarms.values()]
         .filter(
           (a) =>
-            (!f.state || a.state === f.state) &&
+            (!f.state || matchesListState(lifecycleOf(a), f.state)) &&
             (!f.plant || a.plant === f.plant) &&
             inScope(f.scope, a.plant, this.orgOf),
         )
@@ -436,6 +497,92 @@ export class MemoryAlarmsRepository extends AlarmsRepository {
 
   findActive(): Promise<AlarmRecord[]> {
     return Promise.resolve([...this.alarms.values()].filter((a) => a.state === 'active'));
+  }
+}
+
+/** Diario de alarmas en memoria. */
+export class MemoryAlarmJournalRepository extends AlarmJournalRepository {
+  readonly entries: (JournalEntry & { id: number })[] = [];
+  private seq = 0;
+  /** Id de usuario -> email (para el JOIN del diario). */
+  constructor(private readonly emailOf: (id: string) => string | null = () => null) {
+    super();
+  }
+
+  add(entries: JournalEntry[]): Promise<void> {
+    for (const e of entries) this.entries.push({ ...e, id: ++this.seq });
+    return Promise.resolve();
+  }
+
+  list(alarmId: string, limit = 200): Promise<JournalRow[]> {
+    return Promise.resolve(
+      this.entries
+        .filter((e) => e.alarmId === alarmId)
+        .sort((a, b) => a.ts - b.ts || a.id - b.id)
+        .slice(0, limit)
+        .map((e) => ({
+          id: String(e.id),
+          ts: e.ts,
+          type: e.type,
+          userId: e.userId ?? null,
+          userEmail: e.userId ? this.emailOf(e.userId) : null,
+          note: e.note ?? null,
+          value: e.value ?? null,
+        })),
+    );
+  }
+}
+
+/** Política y KPIs de salud en memoria (cálculo de referencia `summarizeActivations`). */
+export class MemoryAlarmHealthRepository extends AlarmHealthRepository {
+  readonly policies = new Map<string, AlarmPolicy>();
+
+  constructor(
+    private readonly alarms: MemoryAlarmsRepository,
+    private readonly journal: MemoryAlarmJournalRepository,
+    private readonly rules: MemoryAlarmRulesRepository,
+    private readonly registered: (plant: string) => boolean = () => true,
+  ) {
+    super();
+  }
+
+  getPolicy(plant: string): Promise<AlarmPolicy> {
+    return Promise.resolve(this.policies.get(plant) ?? { ...DEFAULT_ALARM_POLICY });
+  }
+
+  setPolicy(plant: string, policy: AlarmPolicy): Promise<boolean> {
+    if (!this.registered(plant)) return Promise.resolve(false);
+    this.policies.set(plant, { ...policy });
+    return Promise.resolve(true);
+  }
+
+  data(plant: string, from: number, to: number, staleBefore: number): Promise<HealthData> {
+    const mine = [...this.alarms.alarms.values()].filter((a) => a.plant === plant);
+    const rows: Activation[] = mine
+      .filter((a) => a.ts >= from && a.ts <= to)
+      .map((a) => ({
+        ruleId: a.ruleId,
+        asset: a.asset,
+        metric: a.metric,
+        kind: a.kind ?? 'HI',
+        severity: a.severity,
+        ts: a.ts,
+      }));
+    const base = summarizeActivations(rows);
+    return Promise.resolve({
+      ...base,
+      stale: mine
+        .filter((a) => a.state === 'active' && lifecycleOf(a) !== 'shelved' && a.ts < staleBefore)
+        .sort((a, b) => a.ts - b.ts || (a.id < b.id ? -1 : 1))
+        .slice(0, 50)
+        .map((a) => ({ id: a.id, asset: a.asset, metric: a.metric, since: a.ts })),
+      shelved: mine.filter((a) => lifecycleOf(a) === 'shelved').length,
+      suppressed: this.journal.entries.filter(
+        (e) => e.plant === plant && e.type === 'suppress' && e.ts >= from && e.ts <= to,
+      ).length,
+      outOfService: [...this.rules.rules.values()].filter((r) => r.plant === plant && !r.enabled)
+        .length,
+    });
   }
 }
 

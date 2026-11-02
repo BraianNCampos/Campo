@@ -66,6 +66,50 @@ describe('tarjeta de módulo', () => {
   };
   const card = () => host.querySelector('[data-testid="asset-card-tk-01"]')!;
 
+  it('con SP muestra la barra de desviación (ámbar al 90 %) y sin SP la barra de rango', () => {
+    act(() => {
+      useLiveStore.getState().setCatalog([def('tk-01', 'tank', 'Tanque Norte', { capacityM3: 60, setpoints: { level: 60 } })]);
+      useLiveStore.getState().setLimits([lim('tk-01', 'level', 'gt', 90, 'critical'), lim('tk-01', 'level', 'lt', 10)]);
+    });
+    render(<ModuleCard id="tk-01" />);
+    feed('tk-01', { level: 70 });
+    expect(card().querySelector('[data-testid="deviation-bar"]')?.getAttribute('data-state')).toBe('ok');
+    expect(card().querySelector('[data-testid="deviation-bar"] [role="meter"]')?.getAttribute('aria-valuetext')).toContain('por encima del SP');
+    feed('tk-01', { level: 88 });
+    expect(card().querySelector('[data-testid="deviation-bar"]')?.getAttribute('data-state')).toBe('near');
+    feed('tk-01', { level: 40 });
+    expect(card().querySelector('[data-testid="deviation-bar"]')?.getAttribute('data-side')).toBe('below');
+  });
+  it('sin SP se mantiene la barra de rango', () => {
+    setup();
+    render(<ModuleCard id="tk-01" />);
+    feed('tk-01', { level: 70 });
+    expect(card().querySelector('[data-testid="deviation-bar"]')).toBeNull();
+    expect(card().querySelector('[role="meter"]')).not.toBeNull();
+  });
+  it('aviso rojo con icono y texto: alarma activa y normalizada sin reconocer', () => {
+    setup();
+    render(<ModuleCard id="tk-01" />);
+    feed('tk-01', { level: 95 });
+    expect(card().querySelector('[data-testid="alarm-notice-tk-01"]')).toBeNull();
+    const send = (over: Partial<AlarmEvent>) => {
+      const b = emptyBatch();
+      b.alarms = [alarm(over)];
+      act(() => useLiveStore.getState().applyBatch(b));
+    };
+    send({ lifecycle: 'unacked' });
+    const n = () => card().querySelector('[data-testid="alarm-notice-tk-01"]');
+    expect(n()?.textContent).toBe('Alarma activa, sin reconocer');
+    expect(n()?.querySelector('svg')).not.toBeNull();
+    send({ lifecycle: 'acked', acknowledged: true });
+    expect(n()?.textContent).toBe('Alarma activa, reconocida');
+    send({ lifecycle: 'rtn_unacked', state: 'cleared' });
+    expect(n()?.textContent).toBe('Normalizada sin reconocer');
+    expect(card().getAttribute('data-status')).not.toBe('alarm');
+    send({ lifecycle: 'closed', state: 'cleared' });
+    expect(n()).toBeNull();
+  });
+
   it('sin telemetría: «Sin datos», sin valor', () => {
     setup();
     render(<ModuleCard id="tk-01" />);
@@ -297,30 +341,36 @@ describe('plantilla maestra bloqueada', () => {
     expect(host.querySelector('[data-testid="alarm-footer"]')).toBeNull();
     expect(host.querySelector('header')).toBeNull();
   });
-  it('pie global: conteo por prioridad, las 3 más importantes con activo, valor y límite, y acceso a la lista completa', () => {
+  it('pie global: conteo por ciclo de vida, las 3 más importantes con activo, descripción, valor y límite, y acceso a la lista completa', () => {
     login(['tanks']);
     setupPlant();
     act(() => useLiveStore.getState().setCatalog([def('tk-01', 'tank', 'Tanque Norte'), def('tk-02', 'tank', 'Tanque Sur')]));
     const b = emptyBatch();
     b.alarms.push(
-      alarm({ id: 'a1', asset: 'tk-01', severity: 'critical', value: 95.2, threshold: 90, ts: 300 }),
-      alarm({ id: 'a2', asset: 'tk-02', severity: 'warning', value: 8.5, threshold: 10, ts: 200 }),
-      alarm({ id: 'a3', asset: 'tk-02', severity: 'warning', ts: 100 }),
-      alarm({ id: 'a4', asset: 'tk-02', severity: 'warning', ts: 50 }),
+      alarm({ id: 'a1', asset: 'tk-01', severity: 'critical', value: 95.2, threshold: 90, ts: 300, lifecycle: 'unacked', kind: 'HH', rationale: { description: 'Nivel muy alto' } }),
+      alarm({ id: 'a2', asset: 'tk-02', severity: 'warning', value: 8.5, threshold: 10, ts: 200, lifecycle: 'unacked' }),
+      alarm({ id: 'a3', asset: 'tk-02', severity: 'warning', state: 'cleared', lifecycle: 'rtn_unacked', ts: 100 }),
+      alarm({ id: 'a4', asset: 'tk-02', severity: 'warning', ts: 50, lifecycle: 'shelved', shelvedUntil: 9e12, shelvedReason: 'mantenimiento' }),
+      alarm({ id: 'a5', asset: 'tk-02', severity: 'warning', ts: 40, lifecycle: 'acked' }),
     );
     act(() => useLiveStore.getState().applyBatch(b));
     render(<MasterLayout>{content}</MasterLayout>);
     const f = host.querySelector('[data-testid="alarm-footer"]')!;
-    expect(f.querySelector('[data-testid="footer-critical"]')?.textContent).toContain('1');
-    expect(f.querySelector('[data-testid="footer-warning"]')?.textContent).toContain('3');
+    expect(f.querySelector('[data-testid="footer-unacked"]')?.getAttribute('data-count')).toBe('2');
+    expect(f.querySelector('[data-testid="footer-rtn"]')?.getAttribute('data-count')).toBe('1');
+    expect(f.querySelector('[data-testid="footer-shelved"]')?.getAttribute('data-count')).toBe('1');
     const entries = [...f.querySelectorAll('[data-testid="footer-alarm"]')];
     expect(entries).toHaveLength(3);
     expect(entries[0]?.getAttribute('data-severity')).toBe('critical');
     expect(entries[0]?.textContent).toContain('Tanque Norte');
+    expect(entries[0]?.textContent).toContain('tk-01');
+    expect(entries[0]?.textContent).toContain('Nivel muy alto');
     expect(entries[0]?.textContent).toContain('95.2 %');
     expect(entries[0]?.textContent).toContain('límite 90.0 %');
+    expect(entries.map((e) => e.getAttribute('data-lifecycle'))).toEqual(['unacked', 'unacked', 'rtn_unacked']);
+    expect(entries[2]?.textContent).toContain('Normalizada');
     expect(f.querySelector('[data-testid="footer-all"]')?.getAttribute('href')).toBe('/alarmas');
-    expect(f.querySelector('[data-testid="footer-all"]')?.textContent).toContain('(4)');
+    expect(f.querySelector('[data-testid="footer-all"]')?.textContent).toContain('(4)'); // la lista excluye las postergadas
   });
   it('sin alarmas el pie lo dice', () => {
     login(['tanks']);

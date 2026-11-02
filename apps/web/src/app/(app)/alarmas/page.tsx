@@ -1,5 +1,5 @@
-import { GlobalAlarms } from '@/components/GlobalAlarms';
+import { AlarmsScreen } from '@/components/alarms/AlarmsScreen';
 
 export default function Page() {
-  return <GlobalAlarms />;
+  return <AlarmsScreen />;
 }

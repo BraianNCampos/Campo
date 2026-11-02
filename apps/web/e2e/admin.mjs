@@ -242,7 +242,12 @@ try {
     check((await page.locator('[data-testid^="rule-row-"]').count()) === 16, 'reglas: aparece en la tabla (16)');
     const sw = page.getByRole('switch', { name: /tk-05 level > 95/ });
     await sw.click();
-    check(await vis(page.getByRole('switch', { name: /tk-05 level > 95: inactiva/ })), 'reglas: el interruptor desactiva la regla');
+    const oos = page.getByRole('dialog', { name: 'Sacar la regla de servicio' });
+    await oos.getByRole('button', { name: 'Sacar de servicio' }).click();
+    check(await vis(oos.getByText('mínimo 3 caracteres')), 'reglas: sacar de servicio sin motivo → error de validación');
+    await oos.getByLabel('Motivo').fill('sensor en calibración');
+    await oos.getByRole('button', { name: 'Sacar de servicio' }).click();
+    check(await vis(page.getByRole('switch', { name: /tk-05 level > 95: fuera de servicio/ })), 'reglas: el interruptor saca la regla de servicio (con motivo)');
     await audit(page, 'reglas (escritorio)');
     await shot(page, 'rules-desktop');
 

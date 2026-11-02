@@ -2,8 +2,8 @@ import { ASSET_KINDS, ID_PATTERN, METRICS, MODEL_REF_PATTERN, MODULE_IDS, module
 import type { AssetDef, AssetLayout, ModuleId, Role } from '@campo/shared';
 import { LAYOUT_LIMITS, parseConnectsTo, parseLayout } from '@/lib/catalog';
 import { MODULE_DISABLED_TEXT } from './errors';
-import { ASSET_TYPES, OPERATORS, ROLES, SEVERITIES } from './types';
-import type { AlarmRuleInput, AssetInput, AssetType, Operator, Severity } from './types';
+import { ASSET_TYPES, ROLES } from './types';
+import type { AssetInput, AssetType } from './types';
 
 export type FieldErrors = Record<string, string>;
 
@@ -503,90 +503,6 @@ export function isTypeAllowed(type: AssetType, modules: readonly ModuleId[]): bo
   const m = moduleForAssetType(type);
   return m === null || modules.includes(m);
 }
-
-// ── Reglas de alarma ──
-
-export interface RuleForm {
-  plant: string;
-  asset: string;
-  metric: string;
-  operator: Operator | '';
-  threshold: string;
-  severity: Severity | '';
-  forSeconds: string;
-  hysteresis: string;
-  enabled: boolean;
-}
-
-export const emptyRuleForm = (plant = ''): RuleForm => ({
-  plant,
-  asset: '',
-  metric: '',
-  operator: 'gt',
-  threshold: '',
-  severity: 'warning',
-  forSeconds: '0',
-  hysteresis: '0',
-  enabled: true,
-});
-
-const num = (s: string): number => (s.trim() === '' ? NaN : Number(s));
-
-/** Misma política que `CreateRuleDto` del servidor (apps/api/src/alarms/dto.ts). */
-export function validateRuleForm(v: RuleForm): { errors: FieldErrors; value?: AlarmRuleInput } {
-  const errors: FieldErrors = {};
-  if (!v.plant) errors.plant = 'Elegí una planta.';
-  else if (!ID_PATTERN.test(v.plant)) errors.plant = 'Planta no válida.';
-  const asset = v.asset.trim();
-  if (!asset) errors.asset = 'Indicá un activo o un patrón con * (p. ej. tk-*).';
-  else if (!RULE_ASSET_PATTERN.test(asset)) errors.asset = 'Id exacto o patrón con * en minúsculas (p. ej. tk-*, *).';
-  const metric = v.metric.trim();
-  if (!metric) errors.metric = 'Indicá la métrica (p. ej. level).';
-  else if (!RULE_METRIC_PATTERN.test(metric)) errors.metric = 'Sólo letras, números, "_", "." o "-" (máx. 64).';
-  if (!OPERATORS.includes(v.operator as Operator)) errors.operator = 'Elegí un operador.';
-  const threshold = num(v.threshold);
-  if (!Number.isFinite(threshold)) errors.threshold = 'El umbral debe ser un número.';
-  if (!SEVERITIES.includes(v.severity as Severity)) errors.severity = 'Elegí una severidad.';
-  const forSeconds = num(v.forSeconds);
-  if (!Number.isInteger(forSeconds) || forSeconds < 0 || forSeconds > 86_400) {
-    errors.forSeconds = 'Entero entre 0 y 86 400 segundos.';
-  }
-  const hysteresis = num(v.hysteresis);
-  if (!Number.isFinite(hysteresis) || hysteresis < 0) errors.hysteresis = 'Número igual o mayor que 0.';
-  if (hasErrors(errors)) return { errors };
-  return {
-    errors,
-    value: {
-      plant: v.plant,
-      asset,
-      metric,
-      operator: v.operator as Operator,
-      threshold,
-      severity: v.severity as Severity,
-      forSeconds,
-      hysteresis,
-      enabled: v.enabled,
-    },
-  };
-}
-
-export const OPERATOR_LABEL: Record<Operator, string> = {
-  gt: '> mayor que',
-  lt: '< menor que',
-  gte: '≥ mayor o igual que',
-  lte: '≤ menor o igual que',
-};
-export const OPERATOR_SYMBOL: Record<Operator, string> = { gt: '>', lt: '<', gte: '≥', lte: '≤' };
-
-/** Frase de vista previa: cuándo se activa y cuándo se normaliza. */
-export function describeRule(r: Pick<AlarmRuleInput, 'metric' | 'operator' | 'threshold' | 'forSeconds' | 'hysteresis'>): string {
-  const up = r.operator === 'gt' || r.operator === 'gte';
-  const clearAt = up ? r.threshold - r.hysteresis : r.threshold + r.hysteresis;
-  const hold = r.forSeconds > 0 ? ` durante ${r.forSeconds} s` : '';
-  const clear = r.hysteresis > 0 ? `se normaliza al ${up ? 'bajar' : 'subir'} a ${round(clearAt)}` : `se normaliza al dejar de cumplirse`;
-  return `Se activa cuando ${r.metric} ${OPERATOR_SYMBOL[r.operator]} ${r.threshold}${hold}; ${clear}.`;
-}
-const round = (n: number) => Math.round(n * 1e6) / 1e6;
 
 /** ¿El patrón de una regla (`tk-*`) nombra/abarca este activo? Sólo `*` es comodín. */
 export function ruleMatchesAsset(pattern: string, assetId: string): boolean {

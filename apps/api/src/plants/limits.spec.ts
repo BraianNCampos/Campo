@@ -23,8 +23,22 @@ describe('resolveLimits', () => {
   it('expande el patrón con * a los activos existentes y ordena de forma estable', () => {
     const out = resolveLimits([rule({ asset: 'tk-*' })], assets);
     expect(out).toEqual([
-      { asset: 'tk-01', metric: 'level', operator: 'gt', threshold: 90, severity: 'critical' },
-      { asset: 'tk-02', metric: 'level', operator: 'gt', threshold: 90, severity: 'critical' },
+      {
+        asset: 'tk-01',
+        metric: 'level',
+        operator: 'gt',
+        threshold: 90,
+        severity: 'critical',
+        kind: 'HH',
+      },
+      {
+        asset: 'tk-02',
+        metric: 'level',
+        operator: 'gt',
+        threshold: 90,
+        severity: 'critical',
+        kind: 'HH',
+      },
     ]);
   });
 
@@ -87,5 +101,27 @@ describe('resolveLimits', () => {
 
   it('el patrón escapa los metacaracteres: un punto no es un comodín', () => {
     expect(resolveLimits([rule({ asset: 'a.b' })], ['a.b', 'axb'])).toHaveLength(1);
+  });
+
+  it('incluye kind (derivado si falta) y omite DEV y ROC: no son un límite fijo', () => {
+    const out = resolveLimits(
+      [
+        rule({
+          asset: 'tk-01',
+          metric: 'level',
+          operator: 'lt',
+          threshold: 5,
+          severity: 'critical',
+        }),
+        rule({ asset: 'tk-01', metric: 'level', threshold: 25, kind: 'DEV' }),
+        rule({ asset: 'tk-01', metric: 'level', threshold: 8, kind: 'ROC' }),
+        rule({ asset: 'tk-01', metric: 'level', threshold: 80, severity: 'warning', kind: 'HI' }),
+      ],
+      ['tk-01'],
+    );
+    expect(out.map((l) => [l.threshold, l.kind])).toEqual([
+      [5, 'LL'],
+      [80, 'HI'],
+    ]);
   });
 });

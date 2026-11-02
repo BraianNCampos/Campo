@@ -6,6 +6,7 @@ import { errorFromResponse, ModelInUseError, ModuleDisabledError, OrgNotEmptyErr
 import { checkGlb } from './glb-check';
 import { MODEL_MAX_BYTES } from './models';
 import { ASSET_TYPES, OPERATORS, ROLES, SEVERITIES } from './types';
+import { deriveKind, kindOf, setpointStatus } from './rule-form';
 import { ruleMatchesAsset, validateMetadataDomain, validateMetadataLayout } from './validation';
 import type {
   AdminApi,
@@ -252,6 +253,7 @@ export class MockAdminApi implements AdminApi {
     const rule = (plant: string, asset: string, metric: string, operator: AlarmRule['operator'], threshold: number, severity: AlarmRule['severity'], forSeconds = 5, hysteresis = 0) =>
       this.rules.push({ id: uuid(++n), plant, asset, metric, operator, threshold, severity, forSeconds, hysteresis, enabled: true, createdAt: t - 5 * DAY, updatedAt: t - 5 * DAY });
     rule('demo', 'tk-*', 'level', 'gt', 90, 'critical', 5, 2);
+    Object.assign(this.rules[0]!, { kind: 'HH', description: 'Nivel muy alto en el tanque.', consequence: 'Riesgo de rebalse y pérdida de producto.', response: 'Cerrá la válvula de entrada y detené la bomba de carga.' });
     rule('demo', 'tk-*', 'level', 'lt', 10, 'warning', 5, 2);
     rule('demo', 'tk-*', 'temp', 'gt', 35, 'warning', 10, 1);
     rule('demo', 'clima-*', 'temp', 'gt', 30, 'warning', 60, 1);
@@ -781,14 +783,47 @@ export class MockAdminApi implements AdminApi {
       else if (r.forSeconds > 86_400) e.push('forSeconds must not be greater than 86400');
     }
     if (r.hysteresis !== undefined && (typeof r.hysteresis !== 'number' || !(r.hysteresis >= 0))) e.push('hysteresis must not be less than 0');
+    if (r.kind !== undefined && !['HH', 'HI', 'LO', 'LL', 'DEV', 'ROC'].includes(r.kind as string)) e.push('kind must be one of the following values: HH, HI, LO, LL, DEV, ROC');
+    if (r.rocWindowSeconds !== undefined) {
+      if (!Number.isInteger(r.rocWindowSeconds)) e.push('rocWindowSeconds must be an integer number');
+      else if (r.rocWindowSeconds < 10) e.push('rocWindowSeconds must not be less than 10');
+      else if (r.rocWindowSeconds > 600) e.push('rocWindowSeconds must not be greater than 600');
+    }
+    if (r.rocDirection !== undefined && !['any', 'rise', 'fall'].includes(r.rocDirection as string)) e.push('rocDirection must be one of the following values: any, rise, fall');
+    if (r.offDelaySeconds !== undefined) {
+      if (!Number.isInteger(r.offDelaySeconds)) e.push('offDelaySeconds must be an integer number');
+      else if (r.offDelaySeconds < 0) e.push('offDelaySeconds must not be less than 0');
+      else if (r.offDelaySeconds > 86_400) e.push('offDelaySeconds must not be greater than 86400');
+    }
+    const s = r.suppressWhen;
+    if (s !== undefined && s !== null) {
+      if (typeof s !== 'object' || typeof s.asset !== 'string' || !ID_PATTERN.test(s.asset)) e.push('suppressWhen.asset inválido');
+      else if (typeof s.metric !== 'string' || !RULE_METRIC.test(s.metric)) e.push('suppressWhen.metric inválida');
+      else if (!['eq', 'neq', 'gt', 'lt'].includes(s.operator)) e.push('suppressWhen.operator must be one of the following values: eq, neq, gt, lt');
+      else if (typeof s.value !== 'number' || !Number.isFinite(s.value)) e.push('suppressWhen.value must be a number conforming to the specified constraints');
+    }
+    for (const [k, max] of [['description', 200], ['consequence', 300], ['response', 300]] as const) {
+      const v = r[k];
+      if (v !== undefined && v !== null && (typeof v !== 'string' || v.length > max)) e.push(`${k} must be shorter than or equal to ${max} characters`);
+    }
+    const reason = r.outOfServiceReason;
+    if (reason !== undefined && reason !== null && (typeof reason !== 'string' || reason.trim().length < 3)) e.push('outOfServiceReason must be longer than or equal to 3 characters');
     return e;
+  }
+
+  /** `evaluable`: una DEV sin setpoint (en `metadata.setpoints` del activo) no se evalúa (docs §12.1). */
+  private ruleView(r: AlarmRule): AlarmRule {
+    const kind = r.kind ?? deriveKind(r.operator, r.severity);
+    if (!r.enabled) return { ...r, kind, evaluable: false, status: 'disabled' };
+    const noSp = kind === 'DEV' && setpointStatus(r.asset, r.metric, this.assets.filter((a) => a.plant === r.plant)) === 'missing';
+    return { ...r, kind, evaluable: !noSp, status: noSp ? 'no_setpoint' : 'ok' };
   }
 
   listRules() {
     return this.run(() => {
       this.require(...EDITORS);
       const ok = new Set(this.allowedPlants());
-      return this.rules.filter((r) => ok.has(r.plant)).map((r) => ({ ...r }));
+      return this.rules.filter((r) => ok.has(r.plant)).map((r) => this.ruleView(r));
     });
   }
 
@@ -799,10 +834,13 @@ export class MockAdminApi implements AdminApi {
       if (errs.length) this.fail(400, errs);
       this.plantAccess(input.plant);
       const t = this.now();
+      if (input.enabled === false && (input.outOfServiceReason ?? '').trim().length < 3) this.fail(400, 'outOfServiceReason must be longer than or equal to 3 characters');
       const rule: AlarmRule = { ...input, forSeconds: input.forSeconds ?? 0, hysteresis: input.hysteresis ?? 0, enabled: input.enabled ?? true, id: this.nextId(), createdAt: t, updatedAt: t };
+      if (rule.enabled) delete rule.outOfServiceReason;
       this.rules.push(rule);
-      this.record('rule.create', `rule:${rule.id}`, { plant: rule.plant, asset: rule.asset, metric: rule.metric, operator: rule.operator, threshold: rule.threshold, severity: rule.severity }, t, this.meUser, this.orgOfPlant(rule.plant));
-      return { ...rule };
+      this.record('rule.create', `rule:${rule.id}`, { plant: rule.plant, asset: rule.asset, metric: rule.metric, operator: rule.operator, threshold: rule.threshold, severity: rule.severity, kind: kindOf(rule) }, t, this.meUser, this.orgOfPlant(rule.plant));
+      if (!rule.enabled) this.record('rule.out_of_service', `rule:${rule.id}`, { reason: rule.outOfServiceReason }, t, this.meUser, this.orgOfPlant(rule.plant));
+      return this.ruleView(rule);
     });
   }
 
@@ -815,10 +853,16 @@ export class MockAdminApi implements AdminApi {
       const errs = this.ruleErrors(patch, true);
       if (errs.length) this.fail(400, errs);
       if (patch.plant && patch.plant !== r.plant) this.plantAccess(patch.plant);
+      const wasEnabled = r.enabled;
+      const reason = patch.outOfServiceReason !== undefined ? patch.outOfServiceReason : r.outOfServiceReason;
+      if (patch.enabled === false && (reason ?? '').trim().length < 3) this.fail(400, 'outOfServiceReason must be longer than or equal to 3 characters');
       const changed = Object.keys(patch).filter((k) => patch[k as keyof AlarmRulePatch] !== undefined);
       Object.assign(r, Object.fromEntries(changed.map((k) => [k, patch[k as keyof AlarmRulePatch]])), { updatedAt: this.now() });
+      for (const k of ['suppressWhen', 'description', 'consequence', 'response', 'outOfServiceReason'] as const) if (r[k] === null) delete r[k]; // null = vaciar
+      if (r.enabled) delete r.outOfServiceReason;
       this.record('rule.update', `rule:${id}`, { changed }, this.now(), this.meUser, this.orgOfPlant(r.plant));
-      return { ...r };
+      if (wasEnabled && !r.enabled) this.record('rule.out_of_service', `rule:${id}`, { reason: r.outOfServiceReason }, this.now(), this.meUser, this.orgOfPlant(r.plant));
+      return this.ruleView(r);
     });
   }
 

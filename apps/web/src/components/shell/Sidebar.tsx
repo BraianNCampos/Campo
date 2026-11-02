@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import type { ModuleId } from '@campo/shared';
 import { activeModules, moduleHref, showAdminLink } from '@/lib/modules/nav';
-import { useLiveStore } from '@/store/live-store';
+import { selectAlarmCounts, useLiveStore } from '@/store/live-store';
 import { signOut, useSessionStore } from '@/store/session-store';
 import { useRouter } from 'next/navigation';
 import { Wordmark } from '../Brand';
@@ -26,8 +26,9 @@ export function Sidebar({ moduleIds }: { moduleIds: readonly ModuleId[] }) {
   const mods = activeModules(moduleIds);
   const badges = useModuleBadges(moduleIds);
   const me = useSessionStore((s) => s.me);
-  const alarmCount = useLiveStore((s) => Object.keys(s.alarms).length);
-  const critical = useLiveStore((s) => Object.values(s.alarms).some((a) => a.severity === 'critical'));
+  const counts = useLiveStore(selectAlarmCounts);
+  const alarmCount = counts.list.total;
+  const critical = counts.list.critical > 0;
   const orgName = me?.org ? me.org.name : 'Campos Ingeniería';
 
   return (

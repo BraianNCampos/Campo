@@ -242,7 +242,7 @@ try {
 
     // ── dashboard (navegación interna: el estado demo en memoria se conserva) ──
     await page.getByRole('link', { name: 'Volver al panel' }).click();
-    await page.waitForURL(`${BASE}/m/tanks`); // «/» lleva al primer módulo; la vista 3D es el módulo view3d
+    await page.locator('[data-testid="plant-overview"]').waitFor({ timeout: 30_000 }); // «/» es la vista general; la vista 3D es el módulo view3d
     await page.locator('[data-testid="sidebar"] [data-testid="module-nav-view3d"]').click();
     await page.waitForURL(`${BASE}/m/view3d`);
     await page.locator('[aria-label="Activos"]').first().waitFor();
@@ -317,7 +317,7 @@ try {
     await audit(page, 'móvil admin planta con vista previa', '#main');
 
     await page.getByRole('link', { name: 'Panel', exact: true }).tap();
-    await page.waitForURL(`${BASE}/m/tanks`);
+    await page.locator('[data-testid="plant-overview"]').waitFor({ timeout: 30_000 });
     await page.locator('[data-testid="nav-more"]').tap(); // con 7 módulos, la Vista 3D queda en «Más»
     await page.locator('[data-testid="more-sheet"] [data-testid="module-nav-view3d"]').tap();
     await page.locator('[data-testid="tab-summary"]').waitFor();

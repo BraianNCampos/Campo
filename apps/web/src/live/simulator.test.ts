@@ -82,3 +82,32 @@ describe('PlantSimulator a ritmo reducido (modo demo)', () => {
     expect(Math.abs(lvl(a) - 60)).toBeLessThan(Math.abs(lvl(b) - 60));
   });
 });
+
+describe('PlantSimulator con setpoints (modo demo)', () => {
+  const sps = { 'tk-01': 60, 'tk-02': 60, 'tk-03': 60, 'tk-04': 60 };
+  const levels = (sim: PlantSimulator, seconds: number, id: string) => {
+    const out: number[] = [];
+    for (let t = 0; t < seconds; t += 0.25) {
+      for (const m of sim.step(0.25, t * 1000)) if (m.type === 'telemetry' && m.asset === id) out.push(m.values.level!);
+    }
+    return out;
+  };
+  it('los niveles oscilan alrededor del SP: pasan más tiempo cerca de 60 que en los extremos', () => {
+    const all = ['tk-01', 'tk-02', 'tk-03', 'tk-04'].flatMap((id) => levels(new PlantSimulator('demo', 4, { setpoints: sps }), 900, id));
+    const mean = all.reduce((a, b) => a + b, 0) / all.length;
+    expect(mean).toBeGreaterThan(40);
+    expect(mean).toBeLessThan(80);
+    expect(all.filter((v) => v > 30 && v < 85).length / all.length).toBeGreaterThan(0.5);
+  });
+  it('hay excursiones hacia los límites (>85 o <15) sin salir de 0..100', () => {
+    const all = ['tk-01', 'tk-02', 'tk-03', 'tk-04'].flatMap((id) => levels(new PlantSimulator('demo', 6, { setpoints: sps }), 900, id));
+    expect(all.some((v) => v > 85)).toBe(true);
+    expect(all.some((v) => v < 15)).toBe(true);
+    expect(all.every((v) => v >= 0 && v <= 100)).toBe(true);
+  });
+  it('sin setpoints el comportamiento no cambia', () => {
+    const a = run(new PlantSimulator('demo', 2), 30).last;
+    const b = run(new PlantSimulator('demo', 2, { setpoints: {} }), 30).last;
+    expect(a).toEqual(b);
+  });
+});

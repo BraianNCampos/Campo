@@ -29,6 +29,8 @@ const ID = {
   alarmB: U(4),
   modelA: U(5),
   modelB: U(6),
+  shelvedA: U(7),
+  shelvedB: U(8),
   sha: (c: string) => c.repeat(64),
 };
 
@@ -297,6 +299,57 @@ const CASES: Case[] = [
     level: 'operator',
     ok: 200,
   },
+  // ISA-18.2 (§12): postergar, diario, política y KPIs de salud de alarmas
+  {
+    name: 'POST /alarms/:id/shelve',
+    method: 'post',
+    foreign: `/api/alarms/${ID.alarmB}/shelve`,
+    own: `/api/alarms/${ID.alarmA}/shelve`,
+    body: { minutes: 5, reason: 'prueba de aislamiento' },
+    level: 'engineer',
+    ok: 200,
+  },
+  {
+    name: 'POST /alarms/:id/unshelve',
+    method: 'post',
+    foreign: `/api/alarms/${ID.shelvedB}/unshelve`,
+    own: `/api/alarms/${ID.shelvedA}/unshelve`,
+    level: 'engineer',
+    ok: 200,
+  },
+  {
+    name: 'GET /alarms/:id/journal',
+    method: 'get',
+    foreign: `/api/alarms/${ID.alarmB}/journal`,
+    own: `/api/alarms/${ID.alarmA}/journal`,
+    level: 'viewer',
+    ok: 200,
+  },
+  {
+    name: 'GET /plants/:plant/alarm-policy',
+    method: 'get',
+    foreign: '/api/plants/pb/alarm-policy',
+    own: '/api/plants/pa/alarm-policy',
+    level: 'viewer',
+    ok: 200,
+  },
+  {
+    name: 'PUT /plants/:plant/alarm-policy',
+    method: 'put',
+    foreign: '/api/plants/pb/alarm-policy',
+    own: '/api/plants/pa/alarm-policy',
+    body: { ratePerDay: 100, peak10min: 8, staleHours: 12 },
+    level: 'admin',
+    ok: 200,
+  },
+  {
+    name: 'GET /plants/:plant/alarm-kpis',
+    method: 'get',
+    foreign: '/api/plants/pb/alarm-kpis?window=7d',
+    own: '/api/plants/pa/alarm-kpis?window=7d',
+    level: 'viewer',
+    ok: 200,
+  },
   // usuarios
   { name: 'GET /users', method: 'get', foreign: '/api/users', level: 'admin', ok: 200, list: true },
   {
@@ -404,7 +457,16 @@ describe('Aislamiento entre clientes: matriz endpoint x rol (e2e)', () => {
   const userIds = new Map<string, string>();
   let platform: string;
   let snapshot: Map<string, string>;
-  const MARKERS_B = ['pb', 'tk-b1', ID.ruleB, ID.alarmB, ID.modelB, 'org-b.test', 'org-b'];
+  const MARKERS_B = [
+    'pb',
+    'tk-b1',
+    ID.ruleB,
+    ID.alarmB,
+    ID.shelvedB,
+    ID.modelB,
+    'org-b.test',
+    'org-b',
+  ];
 
   beforeAll(async () => {
     t = await createTestApp({ authCacheTtlMs: 0, wsRevalidateMs: 100 });
@@ -497,6 +559,27 @@ describe('Aislamiento entre clientes: matriz endpoint x rol (e2e)', () => {
     t.alarms.alarms.clear();
     t.alarms.alarms.set(ID.alarmA, mkAlarm(ID.alarmA, 'pa', ID.ruleA));
     t.alarms.alarms.set(ID.alarmB, mkAlarm(ID.alarmB, 'pb', ID.ruleB));
+    for (const [id, plantId, ruleId] of [
+      [ID.shelvedA, 'pa', ID.ruleA],
+      [ID.shelvedB, 'pb', ID.ruleB],
+    ] as const) {
+      t.alarms.alarms.set(id, {
+        ...mkAlarm(id, plantId, ruleId),
+        lifecycle: 'shelved',
+        shelvedUntil: Date.now() + 3_600_000,
+        shelvedReason: `postergada en ${plantId}`,
+      });
+    }
+    t.journal.entries.splice(0, t.journal.entries.length);
+    await t.journal.add(
+      [ID.alarmA, ID.alarmB].map((alarmId) => ({
+        alarmId,
+        plant: alarmId === ID.alarmA ? 'pa' : 'pb',
+        ts: 1,
+        type: 'activate' as const,
+      })),
+    );
+    t.health.policies.clear();
     t.models.rows.splice(0, t.models.rows.length);
     for (const [id, plantId, c] of [
       [ID.modelA, 'pa', 'a'],

@@ -1,8 +1,10 @@
 import type { AssetDef, ServerMessage } from '@campo/shared';
 import { getAdminApi } from '@/lib/admin';
 import { DEMO_ASSETS } from '@/lib/demo-seed';
+import { setpointOf } from '@/lib/modules/status';
 import { PlantSimulator } from './simulator';
 import { SeedSimulator } from './seed-simulator';
+import { startDemoAlarms } from './alarm-demo';
 
 export const MOCK_TICK_MS = 250;
 /** Ritmo de la planta demo: más lento que el de los tests para que los caudales y tasas sean creíbles. */
@@ -20,7 +22,15 @@ interface Source {
 function buildSources(plant: string): Source[] {
   const seed = Math.floor(Math.random() * 1e6);
   const out: Source[] = [];
-  if (plant === 'demo') out.push(new PlantSimulator(plant, seed, { speed: DEMO_PLANT_SPEED, levels: { 'tk-04': 89.4, 'tk-02': 10.6 } }));
+  if (plant === 'demo') {
+    // los niveles oscilan alrededor del SP sembrado en `metadata.setpoints` (src/lib/demo-seed.ts)
+    const setpoints: Record<string, number> = {};
+    for (const d of DEMO_ASSETS.demo ?? []) {
+      const sp = d.type === 'tank' ? setpointOf(d, undefined, 'level') : undefined;
+      if (sp !== undefined) setpoints[d.id] = sp;
+    }
+    out.push(new PlantSimulator(plant, seed, { speed: DEMO_PLANT_SPEED, levels: { 'tk-04': 88.2, 'tk-02': 12.4 }, setpoints }));
+  }
   out.push(new SeedSimulator(plant, seed, { skip: (d) => isCoreDemoAsset(plant, d) }));
   return out;
 }
@@ -37,16 +47,20 @@ export function startMockSource(emit: (m: ServerMessage) => void, plant = 'demo'
   const now0 = Date.now();
   const snaps = sources.map((s) => s.snapshot(now0)).filter((m): m is Extract<ServerMessage, { type: 'snapshot' }> => m.type === 'snapshot');
   emit({ type: 'snapshot', plant, assets: Object.assign({}, ...snaps.map((s) => s.assets)) });
+  // las alarmas las genera el motor ISA-18.2 de la demo (alarm-lifecycle.ts) a partir de esta telemetría
+  const alarms = startDemoAlarms(plant, emit, now0, snaps[0]?.assets);
   let last = now0;
   const id = setInterval(() => {
     const now = Date.now();
     const dt = (now - last) / 1000;
     last = now;
-    for (const s of sources) for (const m of s.step(dt, now)) emit(m);
+    for (const s of sources) for (const m of s.step(dt, now)) if (!alarms.consume(m)) emit(m);
+    alarms.step(now);
   }, MOCK_TICK_MS);
   return () => {
     clearInterval(id);
     offCatalog();
+    alarms.stop();
   };
 }
 

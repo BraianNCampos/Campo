@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from 'react';
 import { metricMeta } from '@/lib/metrics';
-import { readSeries } from '@/store/history';
+import { readSeries, type Series } from '@/store/history';
 import { useAssetName } from './useAsset';
 
 /** Colores de la curva: salen de los tokens del tema (oscuro o alto contraste) en cada dibujo. */
@@ -22,6 +22,36 @@ function chartColors() {
 }
 const REDRAW_MS = 200;
 
+/** Línea de referencia horizontal (setpoint o límite de alarma) con su rótulo. */
+export interface RefLine {
+  value: number;
+  /** texto corto: «SP 60», «HH 90» */
+  label: string;
+  kind: 'sp' | 'warning' | 'critical';
+}
+
+/** Eje X legible: segundos, minutos u horas según la ventana. */
+export function ageLabel(sec: number): string {
+  if (sec <= 0) return 'ahora';
+  if (sec < 120) return `-${sec} s`;
+  if (sec < 7200) return `-${Math.round(sec / 60)} min`;
+  return `-${Math.round((sec / 3600) * 2) / 2} h`.replace('.', ',');
+}
+
+/** Evita que los rótulos de las líneas se pisen: los empuja hacia abajo con al menos `gap` px entre sí. */
+export function spreadLabels(ys: number[], gap: number, min: number, max: number): number[] {
+  const order = ys.map((y, i) => i).sort((a, b) => ys[a]! - ys[b]!);
+  const out = [...ys];
+  let prev = min - gap;
+  for (const i of order) {
+    out[i] = Math.max(ys[i]!, prev + gap);
+    prev = out[i]!;
+  }
+  const over = prev - max;
+  if (over > 0) for (const i of order) out[i] = Math.max(min, out[i]! - over);
+  return out;
+}
+
 export function niceTicks(lo: number, hi: number, count = 4): number[] {
   const span = hi - lo || 1;
   const raw = span / count;
@@ -39,16 +69,29 @@ export function LineChart({
   windowSec,
   height = 150,
   compact = false,
+  series,
+  refLines,
 }: {
   asset: string;
   metric: string;
   windowSec: number;
   height?: number;
   compact?: boolean;
+  /** serie propia (histórico + vivo); sin ella se lee el búfer circular y el eje termina en la última muestra */
+  series?: Series;
+  /** SP y límites: sustituyen a los umbrales fijos de la métrica y entran en la escala vertical */
+  refLines?: readonly RefLine[];
 }) {
   const ref = useRef<HTMLCanvasElement>(null);
   const meta = metricMeta(metric);
   const name = useAssetName(asset);
+  // el dibujo (≈5 Hz) lee siempre lo último sin reiniciar el efecto
+  const seriesRef = useRef(series);
+  const linesRef = useRef(refLines);
+  useEffect(() => {
+    seriesRef.current = series;
+    linesRef.current = refLines;
+  });
 
   useEffect(() => {
     const canvas = ref.current;
@@ -69,11 +112,13 @@ export function LineChart({
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, w, h);
 
-      const m = compact ? { l: 4, r: 4, t: 6, b: 4 } : { l: 42, r: 10, t: 10, b: 20 };
+      const lines = linesRef.current;
+      const m = compact ? { l: 4, r: 4, t: 6, b: 4 } : { l: 42, r: lines?.length ? 64 : 10, t: 10, b: 20 };
       const pw = w - m.l - m.r;
       const ph = h - m.t - m.b;
-      const { t, v } = readSeries(asset, metric);
-      const tEnd = t.length ? (t[t.length - 1] as number) : Date.now();
+      const own = seriesRef.current;
+      const { t, v } = own ?? readSeries(asset, metric);
+      const tEnd = own ? Date.now() : t.length ? (t[t.length - 1] as number) : Date.now();
       const tStart = tEnd - windowSec * 1000;
 
       let lo = meta.min ?? Infinity;
@@ -84,6 +129,10 @@ export function LineChart({
             lo = Math.min(lo, v[i] as number);
             hi = Math.max(hi, v[i] as number);
           }
+        }
+        for (const l of lines ?? []) {
+          lo = Math.min(lo, l.value);
+          hi = Math.max(hi, l.value);
         }
         if (!Number.isFinite(lo)) [lo, hi] = [0, 1];
         const pad = Math.max((hi - lo) * 0.15, 0.5);
@@ -115,8 +164,9 @@ export function LineChart({
       if (!compact) {
         ctx.textAlign = 'center';
         ctx.textBaseline = 'alphabetic';
-        for (let k = 0; k <= 4; k++) {
-          const frac = k / 4;
+        const steps = pw < 320 ? 2 : 4; // en anchos estrechos, menos etiquetas para que no se pisen
+        for (let k = 0; k <= steps; k++) {
+          const frac = k / steps;
           const x = m.l + frac * pw;
           ctx.strokeStyle = COLORS.grid;
           ctx.beginPath();
@@ -124,12 +174,37 @@ export function LineChart({
           ctx.lineTo(Math.round(x) + 0.5, m.t + ph);
           ctx.stroke();
           const sec = Math.round(windowSec * (1 - frac));
-          ctx.fillText(sec === 0 ? 'ahora' : `-${sec >= 120 ? Math.round(sec / 60) + ' min' : sec + ' s'}`, Math.min(Math.max(x, m.l + 14), w - m.r - 14), h - 4);
+          ctx.fillText(ageLabel(sec), Math.min(Math.max(x, m.l + 14), w - m.r - 14), h - 4);
         }
       }
 
-      // umbrales
-      for (const th of meta.thresholds ?? []) {
+      // SP y límites de alarma, con rótulo al borde derecho
+      if (lines?.length) {
+        const vis = lines.filter((l) => l.value >= lo && l.value <= hi);
+        const ys = vis.map((l) => Y(l.value));
+        const ly = spreadLabels(ys, 13, m.t + 6, m.t + ph - 6);
+        ctx.font = '600 10.5px ui-monospace, SFMono-Regular, Menlo, monospace';
+        vis.forEach((l, i) => {
+          const y = Math.round(ys[i]!) + 0.5;
+          const color = l.kind === 'critical' ? COLORS.crit : l.kind === 'warning' ? COLORS.warn : COLORS.text;
+          ctx.strokeStyle = color;
+          ctx.fillStyle = color;
+          ctx.setLineDash(l.kind === 'sp' ? [2, 3] : [6, 4]);
+          ctx.lineWidth = l.kind === 'sp' ? 1.25 : 1.5;
+          ctx.beginPath();
+          ctx.moveTo(m.l, y);
+          ctx.lineTo(w - m.r, y);
+          ctx.stroke();
+          ctx.setLineDash([]);
+          ctx.lineWidth = 1;
+          ctx.textAlign = 'left';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(l.label, w - m.r + 5, ly[i]!);
+        });
+        ctx.font = '11px ui-monospace, SFMono-Regular, Menlo, monospace';
+      }
+      // umbrales fijos de la métrica (sin líneas propias)
+      for (const th of lines ? [] : (meta.thresholds ?? [])) {
         if (th.value < lo || th.value > hi) continue;
         const y = Math.round(Y(th.value)) + 0.5;
         ctx.strokeStyle = th.severity === 'critical' ? COLORS.crit : COLORS.warn;
@@ -196,6 +271,7 @@ export function LineChart({
       role="img"
       aria-label={`Curva de ${meta.label.toLowerCase()} de ${name}`}
       data-testid={`chart-${asset}-${metric}`}
+      data-lines={refLines?.length ?? 0}
       className="block w-full"
       style={{ height }}
     />

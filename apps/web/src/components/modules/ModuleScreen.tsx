@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { moduleForAssetType, type AlarmEvent, type ModuleDef } from '@campo/shared';
 import { canAckAlarms, canManageRules, rulesHref } from '@/lib/modules/nav';
 import { needsAttention } from '@/lib/modules/status';
-import { useLiveStore } from '@/store/live-store';
+import { selectAlarmList, useLiveStore } from '@/store/live-store';
 import { usePlantStore } from '@/store/plant-store';
 import { useSessionStore } from '@/store/session-store';
 import { AlarmList } from '../AlarmList';
@@ -124,9 +124,9 @@ export function ModuleScreen({ module }: { module: ModuleDef }) {
   const [tab, setTab] = useState<Tab>('live');
   const plantName = usePlantStore((s) => s.plants.find((p) => p.id === s.selected)?.name);
   const catalog = useLiveStore((s) => s.catalog);
-  const alarms = useLiveStore((s) => s.alarms);
+  const alarms = useLiveStore(selectAlarmList);
   const alarmCount = useMemo(
-    () => Object.values(alarms).filter((a) => { const t = catalog[a.asset]?.type; return !!t && moduleForAssetType(t) === module.id; }).length,
+    () => alarms.filter((a) => { const t = catalog[a.asset]?.type; return !!t && moduleForAssetType(t) === module.id; }).length,
     [alarms, catalog, module.id],
   );
   const Icon = MODULE_ICON[module.id];

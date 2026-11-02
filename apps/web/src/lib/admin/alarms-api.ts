@@ -1,7 +1,15 @@
-import type { AlarmEvent, AlarmKind, AlarmKpis, AlarmLifecycle, AlarmPolicy, AlarmRationale, Severity } from '@campo/shared';
+import type { AlarmEvent, AlarmKind, AlarmKpis, AlarmLifecycle, AlarmPolicy, AlarmRationale, Role, Severity } from '@campo/shared';
 import { AdminApiError, errorFromResponse, networkError } from './errors';
 
 /** Cliente de alarmas ISA-18.2 (docs/architecture.md §12): lista, ciclo de vida, diario, política y KPIs. */
+
+/** Quién puede qué (la API es la autoridad; el cliente sólo esconde lo que no podría hacer). */
+export const ACK_ROLES: readonly Role[] = ['platform_admin', 'admin', 'engineer', 'operator'];
+export const SHELVE_ROLES: readonly Role[] = ['platform_admin', 'admin', 'engineer'];
+export const POLICY_ROLES: readonly Role[] = ['platform_admin', 'admin'];
+export const canAck = (role: Role | null | undefined) => !!role && ACK_ROLES.includes(role);
+export const canShelve = (role: Role | null | undefined) => !!role && SHELVE_ROLES.includes(role);
+export const canEditPolicy = (role: Role | null | undefined) => !!role && POLICY_ROLES.includes(role);
 
 export type AlarmListState = 'active' | 'cleared' | 'shelved';
 export type KpiWindow = AlarmKpis['window'];
@@ -94,9 +102,9 @@ export function validatePolicy(v: { ratePerDay: string; peak10min: string; stale
   const rate = n(v.ratePerDay);
   const peak = n(v.peak10min);
   const stale = n(v.staleHours);
-  if (!Number.isFinite(rate) || rate < 1 || rate > 10_000) errors.ratePerDay = 'Un número entre 1 y 10 000 alarmas por día.';
-  if (!Number.isFinite(peak) || peak < 1 || peak > 1000) errors.peak10min = 'Un número entre 1 y 1000 alarmas en 10 minutos.';
-  if (!Number.isFinite(stale) || stale < 1 || stale > 720) errors.staleHours = 'Un número entre 1 y 720 horas.';
+  if (!Number.isInteger(rate) || rate < 1 || rate > 10_000) errors.ratePerDay = 'Un número entero entre 1 y 10 000 alarmas por día.';
+  if (!Number.isInteger(peak) || peak < 1 || peak > 1000) errors.peak10min = 'Un número entero entre 1 y 1000 alarmas en 10 minutos.';
+  if (!Number.isInteger(stale) || stale < 1 || stale > 720) errors.staleHours = 'Un número entero entre 1 y 720 horas.';
   return Object.keys(errors).length ? { errors } : { errors, value: { ratePerDay: rate, peak10min: peak, staleHours: stale } };
 }
 
@@ -152,21 +160,26 @@ export function toAlarm(raw: unknown, now = Date.now()): AlarmEvent | null {
   if (until !== undefined) ev.shelvedUntil = until;
   const why = str(raw.shelvedReason);
   if (why) ev.shelvedReason = why;
+  const clearedAt = num(raw.clearedAt);
+  if (clearedAt !== undefined) (ev as AlarmEvent & { clearedAt?: number }).clearedAt = clearedAt;
   return ev;
 }
 
 const EVENT_ALIASES: Record<string, JournalEvent> = {
-  activated: 'activated', activation: 'activated', active: 'activated', raised: 'activated',
+  activated: 'activated', activate: 'activated', activation: 'activated', active: 'activated', raised: 'activated',
   acknowledged: 'acknowledged', ack: 'acknowledged', acked: 'acknowledged',
   cleared: 'cleared', normalized: 'cleared', rtn: 'cleared', returned: 'cleared',
-  closed: 'closed',
+  closed: 'closed', close: 'closed',
   shelved: 'shelved', shelve: 'shelved',
   unshelved: 'unshelved', unshelve: 'unshelved', expired: 'unshelved',
   reannounced: 'reannounced', reactivated: 'reannounced',
-  suppressed: 'suppressed', suppression: 'suppressed',
+  suppressed: 'suppressed', suppress: 'suppressed', suppression: 'suppressed',
 };
 
-/** Diario: acepta `ts|at`, `event|type|kind|action` y `actor|actorEmail|by|user`; ordenado de más viejo a más nuevo. */
+/**
+ * Diario: la API devuelve `{id, ts, type: activate|ack|rtn|shelve|unshelve|suppress|close, userEmail, note, value}`;
+ * se aceptan además otras variantes (`at`, `event`, `actor`…). Ordenado de más viejo a más nuevo.
+ */
 export function parseJournal(raw: unknown): AlarmJournalEntry[] {
   const list = Array.isArray(raw) ? raw : isObj(raw) && Array.isArray(raw.events) ? raw.events : [];
   const out: AlarmJournalEntry[] = [];
@@ -175,9 +188,9 @@ export function parseJournal(raw: unknown): AlarmJournalEntry[] {
     const ts = num(item.ts) ?? num(item.at) ?? num(item.createdAt);
     const name = str(item.event) ?? str(item.type) ?? str(item.kind) ?? str(item.action);
     if (ts === undefined || !name) continue;
-    const actor = str(item.actor) ?? str(item.actorEmail) ?? str(item.by) ?? str(item.user) ?? null;
+    const actor = str(item.actor) ?? str(item.userEmail) ?? str(item.actorEmail) ?? str(item.by) ?? str(item.user) ?? null;
     const entry: AlarmJournalEntry = { ts, event: EVENT_ALIASES[name.toLowerCase()] ?? name, actor };
-    const detail = str(item.detail) ?? str(item.reason) ?? str(item.message);
+    const detail = str(item.detail) ?? str(item.note) ?? str(item.reason) ?? str(item.message);
     if (detail) entry.detail = detail;
     const value = num(item.value);
     if (value !== undefined) entry.value = value;

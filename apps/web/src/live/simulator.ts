@@ -16,6 +16,11 @@ const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v
 const approach = (cur: number, target: number, rate: number, dt: number) =>
   cur < target ? Math.min(target, cur + rate * dt) : Math.max(target, cur - rate * dt);
 
+/** Ganancia (1/s) con que el nivel busca su setpoint, y empuje (%/s) y período (s) de las excursiones. */
+const SP_GAIN = 0.012;
+const EXCURSION_PUSH = 0.6;
+const EXCURSION_PERIOD = 150;
+
 interface TankSim {
   id: string;
   level: number;
@@ -85,20 +90,31 @@ export class PlantSimulator {
   private alarmSeq = 0;
 
   private speed: number;
+  /** setpoint de nivel por tanque: si hay, un control suave lo busca y cada tanque hace excursiones periódicas hacia un límite */
+  private setpoints: Record<string, number>;
 
   /**
    * `speed` escala el tiempo de la planta (1 = ritmo original, pensado para tests; el modo demo usa menos para
    * que los caudales y las tasas de cambio tengan órdenes de magnitud creíbles). `levels` pisa niveles iniciales.
+   * `setpoints` (nivel por tanque): el nivel oscila alrededor del SP con excursiones periódicas hacia los límites.
    */
   constructor(
     private plant = 'demo',
     seed = 42,
-    opts: { speed?: number; levels?: Record<string, number> } = {},
+    opts: { speed?: number; levels?: Record<string, number>; setpoints?: Record<string, number> } = {},
   ) {
     this.speed = opts.speed ?? 1;
+    this.setpoints = opts.setpoints ?? {};
     this.rnd = mulberry32(seed);
     for (const tk of this.tanks) tk.level = opts.levels?.[tk.id] ?? tk.level;
     this.tanks.forEach((tk) => this.temps.set(tk.id, this.tempOf(tk)));
+  }
+
+  /** Empuje periódico hacia el límite alto (tanques pares) o bajo (impares), de ~1/3 del ciclo, desfasado por tanque. */
+  private excursion(tk: TankSim): number {
+    const idx = this.tanks.indexOf(tk);
+    const s = Math.sin((2 * Math.PI * this.t) / EXCURSION_PERIOD + idx * 1.7);
+    return (idx % 2 === 0 ? 1 : -1) * EXCURSION_PUSH * Math.max(0, s) ** 2;
   }
 
   private noise(amp: number) {
@@ -158,7 +174,9 @@ export class PlantSimulator {
         tk.role === 'source'
           ? 0.3 + 0.2 * Math.sin(this.t / 17 + tk.phase) // aporte de proceso
           : -(0.3 + 0.2 * Math.sin(this.t / 23 + tk.phase)); // consumo
-      tk.level = clamp(tk.level + (ext + (flow.get(tk.id) ?? 0)) * dt + this.noise(0.01), 0, 100);
+      const sp = this.setpoints[tk.id];
+      const toward = sp === undefined ? 0 : SP_GAIN * (sp - tk.level) + this.excursion(tk);
+      tk.level = clamp(tk.level + (ext + (flow.get(tk.id) ?? 0) + toward) * dt + this.noise(0.01), 0, 100);
       this.temps.set(tk.id, this.tempOf(tk));
     }
 

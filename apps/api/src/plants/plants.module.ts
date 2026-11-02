@@ -2,7 +2,7 @@ import { Module } from '@nestjs/common';
 import { AlarmsModule } from '../alarms/alarms.module';
 import { ModelsModule } from '../models/models.module';
 import { AssetsController } from './assets.controller';
-import { AssetsRepository, PgAssetsRepository } from './assets.repository';
+import { CatalogModule } from './catalog.module';
 import { AssetsService } from './assets.service';
 import { PlantsAdminController } from './plants-admin.controller';
 import { PlantsController } from './plants.controller';
@@ -12,10 +12,9 @@ import { StateService } from './state.service';
 
 @Module({
   // AlarmRulesRepository: contar las reglas afectadas al borrar un activo; ModelsRepository: validar model3dRef
-  imports: [AlarmsModule, ModelsModule],
+  imports: [AlarmsModule, ModelsModule, CatalogModule],
   controllers: [PlantsController, PlantsAdminController, AssetsController],
   providers: [
-    { provide: AssetsRepository, useClass: PgAssetsRepository },
     { provide: PlantsRepository, useClass: PgPlantsRepository },
     AssetsService,
     PlantsService,

@@ -76,8 +76,8 @@ try {
     const errors = watchErrors(page);
 
     await page.goto(BASE, { waitUntil: 'load' });
-    const landed = await pollUntil(async () => new URL(page.url()).pathname === '/m/tanks', 20_000);
-    check(!!landed, `escritorio: «/» redirige al primer módulo activo (${new URL(page.url()).pathname})`);
+    const landed = await page.locator('[data-testid="plant-overview"]').waitFor({ timeout: 30_000 }).then(() => true, () => false);
+    check(landed && new URL(page.url()).pathname === '/', `escritorio: «/» muestra la vista general de la planta (${new URL(page.url()).pathname})`);
     await page.locator('[data-testid="sidebar"]').waitFor({ timeout: 20_000 });
     check((await count(page, '[data-testid="sidebar"] [data-testid^="module-nav-"]')) === 7, 'escritorio: la barra lateral tiene 7 módulos');
     const sidebarLabels = await page.locator('[data-testid="sidebar"] [data-testid^="module-nav-"]').allTextContents();
@@ -142,7 +142,7 @@ try {
     }
     const foot = await pollUntil(async () => (await count(page, '[data-testid="footer-alarm"]')) > 0, 60_000);
     const ft = await page.locator('[data-testid="alarm-footer"]').textContent();
-    check(!!foot && /Críticas/.test(ft) && /Advertencias/.test(ft) && /límite/.test(ft), `plantilla: el pie muestra conteo por prioridad y alarmas con valor y límite (${ft.replace(/\s+/g, ' ').slice(0, 110)})`);
+    check(!!foot && /Sin reconocer/.test(ft) && /Normalizadas sin reconocer/.test(ft) && /Postergadas/.test(ft) && /límite/.test(ft), `plantilla: el pie muestra conteo por ciclo de vida y alarmas con valor y límite (${ft.replace(/\s+/g, ' ').slice(0, 110)})`);
     check((await page.locator('[data-testid="footer-all"]').getAttribute('href')) === '/alarmas', 'plantilla: el pie enlaza a la lista completa');
     await openModule(page, 'tanks');
     await shot(page, 'master-layout-desktop');
@@ -165,7 +165,7 @@ try {
     // Alarmas globales
     await page.locator('[data-testid="nav-alarms"]').click();
     await page.locator('h1', { hasText: 'Alarmas' }).waitFor();
-    check(!!(await pollUntil(async () => (await count(page, '[data-testid="alarm-item"]')) > 0, 30_000)), 'alarmas globales: lista de alarmas de la planta');
+    check(!!(await pollUntil(async () => (await count(page, '[data-testid="alarm-row"], [data-testid="alarm-item"]')) > 0, 30_000)), 'alarmas globales: lista de alarmas de la planta');
 
     // Modo pared
     await page.locator('[data-testid="nav-wall"]').click();

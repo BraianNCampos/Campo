@@ -33,6 +33,12 @@ interface Gen {
   step(t: number, dt: number): Values;
 }
 
+/** Setpoint sembrado (`metadata.setpoints[métrica]`) o el de reserva. */
+const sp = (def: AssetDef, metric: string, fallback: number): number => {
+  const v = (def.metadata as { setpoints?: Record<string, unknown> }).setpoints?.[metric];
+  return typeof v === 'number' && Number.isFinite(v) ? v : fallback;
+};
+
 const num = (def: AssetDef, key: string, fallback: number): number => {
   const v = (def.metadata as Record<string, unknown>)[key];
   return typeof v === 'number' && v > 0 ? v : fallback;
@@ -45,15 +51,16 @@ function makeGen(def: AssetDef, rnd: () => number, index: number): Gen {
   const start = 25 + (h % 50) + index * 7;
   switch (def.type) {
     case 'climate': {
+      // alrededor del SP (20 °C): ambas salas oscilan cerca y tienen una excursión periódica hacia el límite (30 °C)
       const warm = /02|dep/.test(def.id);
-      const tBase = warm ? 24.5 : 7.8;
+      const tBase = sp(def, 'temp', 20) + (warm ? 1 : -0.6);
       const hBase = warm ? 52 : 66;
       const tb = { start: start + 15, period: 330, rise: 60, hold: 25, fall: 60 };
       const hb = { start, period: 300, rise: 40, hold: 20, fall: 50 };
       return {
         def,
         step: (t) => ({
-          temp: round(tBase + (warm ? 1.2 : 0.5) * Math.sin(t / 70 + phase) + (warm ? 7 : 0.4) * bump(t, tb) + noise(0.05), 2),
+          temp: round(tBase + (warm ? 1.2 : 0.5) * Math.sin(t / 70 + phase) + (warm ? 10 : 9.4) * bump(t, tb) + noise(0.05), 2),
           humidity: round(clamp(hBase + 4 * Math.sin(t / 55 + phase) + (warm ? 3 : 17) * bump(t, hb) + noise(0.3), 0, 100), 1),
         }),
       };
@@ -99,23 +106,24 @@ function makeGen(def: AssetDef, rnd: () => number, index: number): Gen {
     }
     case 'pressure': {
       const pb = { start: 70, period: 360, rise: 12, hold: 14, fall: 20 };
-      return { def, step: (t) => ({ pressure: round(6.1 + 0.35 * Math.sin(t / 45 + phase) + 2.6 * bump(t, pb) + noise(0.03), 2) }) };
+      const base = sp(def, 'pressure', 6);
+      return { def, step: (t) => ({ pressure: round(base + 0.1 + 0.35 * Math.sin(t / 45 + phase) + 2.6 * bump(t, pb) + noise(0.03), 2) }) };
     }
     case 'flow':
       return { def, step: (t) => ({ flow: round(Math.max(0, 54 + 9 * Math.sin(t / 110 + phase) + noise(0.6)), 2) }) };
     case 'tank': {
-      // llena hasta ~93 % y vacía hasta ~8 %: cruza los límites en cada extremo
-      const filling0 = index % 2 === 0;
-      let filling = filling0;
-      let level = filling0 ? 82 : 20;
+      // oscila alrededor del SP (60 %) y, una vez por ciclo, hace una excursión hacia un límite: los pares suben hasta
+      // ~95 % (alto) y los impares bajan hasta ~8 % (bajo), con la subida lenta para que se vea el ámbar antes de la alarma
+      const base = sp(def, 'level', 60);
+      const dir = index % 2 === 0 ? 1 : -1;
+      const eb = { start: 22 + index * 9, period: 220, rise: 34, hold: 14, fall: 46 };
+      const reach = dir > 0 ? 38 : 58;
       return {
         def,
-        step: (t, dt) => {
-          level += (filling ? 0.35 : -0.35) * dt + noise(0.01);
-          if (filling && level >= 93) filling = false;
-          if (!filling && level <= 8) filling = true;
-          return { level: round(clamp(level, 0, 100), 2), temp: round(19 + 1.5 * Math.sin(t / 80 + phase) + noise(0.05), 2) };
-        },
+        step: (t) => ({
+          level: round(clamp(base + 5 * Math.sin(t / 28 + phase) + dir * reach * bump(t, eb) + noise(0.08), 0, 100), 2),
+          temp: round(19 + 1.5 * Math.sin(t / 80 + phase) + noise(0.05), 2),
+        }),
       };
     }
     case 'pump':

@@ -1,7 +1,7 @@
 import { ASSET_KINDS } from '@campo/shared';
-import type { AssetDef, AssetType, AuditEntry, Limit, ManagedUser, Me, ModelInfo, ModuleId, Org, OrgSummary, Plant, Role, Severity } from '@campo/shared';
+import type { AlarmKind, AssetDef, AssetType, AuditEntry, Limit, ManagedUser, Me, ModelInfo, ModuleId, Org, OrgSummary, Plant, Role, Severity } from '@campo/shared';
 
-export type { AssetDef, AssetType, AuditEntry, Limit, ManagedUser, Me, ModelInfo, ModuleId, Org, OrgSummary, Plant, Role, Severity };
+export type { AlarmKind, AssetDef, AssetType, AuditEntry, Limit, ManagedUser, Me, ModelInfo, ModuleId, Org, OrgSummary, Plant, Role, Severity };
 
 export type Operator = 'gt' | 'lt' | 'gte' | 'lte';
 export const OPERATORS: readonly Operator[] = ['gt', 'lt', 'gte', 'lte'];
@@ -13,7 +13,23 @@ export const ROLES: readonly Role[] = ['platform_admin', 'admin', 'engineer', 'o
 export const CLIENT_ROLES: readonly Role[] = ['admin', 'engineer', 'operator', 'viewer'];
 export const SEVERITIES: readonly Severity[] = ['warning', 'critical'];
 
-/** Regla tal como la devuelve `GET /api/alarm-rules` (ver apps/api/src/alarms/alarm.types.ts). */
+export type SuppressOperator = 'eq' | 'neq' | 'gt' | 'lt';
+export const SUPPRESS_OPERATORS: readonly SuppressOperator[] = ['eq', 'neq', 'gt', 'lt'];
+export type RocDirection = 'any' | 'rise' | 'fall';
+export const ROC_DIRECTIONS: readonly RocDirection[] = ['any', 'rise', 'fall'];
+
+/** Supresión por estado (docs §12.1): mientras se cumpla sobre el último dato de ese activo, la alarma no se genera. */
+export interface SuppressWhen {
+  asset: string;
+  metric: string;
+  operator: SuppressOperator;
+  value: number;
+}
+
+/**
+ * Regla tal como la devuelve `GET /api/alarm-rules` (ver apps/api/src/alarms/alarm.types.ts). Los campos de §12.1 son
+ * opcionales: una regla anterior sigue funcionando igual (el tipo se deduce del operador y la severidad).
+ */
 export interface AlarmRule {
   id: string;
   plant: string;
@@ -28,8 +44,28 @@ export interface AlarmRule {
   enabled: boolean;
   createdAt: number;
   updatedAt: number;
+  /** HH | HI | LO | LL | DEV | ROC. Sin él se deduce de operador + severidad. */
+  kind?: AlarmKind;
+  /** ROC: ventana de cálculo en segundos (10–600, def. 60) y sentido */
+  rocWindowSeconds?: number;
+  rocDirection?: RocDirection;
+  /** segundos que la condición debe dejar de cumplirse antes de normalizar (def. 0) */
+  offDelaySeconds?: number;
+  suppressWhen?: SuppressWhen | null;
+  /** racionalización para el operador */
+  description?: string | null;
+  consequence?: string | null;
+  response?: string | null;
+  /** obligatorio (≥3) cuando `enabled` es false */
+  outOfServiceReason?: string | null;
+  /** estado de la regla: `false` si no se puede evaluar (una DEV sin setpoint, o fuera de servicio) */
+  evaluable?: boolean;
+  /** `ok` | `disabled` (fuera de servicio) | `no_setpoint` (DEV sin ningún setpoint disponible) */
+  status?: 'ok' | 'disabled' | 'no_setpoint';
+  /** DEV: activos que abarca la regla y todavía no tienen setpoint (en esos no se evalúa) */
+  assetsWithoutSetpoint?: string[];
 }
-export type AlarmRuleInput = Omit<AlarmRule, 'id' | 'createdAt' | 'updatedAt'>;
+export type AlarmRuleInput = Omit<AlarmRule, 'id' | 'createdAt' | 'updatedAt' | 'evaluable' | 'status' | 'assetsWithoutSetpoint'>;
 export type AlarmRulePatch = Partial<AlarmRuleInput>;
 
 export interface AssetInput {

@@ -1,8 +1,7 @@
 import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Query } from '@nestjs/common';
 import type { AuthUser } from '../auth/auth.types';
 import { CurrentUser, Roles } from '../auth/decorators';
-import type { AlarmRule } from './alarm.types';
-import { AlarmRulesService } from './alarm-rules.service';
+import { AlarmRulesService, RuleView } from './alarm-rules.service';
 import { CreateRuleDto, IdParam, RuleListQuery, UpdateRuleDto } from './dto';
 
 /** Contrato: reglas gestionables por admin y engineer (admin siempre pasa el RolesGuard). */
@@ -12,17 +11,17 @@ export class AlarmRulesController {
   constructor(private readonly rules: AlarmRulesService) {}
 
   @Get()
-  list(@Query() q: RuleListQuery, @CurrentUser() user: AuthUser): Promise<AlarmRule[]> {
+  list(@Query() q: RuleListQuery, @CurrentUser() user: AuthUser): Promise<RuleView[]> {
     return this.rules.list(user, q.plant);
   }
 
   @Get(':id')
-  get(@Param() p: IdParam, @CurrentUser() user: AuthUser): Promise<AlarmRule> {
+  get(@Param() p: IdParam, @CurrentUser() user: AuthUser): Promise<RuleView> {
     return this.rules.get(p.id, user);
   }
 
   @Post()
-  create(@Body() dto: CreateRuleDto, @CurrentUser() user: AuthUser): Promise<AlarmRule> {
+  create(@Body() dto: CreateRuleDto, @CurrentUser() user: AuthUser): Promise<RuleView> {
     return this.rules.create(dto, user);
   }
 
@@ -31,7 +30,7 @@ export class AlarmRulesController {
     @Param() p: IdParam,
     @Body() dto: UpdateRuleDto,
     @CurrentUser() user: AuthUser,
-  ): Promise<AlarmRule> {
+  ): Promise<RuleView> {
     return this.rules.update(p.id, dto, user);
   }
 

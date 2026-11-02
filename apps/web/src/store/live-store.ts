@@ -39,6 +39,8 @@ export interface LiveData {
   /** nº de reintentos consecutivos (0 si conectado) */
   attempt: number;
   lastMessageAt: number | null;
+  /** latencia extremo a extremo estimada (ms): marca de tiempo de la muestra → aplicación al estado; media móvil. `null` = sin dato fiable */
+  latencyMs: number | null;
   /** true si los datos vienen de la caché local y aún no ha llegado un snapshot */
   fromCache: boolean;
   assets: Record<string, AssetState>;
@@ -82,6 +84,7 @@ export const initialLiveData = (): LiveData => ({
   connection: 'idle',
   attempt: 0,
   lastMessageAt: null,
+  latencyMs: null,
   fromCache: false,
   assets: {},
   catalog: {},
@@ -187,6 +190,20 @@ export function reduceBatch(
   return patch;
 }
 
+/** Latencia de una muestra más allá de la cual se asume desfase de relojes y no se usa. */
+export const MAX_PLAUSIBLE_LATENCY_MS = 60_000;
+
+/** Media móvil (α = 0,2) de `now − ts` de la telemetría del lote; ignora muestras del futuro o con desfase absurdo. */
+export function nextLatency(prev: number | null, batch: Pick<Batch, 'telemetry'>, now: number): number | null {
+  const lats = Object.values(batch.telemetry)
+    .map((t) => now - t.ts)
+    .filter((l) => l >= -1000 && l <= MAX_PLAUSIBLE_LATENCY_MS)
+    .map((l) => Math.max(0, l));
+  if (lats.length === 0) return prev;
+  const avg = lats.reduce((a, b) => a + b, 0) / lats.length;
+  return prev === null ? avg : prev + 0.2 * (avg - prev);
+}
+
 export const useLiveStore = create<LiveStore>()((set, get) => ({
   ...initialLiveData(),
 
@@ -195,7 +212,7 @@ export const useLiveStore = create<LiveStore>()((set, get) => ({
     // histórico para sparklines/curvas (fuera del estado reactivo)
     if (batch.snapshot) for (const [id, st] of Object.entries(batch.snapshot.assets)) pushAssetValues(id, st.ts, st.values);
     for (const [id, st] of Object.entries(batch.telemetry)) pushAssetValues(id, st.ts, st.values);
-    set({ ...patch, lastMessageAt: now, ...(batch.snapshot ? { fromCache: false } : {}) });
+    set({ ...patch, lastMessageAt: now, latencyMs: nextLatency(get().latencyMs, batch, now), ...(batch.snapshot ? { fromCache: false } : {}) });
   },
 
   setConnection(connection, attempt = 0) {

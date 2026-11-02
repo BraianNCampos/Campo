@@ -1,21 +1,19 @@
-import { Inject, Injectable, NotFoundException } from '@nestjs/common';
-import { redisKeys } from '@campo/shared';
-import type Redis from 'ioredis';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { AuditService } from '../audit/audit.service';
 import type { AuthUser } from '../auth/auth.types';
 import { TenantScope } from '../auth/tenant-scope';
-import { REDIS } from '../redis/tokens';
 import { AlarmEngine } from './alarm-engine.service';
-import { AlarmRecord, activeField, toEvent } from './alarm.types';
+import { AlarmJournalRepository, JournalRow } from './alarm-journal.repository';
+import { AlarmRecord } from './alarm.types';
 import { AlarmsRepository } from './alarms.repository';
-import { ListAlarmsQuery } from './dto';
+import { ListAlarmsQuery, ShelveDto } from './dto';
 
 @Injectable()
 export class AlarmsService {
   constructor(
     private readonly repo: AlarmsRepository,
     private readonly engine: AlarmEngine,
-    @Inject(REDIS) private readonly redis: Redis,
+    private readonly journal: AlarmJournalRepository,
     private readonly audit: AuditService,
     private readonly tenant: TenantScope,
   ) {}
@@ -31,25 +29,29 @@ export class AlarmsService {
     });
   }
 
-  /** Reconoce una alarma (idempotente). Si cambió, actualiza Redis y avisa por pub/sub. */
+  /**
+   * La planta de la alarma decide: 404 si no existe, 403 (genérico) si el usuario no tiene esa planta o es de
+   * otro cliente. Devuelve el cliente propietario para la auditoría.
+   */
+  private async load(
+    id: string,
+    user: AuthUser,
+  ): Promise<{ alarm: AlarmRecord; orgId: string | null }> {
+    const alarm = await this.repo.findById(id);
+    if (!alarm) throw new NotFoundException('Alarma no encontrada');
+    return { alarm, orgId: await this.tenant.assertPlant(user, alarm.plant) };
+  }
+
+  /** Reconoce una alarma (idempotente): unacked -> acked; normalizada sin reconocer -> closed. */
   async ack(id: string, user: AuthUser, now = Date.now()): Promise<AlarmRecord> {
-    // La planta de la alarma decide: 404 si no existe, 403 si el usuario no tiene esa planta.
-    const existing = await this.repo.findById(id);
-    if (!existing) throw new NotFoundException('Alarma no encontrada');
-    const orgId = await this.tenant.assertPlant(user, existing.plant);
+    const { orgId } = await this.load(id, user);
     const res = await this.repo.ack(id, user.id, now);
     if (!res) throw new NotFoundException('Alarma no encontrada');
+    if (res.record.lifecycle === 'shelved') {
+      throw new ConflictException('La alarma está postergada: levante la postergación primero');
+    }
     if (res.changed) {
-      this.engine.markAcknowledged(id);
-      const json = JSON.stringify(toEvent(res.record));
-      if (res.record.state === 'active') {
-        await this.redis.hset(
-          redisKeys.activeAlarms(res.record.plant),
-          activeField(res.record),
-          json,
-        );
-      }
-      await this.redis.publish(redisKeys.alarms(res.record.plant), json);
+      await this.engine.onAcked(res.record, user.id);
       // Sólo el primer ack (el idempotente que no cambia nada no se audita).
       await this.audit.record(user, 'alarm.ack', `alarm:${id}`, orgId, {
         plant: res.record.plant,
@@ -59,5 +61,47 @@ export class AlarmsService {
       });
     }
     return res.record;
+  }
+
+  /** Posterga una alarma activa `minutes` minutos; al vencer se reanuncia sola si sigue activa. */
+  async shelve(id: string, dto: ShelveDto, user: AuthUser, now = Date.now()): Promise<AlarmRecord> {
+    const { alarm, orgId } = await this.load(id, user);
+    const record = await this.repo.shelve(id, now + dto.minutes * 60_000, user.id, dto.reason);
+    if (!record) {
+      throw new ConflictException(
+        alarm.lifecycle === 'shelved'
+          ? 'La alarma ya está postergada'
+          : 'Sólo se puede postergar una alarma activa',
+      );
+    }
+    await this.engine.onShelved(record, user.id, dto.minutes);
+    await this.audit.record(user, 'alarm.shelve', `alarm:${id}`, orgId, {
+      plant: record.plant,
+      asset: record.asset,
+      metric: record.metric,
+      severity: record.severity,
+      minutes: dto.minutes,
+    });
+    return record;
+  }
+
+  /** Levanta la postergación: la alarma vuelve a la lista como `unacked`. */
+  async unshelve(id: string, user: AuthUser): Promise<AlarmRecord> {
+    const { orgId } = await this.load(id, user);
+    const record = await this.engine.unshelve(id, user.id);
+    if (!record) throw new ConflictException('La alarma no está postergada');
+    await this.audit.record(user, 'alarm.unshelve', `alarm:${id}`, orgId, {
+      plant: record.plant,
+      asset: record.asset,
+      metric: record.metric,
+      severity: record.severity,
+    });
+    return record;
+  }
+
+  /** Diario de la alarma (activación, reconocimiento, normalización, postergación...). */
+  async journalOf(id: string, user: AuthUser): Promise<JournalRow[]> {
+    await this.load(id, user);
+    return this.journal.list(id);
   }
 }

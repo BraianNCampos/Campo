@@ -18,6 +18,8 @@
   /* Rojo de alarma aclarado de #f0563a: sobre surface-2 pasaba de 4,22:1 (AA exige 4,5:1) a 4,89:1 */
   --color-crit: #f56a50;
   --color-bad: #8fa1b1;
+  /* Vidrio sobre el 3D: opacidad mínima garantizada del fondo (src/app/tokens.test.ts verifica AA aun sobre blanco puro) */
+  --glass-alpha: 0.94;
   --font-sans: 'Barlow', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace;
 }
@@ -57,6 +59,33 @@ body {
   -webkit-font-smoothing: antialiased;
   -webkit-tap-highlight-color: transparent;
   overscroll-behavior: none;
+}
+
+/*
+ * Panel de vidrio (ISA-101 / ux-isa.md §2.6): fondo translúcido con desenfoque, borde fino y sombra mínima.
+ * Sin soporte de backdrop-filter, o en alto contraste, pasa a superficie sólida: el contraste nunca baja de AA.
+ */
+.glass {
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  border-radius: 14px;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.28);
+  color: var(--color-fg);
+}
+@supports ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  .glass {
+    background: color-mix(in srgb, var(--color-surface) calc(var(--glass-alpha) * 100%), transparent);
+    border-color: color-mix(in srgb, var(--color-fg) 16%, transparent);
+    -webkit-backdrop-filter: blur(14px) saturate(1.15);
+    backdrop-filter: blur(14px) saturate(1.15);
+  }
+}
+html[data-theme='contrast'] .glass {
+  background: var(--color-surface);
+  border-color: var(--color-line);
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
 /* Foco visible y de alto contraste en todo control interactivo */
@@ -108,6 +137,34 @@ button:not(:disabled) {
   display: block;
   font: 700 12px/1.2 var(--font-mono);
   font-variant-numeric: tabular-nums;
+}
+
+/* Aviso de alarma sobre el equipo: color + texto (no sólo color) */
+.scene-label .scene-alarm {
+  display: none;
+}
+.scene-label[data-alarm] {
+  border-color: var(--color-crit);
+  background: rgba(60, 14, 10, 0.92);
+}
+.scene-label[data-alarm='warning'] {
+  border-color: var(--color-warn);
+  background: rgba(52, 40, 4, 0.92);
+}
+.scene-label[data-alarm] .scene-alarm {
+  display: block;
+  font: normal 700 10px/1.2 var(--font-sans);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-crit);
+}
+.scene-label[data-alarm='warning'] .scene-alarm {
+  color: var(--color-warn);
+}
+
+/* Nivel 1 (vista general): sólo nombres y avisos, sin valores de instrumentos */
+.scene-overview .scene-label b {
+  display: none;
 }
 
 /* En canvas estrecho (móvil) las etiquetas se compactan para no solaparse */
