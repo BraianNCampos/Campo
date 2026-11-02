@@ -13,7 +13,7 @@ npm ci
 npm run start:dev                          # http://localhost:3001
 ```
 
-Los scripts SQL (`infra/timescaledb/init/010_telemetry.sql`, `020_app.sql`, `030_user_plants.sql`, `040_admin.sql`, `050_models.sql` y `060_orgs.sql`) se aplican en ese orden al crear el volumen de TimescaleDB por primera vez; `020_app.sql` es idempotente y también incluye el seed de la planta `demo`. El esquema no se sincroniza desde código (no hay `synchronize`).
+Los scripts SQL (`infra/timescaledb/init/010_telemetry.sql`, `020_app.sql`, `030_user_plants.sql`, `040_admin.sql`, `050_models.sql`, `060_orgs.sql` y `070_alarms_isa.sql`) se aplican en ese orden al crear el volumen de TimescaleDB por primera vez; `020_app.sql` es idempotente y también incluye el seed de la planta `demo`. El esquema no se sincroniza desde código (no hay `synchronize`).
 
 ### Bases de datos ya existentes: aplicar `030_user_plants.sql` a mano
 
@@ -83,6 +83,24 @@ Qué hace, en orden:
 
 **Verificado** contra PostgreSQL 16 real: sobre una base de la Fase 5 con datos (usuarios admin/operator/engineer, plantas sólo por activos/asignaciones/reglas/modelos, alarma activa, auditoría) y sobre un volumen nuevo, aplicando 020–050 y 060 dos y tres veces: el estado final es idéntico entre ejecuciones (`pg_dump` de datos sin diferencias).
 
+### Bases de datos ya existentes: aplicar `070_alarms_isa.sql` a mano (alarmas ISA-18.2, §12)
+
+Igual que 030–060: sólo corre al crear el volumen; en una base existente se aplica **antes** de arrancar la versión nueva de la API (sin él fallan `GET /api/alarms` y el motor: faltan `alarms.lifecycle` y `alarm_rules.kind`). Requiere 020–060. **Idempotente** y transaccional (`-v ON_ERROR_STOP=1`):
+
+```bash
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f infra/timescaledb/init/070_alarms_isa.sql
+```
+
+Qué hace:
+
+1. `alarm_rules`: `kind` (HH/HI/LO/LL/DEV/ROC; backfill derivado de operador+severidad y un *trigger* que lo rellena en cualquier INSERT que no lo traiga, de modo que 020/060 siguen pudiendo reaplicarse después), `roc_window_seconds` (10–600, def. 60), `roc_direction` (`any|rise|fall`), `off_delay_seconds` (0–86400), `suppress_when jsonb`, `description` (≤200), `consequence` (≤300), `response` (≤300), `out_of_service_reason` (3–300). CHECK de coherencia kind↔operador (HH/HI/DEV/ROC con gt|gte; LO/LL con lt|lte). Las reglas existentes se comportan igual.
+2. `alarms`: `lifecycle` (CHECK ligado a `state`: active ⇒ unacked|acked|shelved; cleared ⇒ rtn_unacked|closed), `kind`, `shelved_until/by/reason`, `rtn_at`. Backfill **una sola vez** (al crear la columna; reaplicar no pisa estados reales): active sin ack → `unacked`, active con ack → `acked`, cleared → `closed`; `kind` de la regla si existe (si fue borrada, aproximado por severidad: HH/HI); `rtn_at = cleared_at`.
+3. `alarm_events` (diario): `alarm_id` (FK `ON DELETE CASCADE`; NULL sólo en `suppress`), `plant`, `rule_id`, `asset`, `metric`, `ts`, `type` (`activate|ack|rtn|shelve|unshelve|suppress|close`), `user_id`, `value`, `note`; índices `(alarm_id, ts, id)` y `(plant, type, ts)`.
+4. `plants.alarm_policy jsonb` con `{"ratePerDay":150,"peak10min":10,"staleHours":24}`.
+5. Semillas (sólo si la planta es del cliente esperado): `metadata.setpoints` fusionado sin pisar metadata ni un setpoint editado (nivel 60 en `tk-*` de `demo` y `tanques`, temp 20 en `clima-*`, presión 6 en `pres-01`) y dos reglas de ejemplo (ids `…0031`: DEV de nivel en `tk-01` > 25 puntos del SP, 30 s; `…0032`: ROC de nivel en `tanques/tk-*` > 8 %/min, ventana 60 s).
+
+**Verificado** contra PostgreSQL 16 real: sobre una base con reglas y alarmas de las fases anteriores (activa sin ack, activa reconocida, normalizada, huérfana de regla borrada), aplicando 020–060 y 070 dos veces cada uno, y reaplicando 020/060 **después** de 070; el estado de las alarmas (incluida una postergada simulada) no cambia al repetir 070.
+
 ## Arranque endurecido (producción)
 
 Con `NODE_ENV=production` la API **se niega a arrancar** (mensaje claro, código de salida 1) si `JWT_SECRET` tiene < 32 caracteres o parece un valor de ejemplo (contiene `cambia`, `changeme`, `change-me`, `secret` o `example`, sin distinguir mayúsculas), o si `ADMIN_PASSWORD` es de ejemplo (mismas palabras) o tiene < 12 caracteres. Genera un secreto con `openssl rand -base64 48`. En desarrollo sólo se registra un `warn` por cada problema. Ojo: la imagen Docker fija `NODE_ENV=production`, así que los valores de `.env.example` (`cambia-...`) **no sirven** para ella: hay que cambiarlos.
@@ -94,7 +112,7 @@ Con `NODE_ENV=production` la API **se niega a arrancar** (mensaje claro, código
 | `npm run build` | `tsc` + `tsc-alias` → `dist/` (entrada: `dist/apps/api/src/main.js`) |
 | `npm start` / `npm run start:dev` | ejecuta el build / ejecuta con ts-node |
 | `npm run lint` · `format` · `format:check` | ESLint (type-checked) · Prettier |
-| `npm test` | tests unitarios (alarmas, gateway/coalescing, guards, config, plantas/activos, modelos 3D y validador GLB, revocación, auditoría, clientes/módulos, siembra y promoción del `platform_admin`, límites, coherencia de `060_orgs.sql`...) |
+| `npm test` | tests unitarios (alarmas, gateway/coalescing, guards, config, plantas/activos, modelos 3D y validador GLB, revocación, auditoría, clientes/módulos, siembra y promoción del `platform_admin`, límites, coherencia de `060_orgs.sql` y `070_alarms_isa.sql`, evaluador ISA-18.2, ciclo de vida/postergación, KPIs y política, carga del evaluador...) |
 | `npm run test:e2e` | e2e con supertest + ws, repositorios en memoria y `ioredis-mock` (sin servicios reales). `test/tenancy.e2e-spec.ts` es la **matriz de aislamiento** (cada endpoint × admin/engineer/operator/viewer de A contra datos de B + control sobre A + platform_admin + escalada + WS); `test/orgs.e2e-spec.ts` cubre `/api/orgs`, módulos, límites, desactivación y auditoría por cliente |
 
 Docker (contexto = raíz del repo): `docker build -f apps/api/Dockerfile -t campo-api .`
@@ -152,8 +170,8 @@ Prefijo `/api`, salvo sondas. Todo requiere `Authorization: Bearer <jwt>` except
 | `GET /api/plants/:plant/limits` | cualquiera, **sólo sus plantas** | `Limit[]` `{asset,metric,operator,threshold,severity}`: las reglas **activas** de la planta expandidas (patrón con `*`) a los activos que existen hoy; sin duplicados y ordenado por activo, métrica, umbral, operador y severidad |
 | `GET /api/plants/:plant/assets/:asset/history?metric&from&to&bucket` | cualquiera, **sólo sus plantas** | `from`/`to`: ISO-8601 o epoch ms (def.: última hora). `bucket`: `1s 10s 30s 1m 5m 15m 1h 6h 1d` (def.: automático, ≤ ~1000 puntos). Bucket < 1 min lee `telemetry`; ≥ 1 min lee `telemetry_1m`. Responde `{plant,asset,metric,source,bucket,from,to,points:[{t,avg,min,max,samples}]}` |
 | `GET/POST /api/alarm-rules`, `GET/PATCH/DELETE /api/alarm-rules/:id` | admin, engineer | CRUD de reglas **sólo de sus plantas** (`?plant=` filtra el listado; sin él, sólo las suyas). Una regla no se puede mover a una planta de otro cliente (403 si no tiene acceso; 400 para un platform_admin) |
-| `GET /api/alarms?state=active\|cleared&plant=&limit=` | cualquiera | alarmas (`AlarmEvent` + `clearedAt`, `acknowledged`, `acknowledgedBy`, `acknowledgedAt`) **sólo de sus plantas**; `?plant=` ajena → 403 |
-| `POST /api/alarms/:id/ack` | admin, engineer, operator | reconoce (idempotente); la alarma debe ser de una de sus plantas |
+| `GET /api/alarms?state=active\|cleared\|shelved&plant=&limit=` | cualquiera | alarmas (`AlarmEvent` con `kind`, `lifecycle`, `rationale`, `shelved*` + `clearedAt`, `acknowledged`, `acknowledgedBy`, `acknowledgedAt`) **sólo de sus plantas**; `active` = unacked/acked/rtn_unacked, `cleared` = closed (ver «Alarmas ISA-18.2»); `?plant=` ajena → 403 |
+| `POST /api/alarms/:id/ack` | admin, engineer, operator | reconoce (idempotente; unacked→acked, rtn_unacked→closed; 409 si está postergada); la alarma debe ser de una de sus plantas |
 | `GET /api/users[?orgId=]` | admin, platform_admin | usuarios `{id,email,role,active,plants,org}` (`plants` = asignaciones guardadas). Un admin sólo ve a los de su cliente; platform_admin a todos (`?orgId=` filtra). Nunca el hash |
 | `POST /api/users` | admin, platform_admin | `{email,password,role,orgId?,plants?}`; contraseña 12–72 bytes. `admin`: siempre en su cliente; `role: platform_admin` o `orgId` ajeno → 403; las `plants` deben ser de su cliente (403 genérico). `platform_admin`: `orgId` obligatorio (400) salvo al crear otro `platform_admin` (sin `orgId` ni `plants`). 409 si el email existe (los emails son únicos globalmente) |
 | `PATCH /api/users/:id` | admin, platform_admin | `{role?,active?,password?}` (al menos uno; no existe campo para cambiar de cliente: `orgId` → 400). Un admin sobre un usuario de otro cliente o de plataforma → 403; `role: platform_admin` → 403 (admin) / 400 (no se asigna ni se quita por PATCH). 409 si deja a su cliente sin admin activo (o a la plataforma sin `platform_admin`). **Cambiar `password` o poner `active:false` revoca los tokens y WebSockets del usuario** (reactivar no los resucita: hay que volver a entrar) |
@@ -204,7 +222,10 @@ Un **cliente** (organización) tiene módulos contratados y un espacio propio; t
 | Listar / descargar modelos | todas | su cliente | sólo asignadas | sólo asignadas | sólo asignadas |
 | Listar alarmas | todas | su cliente | sólo asignadas | sólo asignadas | sólo asignadas |
 | Reconocer (ack) alarmas | todas | su cliente | sólo asignadas | sólo asignadas | no |
+| Postergar / levantar postergación | todas | su cliente | sólo asignadas | no | no |
 | Reglas de alarma (CRUD) | todas | su cliente | sólo asignadas | no | no |
+| Política de alarmas (PUT) | todas | su cliente | no | no | no |
+| Diario, política (GET) y KPIs de alarmas | todas | su cliente | sólo asignadas | sólo asignadas | sólo asignadas |
 | Usuarios (`/api/users`, `PUT .../plants`, `POST .../revoke`) | todos | los de su cliente (no platform_admin) | no | no | no |
 | Auditoría (`GET /api/audit`) | todo (`?orgId=`) | la de su cliente | no | no | no |
 | Clientes (`/api/orgs*`) | sí | no | no | no | no |
@@ -246,6 +267,9 @@ Servicio `AuditService` (módulo global `audit/`), tabla `audit_log(id bigserial
 | `model.upload` | `model:<plant>/<id>` | `name, size, sha256, dedup` (`dedup: true` = ya existía, se devolvió el existente) — **nunca el contenido** |
 | `model.delete` | `model:<plant>/<id>` | `name, id` |
 | `alarm.ack` | `alarm:<id>` | `plant, asset, metric, severity` (sólo el primer ack; el idempotente no registra) |
+| `alarm.shelve` / `alarm.unshelve` | `alarm:<id>` | `plant, asset, metric, severity` (+ `minutes` al postergar; el motivo va al diario, no a la auditoría) |
+| `rule.out_of_service` | `rule:<id>` | `plant, asset, metric, reason` |
+| `plant.alarm_policy` | `plant:<id>` | `ratePerDay, peak10min, staleHours` |
 
 - **Qué nunca se guarda**: contraseñas, hashes, tokens. La lista de campos por acción está en `src/audit/audit.fields.ts` y `AuditService.record` descarta todo lo que no esté en ella (además de objetos anidados, y cualquier valor con forma de hash bcrypt o JWT); los tests lo demuestran para todas las acciones.
 - **Decisión de fallo**: la auditoría es *best effort*. Se escribe **después** de que la operación principal se confirmó; si la escritura falla, la operación **no** se deshace ni se rechaza: `record()` no lanza y deja un `error` en el log (`"no se pudo escribir la auditoría"`, con acción, destino y actor, sin el detalle). Un hueco visible en el log es preferible a rechazar o revertir un cambio legítimo (p. ej. un ack de alarma) por un fallo de la tabla de auditoría. Consecuencia: no es un registro transaccional (puede faltar una entrada si la base falla justo entonces); vigilar ese `error` en el log.
@@ -273,6 +297,85 @@ Se validan al crear/editar un activo (el resto de claves de `metadata` es libre;
 ### WebSocket
 
 `ws://host:3001/ws?plant={plant}&token={jwt}` (también acepta `Authorization: Bearer`). Códigos de cierre: `4400` planta inválida, `4401` token inválido, revocado (`tv`), usuario inactivo/inexistente o **cliente desactivado**, `4403` sin acceso a la planta (otra planta, **otro cliente**, sin registrar o inexistente). Tras validar el token se consulta el usuario (misma caché) y se comprueba la planta antes de enviar nada. Los sockets abiertos se **revalidan**: al cambiar un usuario en este proceso se re-evalúan al instante, y cada `WS_REVALIDATE_MS` (por defecto = TTL de la caché) contra la base saltando la caché; si el usuario ya no está activo o su token fue revocado (4401) o perdió la planta (4403) el servidor cierra el socket, así que la revocación llega a los sockets abiertos en ≤ 30 s aunque el token siga vigente. Un cambio del cliente (desactivarlo, cambiar módulos) revalida **todos** los sockets al instante. Si una planta cambia de cliente, el socket se corta con 4403 en la siguiente revalidación. El gateway sólo reenvía eventos de la planta suscrita (la barrera es la comprobación de cliente+planta al conectar y al revalidar; no hay filtrado por cliente en cada mensaje). El primer mensaje es `snapshot`; luego `telemetry` (coalescido por activo en ventanas de ~100 ms, mezclando por métrica el último valor), `alarm` (inmediato; incluye cambios de ack) y `{type:"catalog", plant}` (el catálogo de la planta cambió —activos, modelos 3D, la propia planta—: el cliente vuelve a pedirlo por HTTP). Los avisos de catálogo llegan por `RealtimeBus` (la misma conexión Redis de suscripción de siempre, ahora también `SUBSCRIBE campo:catalog:changed`, sin conexiones nuevas por cliente) y se agrupan por planta en ventanas de `WS_CATALOG_COALESCE_MS` (250 ms): una ráfaga de altas produce un único mensaje por cliente. El cliente no envía mensajes (se ignoran; uno de más de 1 KiB cierra el socket).
+
+## Alarmas ISA-18.2 y desviación (§12)
+
+Todo es aditivo: una regla/alarma anterior se comporta igual.
+
+### Tipos de regla (`kind`)
+
+| `kind` | Operador | Se activa cuando |
+|---|---|---|
+| `HH`, `HI` | `gt`/`gte` | `valor` supera el umbral (HH = crítica, HI = advertencia al derivarse) |
+| `LO`, `LL` | `lt`/`lte` | `valor` queda por debajo del umbral |
+| `DEV` | `gt`/`gte` | `|valor − SP|` supera el umbral. SP = `<métrica>_sp` de la telemetría (manda; se recuerda el último) o `metadata.setpoints[métrica]` del activo. **Sin SP no se evalúa**: `GET /api/alarm-rules` lo informa (`evaluable:false`, `status:"no_setpoint"`, `assetsWithoutSetpoint`). |
+| `ROC` | `gt`/`gte` | la tasa de cambio por minuto sobre `rocWindowSeconds` (10–600) supera el umbral; `rocDirection` `any|rise|fall`. Ventana deslizante en memoria (≤ ~200 pares por regla+activo); necesita cubrir ≥ 50 % de la ventana. |
+
+Sin `kind` se deriva (gt/gte+critical→HH, gt/gte+warning→HI, lt/lte+critical→LL, lt/lte+warning→LO; en PATCH, al cambiar operador o severidad de una regla HH/HI/LO/LL se vuelve a derivar). En DEV el `value` de la alarma es la desviación y en ROC la tasa (`/min`). Comunes a todos: `hysteresis` (banda muerta sobre la magnitud), `forSeconds` (retardo de activación), `offDelaySeconds` (retorno), `suppressWhen {asset, metric, operator: eq|neq|gt|lt, value}`, racionalización (`description`, `consequence`, `response`) y *fuera de servicio*: `PATCH enabled:false` exige `outOfServiceReason` (≥ 3) y audita `rule.out_of_service`; al habilitar, el motivo se borra. `GET /api/alarm-rules[/:id]` devuelve cada regla con todos los campos ISA + `evaluable`/`status` (`ok|disabled|no_setpoint`). `GET /api/plants/:plant/limits` añade `kind` y **omite DEV y ROC**.
+
+**Supresión por estado**: mientras la condición se cumpla sobre el *último dato* del activo referenciado (memoria; al arrancar se siembra de Redis `campo:state`), la alarma no se genera; se anota **una** entrada `suppress` en el diario por episodio (sin `alarm_id`, con planta/regla/activo) y cuenta en `suppressed` de los KPIs. Sin dato del activo referenciado **no** se suprime (falla a favor de alarmar). Una alarma ya activa no se ve afectada. Con patrón en `suppressWhen.asset` basta con que un activo coincidente cumpla.
+
+### Ciclo de vida
+
+| `state` | `lifecycle` | Cómo se llega |
+|---|---|---|
+| active | `unacked` | activación; también al reanunciar una postergada |
+| active | `acked` | `POST /ack` sobre `unacked` |
+| cleared | `rtn_unacked` | la condición vuelve a normal sin reconocer: **sigue en la lista** |
+| cleared | `closed` | normaliza estando `acked`, o `ack` sobre `rtn_unacked`, o regla eliminada/deshabilitada, o normaliza estando postergada |
+| active | `shelved` | `POST /shelve`; no cuenta como activa ni está en el hash `campo:alarms:active:{plant}` |
+
+`GET /api/alarms?state=active` = `unacked|acked|rtn_unacked`; `cleared` = `closed`; `shelved` = postergadas. (Cambio de contrato: antes `cleared` incluía las normalizadas sin reconocer; ahora éstas están en `active` como `rtn_unacked`.) Los eventos por Redis/WebSocket llevan `kind`, `lifecycle`, `rationale`, `shelvedUntil`, `shelvedReason`; una postergación se difunde con `lifecycle:"shelved"` para que la web la saque de la lista.
+
+### Endpoints nuevos
+
+| Método y ruta | Roles | Descripción |
+|---|---|---|
+| `POST /api/alarms/:id/shelve` `{minutes: 1–480, reason ≥ 3}` | engineer, admin, platform_admin | posterga una alarma activa (409 si no está activa o ya está postergada) |
+| `POST /api/alarms/:id/unshelve` | engineer, admin, platform_admin | la reanuncia como `unacked` (409 si no está postergada) |
+| `POST /api/alarms/:id/ack` | engineer, operator (+admin) | reconoce; 409 si está postergada |
+| `GET /api/alarms/:id/journal` | cualquier rol con acceso a la planta | diario `[{id, ts, type, userId, userEmail, note, value}]` (un solo JOIN) |
+| `GET /api/plants/:plant/alarm-policy` | cualquier rol con acceso | `AlarmPolicy` (def. 150/día, 10 en 10 min, 24 h) |
+| `PUT /api/plants/:plant/alarm-policy` | admin, platform_admin | `{ratePerDay 1–10000, peak10min 1–1000, staleHours 1–720}` (los tres; audita `plant.alarm_policy`) |
+| `GET /api/plants/:plant/alarm-kpis?window=24h\|7d\|30d` | cualquier rol con acceso | `AlarmKpis` |
+
+Todas respetan el aislamiento por cliente (`TenantScope`/`PlantAccessGuard`: 403 genérico a lo ajeno, 404 a un UUID inexistente). **Postergación**: el vencimiento lo vigila el motor (un único temporizador al más próximo); al vencer (o al llamar `unshelve`) la alarma vuelve como `unacked` sin reconocimiento y el diario anota `unshelve` (`note:"vencimiento"` si fue el sistema). Es persistente: al arrancar se restauran las postergadas y se reprograma su vencimiento (las ya vencidas se reanuncian). Si la condición se normaliza mientras está postergada pasa a `closed`.
+
+### KPIs de salud
+
+`total` (activaciones de `alarms` en la ventana), `perDay = total/días`, `perHour = total/(días·24)`, `peak10min {count, at}` (máximo en una ventana deslizante `[t, t+10 min)` y su inicio), `byPriority`, `top` (10 parejas regla+activo), `chattering` (≥ 3 activaciones en 10 min por regla+activo; máximo 50), `stale` (activas no postergadas desde hace más de `staleHours`; máx. 50), `shelved`, `suppressed` (entradas `suppress` de la ventana), `outOfService` (reglas deshabilitadas de la planta) y `status`: se toma la peor de `perDay/ratePerDay` y `peak/peak10min`: ≤ 1 ok, ≤ 1,5 warning, > 1,5 critical. Se calcula con 8 consultas SQL agregadas en paralelo (funciones de ventana, sin N+1); `alarm-kpis.ts` contiene el cálculo de referencia que usan los tests.
+
+### Auditoría nueva
+
+`alarm.shelve` (minutos, sin el motivo), `alarm.unshelve`, `rule.out_of_service` (con el motivo, texto operativo ≤ 300), `plant.alarm_policy`.
+
+### Matriz rol × acción (alarmas)
+
+| Acción | viewer | operator | engineer | admin | platform_admin |
+|---|---|---|---|---|---|
+| ver alarmas, diario, política y KPIs | ✓ | ✓ | ✓ | ✓ | ✓ |
+| reconocer | – | ✓ | ✓ | ✓ | ✓ |
+| postergar / levantar postergación | – | – | ✓ | ✓ | ✓ |
+| crear/editar reglas (incl. fuera de servicio) | – | – | ✓ | ✓ | ✓ |
+| cambiar la política de la planta | – | – | – | ✓ | ✓ |
+
+(Siempre limitado a las plantas del usuario y de su cliente.)
+
+### Rendimiento
+
+La evaluación es síncrona y en memoria; la E/S (Postgres, Redis, diario) va a una cola aparte, así que no bloquea la ruta de telemetría. Medido (`alarm-engine.load.spec.ts`: 100 000 muestras, 50 activos, reglas HH/LO/DEV/ROC/supresión): **≈ 6 µs por muestra** (presupuesto a 5 000 muestras/s: 200 µs). Contra el API real (Redis + Postgres), 400 000 muestras publicadas a ~11 000/s: el RSS se estabiliza en ~120 MB tras la primera tanda de 100 000 y no crece en las tres siguientes. El estado interno está acotado (50 000 parejas regla+activo, 5 000 activos observados por supresión, caché de coincidencias de 10 000).
+
+### Límites conocidos (alarmas)
+
+- La supresión no cierra una alarma ya activa ni se aplica a alarmas existentes; el diario de una alarma no incluye las supresiones previas a su activación (esas filas no tienen `alarm_id`; se cuentan en los KPIs).
+- El SP recibido por telemetría se recuerda hasta que llegue otro (no caduca). ROC y los retardos se evalúan al llegar una muestra (no hay temporizadores por regla): sin telemetría no se normaliza ni se activa.
+- Una regla ROC necesita telemetría con intervalo menor que la ventana; un hueco mayor reinicia el cálculo.
+- Al reanunciar una postergada se pierde el reconocimiento previo (vuelve a `unacked`).
+- Una nueva activación de la misma regla+activo mientras queda una `rtn_unacked` crea otra alarma (ambas en la lista).
+- Las alarmas anteriores a 070 cuya regla ya no existe tienen `kind` aproximado (HH/HI según severidad).
+- Las reglas deshabilitadas antes de 070 no tienen motivo (no se exige hasta que se vuelvan a deshabilitar).
+- Con patrón en `suppressWhen.asset` el último dato sólo se conoce desde que llega telemetría (no se siembra de Redis); con id exacto sí.
+- Los `*_sp` de telemetría no se validan contra el catálogo: se aplican a cualquier activo que envíe la métrica.
 
 ## Límites conocidos (clientes)
 
