@@ -45,6 +45,7 @@ jobs:
       - run: npm run lint
       - run: npm run build
       - run: npm test
+      - run: npm run test:e2e
 
   web:
     name: web (Next.js)
@@ -80,6 +81,8 @@ jobs:
       - run: cp .env.example .env
       - run: docker compose --profile apps --profile sim up -d --build
       - run: scripts/smoke.sh
+      - name: Apagado ordenado de cada servicio
+        run: scripts/check-shutdown.sh
       - name: Logs si falla
         if: failure()
         run: docker compose --profile apps --profile sim logs --tail=100
@@ -97,6 +100,8 @@ jobs:
           docker compose -f docker-compose.yml -f docker-compose.prod.yml
           --env-file .env.prod --profile apps --profile sim up -d --build
       - run: scripts/smoke-secure.sh
+      - name: Apagado ordenado de cada servicio
+        run: scripts/check-shutdown.sh
       - name: Logs si falla
         if: failure()
         run: >

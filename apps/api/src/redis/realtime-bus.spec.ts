@@ -95,4 +95,34 @@ describe('RealtimeBus', () => {
       expect(got).toEqual([{ kind: 'catalog', plant: 'demo' }]);
     });
   });
+
+  describe('apagado', () => {
+    it('anula las suscripciones con canales y patrones EXPLÍCITOS (sin argumentos cuelga en ioredis/Redis 7)', async () => {
+      const calls: { fn: string; args: string[] }[] = [];
+      const fake = {
+        punsubscribe: (...args: string[]) => (
+          calls.push({ fn: 'punsubscribe', args }),
+          Promise.resolve()
+        ),
+        unsubscribe: (...args: string[]) => (
+          calls.push({ fn: 'unsubscribe', args }),
+          Promise.resolve()
+        ),
+      } as unknown as Redis;
+      await new RealtimeBus(fake).onModuleDestroy();
+      expect(calls.find((c) => c.fn === 'punsubscribe')?.args).toEqual([
+        'campo:events:*',
+        'campo:alarms:*',
+      ]);
+      expect(calls.find((c) => c.fn === 'unsubscribe')?.args).toEqual(['campo:catalog:changed']);
+    });
+
+    it('no bloquea el cierre aunque Redis nunca responda (tope de 1 s)', async () => {
+      const never = () => new Promise<void>(() => undefined);
+      const fake = { punsubscribe: never, unsubscribe: never } as unknown as Redis;
+      const t0 = Date.now();
+      await new RealtimeBus(fake).onModuleDestroy();
+      expect(Date.now() - t0).toBeLessThan(2500);
+    });
+  });
 });

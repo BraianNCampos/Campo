@@ -105,11 +105,11 @@ Límites conocidos:
 
 ## Siguientes pasos
 
-El plan de rediseño según ISA-101 / ISA-18.2 (niveles de pantalla, indicadores de desviación, gestión de alarmas, tags estándar, 3D realista y alto contraste) está en [`docs/ux-isa.md`](docs/ux-isa.md):
+Hecho de la guía ISA-101 / ISA-18.2 ([`docs/ux-isa.md`](docs/ux-isa.md)): vista general de la planta con paneles de vidrio, barras de desviación respecto del setpoint con ámbar al 90 % del límite, tendencia a un clic, y gestión de alarmas completa (tipos HH/HI/LO/LL/DEV/ROC, ciclo de vida con "normalizada sin reconocer", postergación, supresión por estado, diario y panel de salud con la política de 150 por día y 10 en 10 minutos).
 
-1. **7a** — niveles 1 y 2: vista general de la planta, indicadores de desviación respecto del setpoint y tendencia a un clic.
-2. **7b** — gestión de alarmas ISA-18.2: tipos HH/HI/LO/LL/DEV/ROC, ciclo de vida, shelving, supresión por estado y métricas.
-3. **7c** — 3D realista con contornos brillantes y medición de latencia extremo a extremo.
-4. **7d** — tags estándar (`TNK-101`…), niveles 3 y 4, y comandos hacia los equipos con confirmación y auditoría.
+Lo que falta para la entrega (plan en [`docs/entrega.md`](docs/entrega.md)):
 
-Pendientes aparte: histórico y alarmas cerradas en la web, escalado horizontal (suscripción compartida MQTT y un único evaluador de alarmas) y un editor 3D directo.
+1. **7c** — 3D realista (silos, cintas, naves) con contornos brillantes en anomalías.
+2. **7d** — tags estándar (`TNK-101`…), niveles 3 y 4, y comandos de control de llenado con confirmación, permisos y registro de órdenes.
+3. **8** — avisos por Telegram, histórico y alarmas cerradas, consumo de energía por hora.
+4. **9** — manual de usuario, guía de despliegue en un servidor, copias de seguridad y pull request listo para fusionar.

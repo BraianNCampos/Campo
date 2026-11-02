@@ -23,6 +23,8 @@ wait_for() {
   ok "$what"
 }
 json() { python3 -c "import sys,json; d=json.load(sys.stdin); print($1)"; }
+# como json, pero acepta varias sentencias (sin print implícito)
+jx() { python3 -c "import sys,json; d=json.load(sys.stdin); $1"; }
 
 echo "Servicios"
 wait_for "api /ready"            sh -c "curl -sf $API_URL/ready"
@@ -99,5 +101,29 @@ rm -f /tmp/smoke-model.json /tmp/smoke-model.glb
 
 echo "Alarmas"
 curl -sf "$API_URL/api/alarms?state=active" -H "$AUTH" >/dev/null && ok "GET /api/alarms" || fail "alarmas"
+
+echo "Alarmas ISA-18.2: ciclo de vida de punta a punta"
+CTOKEN=$(curl -sf "$API_URL/api/auth/login" -H 'content-type: application/json' -d "{\"email\":\"$CADM\",\"password\":\"$CPASS\"}" | json 'd["accessToken"]') || fail "nuevo login del cliente"; CAUTH="authorization: Bearer $CTOKEN"
+JH='content-type: application/json'
+POL=$(curl -sf "$API_URL/api/plants/demo/alarm-policy" -H "$AUTH" | json 'd["ratePerDay"]') && [ "$POL" = 150 ] && ok "política por defecto: 150 alarmas por día" || fail "alarm-policy"
+curl -sf "$API_URL/api/plants/demo/alarm-kpis?window=24h" -H "$AUTH" | json 'sys.exit(0 if d["status"] in ("ok","warning","critical") and d["policy"]["peak10min"] == 10 else 1)' && ok "indicadores de salud de alarmas (alarm-kpis)" || fail "alarm-kpis"
+curl -sf "$API_URL/api/alarm-rules?plant=demo" -H "$AUTH" | json 'sys.exit(0 if all("kind" in r for r in d) and any(r["kind"] == "DEV" for r in d) else 1)' && ok "las reglas traen su tipo (HH/HI/LO/LL/DEV/ROC); hay una de desviación sembrada" || fail "kind en reglas"
+for OLD in $(curl -sf "$API_URL/api/alarm-rules?plant=demo" -H "$AUTH" | json '" ".join(r["id"] for r in d if (r.get("description") or "").endswith("(prueba de humo)"))'); do curl -s -X DELETE "$API_URL/api/alarm-rules/$OLD" -H "$AUTH" >/dev/null; done
+RULE=$(curl -sf -X POST "$API_URL/api/alarm-rules" -H "$AUTH" -H "$JH" -d '{"plant":"demo","asset":"pres-01","metric":"pressure","operator":"gt","threshold":0.5,"severity":"critical","forSeconds":0,"hysteresis":0,"enabled":true,"kind":"HH","description":"Presión de línea (prueba de humo)","consequence":"Ninguna: regla de prueba","response":"Reconocer y borrar la regla"}' | json 'd["id"]') || fail "crear regla de prueba"
+findalarm() { curl -sf "$API_URL/api/alarms?state=$1&plant=demo" -H "$AUTH" | json 'next((a["id"] for a in d if a["ruleId"] == "'"$RULE"'"), "")'; }
+waitalarm() { local t=0; AID=""; while [ -z "$AID" ]; do AID=$(findalarm "$1"); [ -n "$AID" ] && break; t=$((t + 2)); [ "$t" -ge 40 ] && return 1; sleep 2; done; }
+waitalarm active && ok "la regla genera una alarma activa" || fail "la alarma de prueba no se activó"
+curl -sf "$API_URL/api/alarms?state=active&plant=demo" -H "$AUTH" | jx 'a = next(x for x in d if x["id"] == "'"$AID"'"); sys.exit(0 if a["lifecycle"] == "unacked" and a["kind"] == "HH" and a["rationale"]["description"].startswith("Presi") else 1)' && ok "nace sin reconocer, con tipo HH y su racionalización" || fail "lifecycle inicial"
+[ "$(code -X POST "$API_URL/api/alarms/$AID/ack" -H "$AUTH")" = 200 ] && ok "reconocer la alarma" || fail "ack"
+curl -sf "$API_URL/api/alarms?state=active&plant=demo" -H "$AUTH" | jx 'a = next(x for x in d if x["id"] == "'"$AID"'"); sys.exit(0 if a["lifecycle"] == "acked" else 1)' && ok "queda reconocida (sigue activa)" || fail "lifecycle acked"
+[ "$(code -X POST "$API_URL/api/alarms/$AID/shelve" -H "$AUTH" -H "$JH" -d '{"minutes":1,"reason":"prueba de humo"}')" = 200 ] && ok "postergar la alarma 1 minuto con motivo" || fail "shelve"
+[ -z "$(findalarm active)" ] && [ -n "$(findalarm shelved)" ] && ok "postergada: sale de las activas y aparece en Postergadas" || fail "shelved en la lista equivocada"
+[ "$(code -X POST "$API_URL/api/alarms/$AID/unshelve" -H "$AUTH")" = 200 ] && ok "reactivar la alarma postergada" || fail "unshelve"
+curl -sf "$API_URL/api/alarms/$AID/journal" -H "$AUTH" | jx 'types = [e["type"] for e in d]; sys.exit(0 if "activate" in types and "ack" in types and "shelve" in types and "unshelve" in types else 1)' && ok "el diario registró activación, reconocimiento y postergación" || fail "journal"
+[ "$(code -X PUT "$API_URL/api/plants/demo/alarm-policy" -H "$CAUTH" -H "$JH" -d '{"ratePerDay":999,"peak10min":99,"staleHours":99}')" = 403 ] && ok "un cliente no puede cambiar la política de otra planta -> 403" || fail "política ajena"
+[ "$(code "$API_URL/api/alarms/$AID/journal" -H "$CAUTH")" = 403 ] && ok "el diario de otro cliente -> 403" || fail "aislamiento: journal"
+[ "$(code -X POST "$API_URL/api/alarms/$AID/shelve" -H "$CAUTH" -H "$JH" -d '{"minutes":5,"reason":"intento ajeno"}')" = 403 ] && ok "postergar una alarma de otro cliente -> 403" || fail "aislamiento: shelve"
+curl -sf -X DELETE "$API_URL/api/alarm-rules/$RULE" -H "$AUTH" >/dev/null || fail "borrar regla de prueba"
+sleep 2; [ -z "$(findalarm active)" ] && ok "al borrar la regla, su alarma se cierra" || fail "alarma huérfana tras borrar la regla"
 
 echo; echo "Prueba de humo superada."

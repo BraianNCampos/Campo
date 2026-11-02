@@ -38,11 +38,24 @@ export class RealtimeBus implements OnModuleInit, OnModuleDestroy {
 
   async onModuleDestroy(): Promise<void> {
     this.subject.complete();
+    // Canales/patrones EXPLÍCITOS: en ioredis `punsubscribe()`/`unsubscribe()` sin argumentos no resuelven
+    // nunca contra Redis 7 y el cierre ordenado quedaba colgado hasta el SIGKILL de Docker (10 s).
+    // El tope de tiempo evita que un fallo parecido vuelva a bloquear el apagado.
+    let timer: NodeJS.Timeout | undefined;
     try {
-      await this.sub.punsubscribe();
-      await this.sub.unsubscribe();
+      await Promise.race([
+        Promise.all([
+          this.sub.punsubscribe('campo:events:*', 'campo:alarms:*'),
+          this.sub.unsubscribe(CATALOG_CHANGED_CHANNEL),
+        ]),
+        new Promise<void>((resolve) => {
+          timer = setTimeout(resolve, 1000);
+        }),
+      ]);
     } catch {
       /* conexión ya cerrada */
+    } finally {
+      if (timer) clearTimeout(timer);
     }
   }
 
