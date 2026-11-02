@@ -262,7 +262,7 @@ try {
     await page.goto(`${BASE}/admin/rules`, { waitUntil: 'load' });
     await page.locator('[data-testid="rules-table"]').waitFor({ timeout: 30_000 });
     const count = () => page.locator('[data-testid^="rule-row-"]').count();
-    check((await count()) === 15, 'reglas: 15 reglas sembradas');
+    check((await count()) === 18, 'reglas: 18 reglas sembradas');
     check(await vis(page.locator('[data-testid="rules-table"]').getByText('HH').first()), 'reglas: la tabla muestra el tipo de cada regla');
 
     // DEV con setpoint (clima-01 tiene SP de temperatura)
@@ -289,7 +289,7 @@ try {
     await page.setViewportSize({ width: 1440, height: 900 });
     await dlg.getByRole('button', { name: 'Crear regla' }).click();
     check(await vis(page.locator('[data-testid="toast"]').filter({ hasText: /Regla creada/ }).first()), 'editor: DEV creada');
-    check((await count()) === 16, 'editor: la DEV figura en la tabla');
+    check((await count()) === 19, 'editor: la DEV figura en la tabla');
 
     // DEV sin setpoint (temperatura de tanques): indicador de «no evaluable»
     await page.getByRole('button', { name: 'Nueva regla' }).click();
@@ -331,7 +331,7 @@ try {
     await page.setViewportSize({ width: 1440, height: 900 });
     await dlg.getByRole('button', { name: 'Crear regla' }).click();
     check(await vis(page.locator('[data-testid="rule-suppress"]').first()), 'editor: ROC creada con su supresión (se ve en la tabla)');
-    check((await count()) === 18, 'editor: tres reglas nuevas (18)');
+    check((await count()) === 21, 'editor: tres reglas nuevas (21)');
 
     // editar: fuera de servicio con motivo
     await page.getByRole('button', { name: /Editar regla pres-01 cambio/ }).click();

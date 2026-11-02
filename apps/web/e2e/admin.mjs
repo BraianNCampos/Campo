@@ -217,9 +217,9 @@ try {
     // ── Reglas ──
     await goSection(page, '/admin/rules');
     await page.locator('[data-testid="rules-table"]').waitFor();
-    check((await page.locator('[data-testid^="rule-row-"]').count()) === 15, 'reglas: 15 reglas sembradas (demo)');
+    check((await page.locator('[data-testid^="rule-row-"]').count()) === 18, 'reglas: 18 reglas sembradas (demo)');
     await page.getByLabel('Severidad', { exact: true }).selectOption('critical');
-    check((await page.locator('[data-testid^="rule-row-"]').count()) === 6, 'reglas: el filtro por severidad crítica deja 6');
+    check((await page.locator('[data-testid^="rule-row-"]').count()) === 7, 'reglas: el filtro por severidad crítica deja 7');
     await page.getByLabel('Severidad', { exact: true }).selectOption('');
     await page.getByLabel('Activo', { exact: true }).fill('tk-01');
     check((await page.locator('[data-testid^="rule-row-"]').count()) === 3, 'reglas: filtro por activo tk-01 casa con los patrones tk-*');
@@ -239,7 +239,7 @@ try {
     await shot(page, 'rule-create-desktop');
     await dlg.getByRole('button', { name: 'Crear regla' }).click();
     check(await toastText(page, /Regla creada/), 'reglas: regla creada con aviso');
-    check((await page.locator('[data-testid^="rule-row-"]').count()) === 16, 'reglas: aparece en la tabla (16)');
+    check((await page.locator('[data-testid^="rule-row-"]').count()) === 19, 'reglas: aparece en la tabla (19)');
     const sw = page.getByRole('switch', { name: /tk-05 level > 95/ });
     await sw.click();
     const oos = page.getByRole('dialog', { name: 'Sacar la regla de servicio' });
@@ -333,10 +333,11 @@ try {
     check(true, 'roles: un visor que abre /admin/users ve un 403 amigable');
     await shot(page, 'forbidden-desktop');
     await page.goto(BASE, { waitUntil: 'load' });
-    await page.getByText('Todavía no tenés plantas asignadas').waitFor({ timeout: 15_000 });
+    // el usuario de consulta de la demo tiene la planta demo asignada: ve la app, pero sin administración
+    await page.locator('[data-testid="sidebar"]').waitFor({ timeout: 20_000 });
     check((await page.getByRole('link', { name: 'Administración' }).count()) === 0, 'roles: un visor no ve el enlace "Administración"');
-    check(await vis(page.getByText('Pedile a un administrador')), 'roles: usuario sin plantas → estado vacío claro');
-    await shot(page, 'no-plants-desktop');
+    check((await page.locator('[data-testid="sidebar"] [data-testid^="module-nav-"]').count()) >= 2, 'roles: un visor ve los módulos de su cliente');
+    await shot(page, 'viewer-desktop');
     // engineer: ve plantas y reglas, no usuarios/auditoría
     await page.evaluate(() => localStorage.setItem('campo.demoRole', 'engineer'));
     await page.goto(`${BASE}/admin`, { waitUntil: 'load' });

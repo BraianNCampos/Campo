@@ -339,19 +339,15 @@ export function AssetDialog({
                 />
               )}
             </div>
-            {supportsControl(form.type) && (
+            {supportsControl(form.type) && controlContracted && (
               <fieldset className="mt-3 rounded-lg border border-line p-3" data-testid="control-fields">
                 <legend className="px-1 text-sm font-semibold">Control de llenado</legend>
                 <CheckField
                   label="Habilitar órdenes de llenado, vaciado y detención"
                   checked={form.domain.control?.enabled ?? false}
-                  disabled={!controlContracted}
                   data-testid="control-enabled"
                   onChange={(e) => setDomain((d) => ({ ...d, control: { ...(d.control ?? emptyControlForm()), enabled: e.target.checked } }))}
                 />
-                {!controlContracted && (
-                  <p className="mt-1 text-xs text-muted">El módulo «Control de llenado» no está contratado. Para sumarlo, contactá a Campos Ingeniería.</p>
-                )}
                 <div className="mt-3 grid gap-3 sm:grid-cols-3">
                   <TextField
                     label="Objetivo mínimo (%)"

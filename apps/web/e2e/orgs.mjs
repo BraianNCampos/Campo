@@ -119,7 +119,7 @@ try {
 
     // ── alta con validación ──
     let dlg = await openNewOrg(page);
-    check((await dlg.getByRole('switch').count()) === 7, 'alta: un interruptor por módulo (7)');
+    check((await dlg.getByRole('switch').count()) === 8, 'alta: un interruptor por módulo (8)');
     check(await vis(dlg.getByText('Potencia, consumo y factor de potencia por línea.')), 'alta: cada módulo muestra su descripción');
     await dlg.getByRole('button', { name: 'Crear cliente' }).click();
     check(await vis(dlg.getByText('El nombre es obligatorio')) && (await vis(dlg.getByText('Elegí al menos un módulo'))), 'alta: sin datos → errores junto a cada control');
@@ -365,9 +365,9 @@ try {
     await page.locator('[data-testid="rules-table"]').waitFor({ timeout: 30_000 });
     check((await page.getByRole('search').getByLabel('Planta').inputValue()) === 'demo', 'reglas: ?plant=demo preselecciona la planta');
     check(await vis(page.locator('[data-testid="module-filter"]').getByText('Tanques y llenado')), 'reglas: ?module=tanks muestra el filtro del módulo');
-    await page.waitForFunction(() => document.querySelectorAll('[data-testid^="rule-row-"]').length === 3);
+    await page.waitForFunction(() => document.querySelectorAll('[data-testid^="rule-row-"]').length === 6);
     const conds = await page.locator('[data-testid^="rule-row-"]').evaluateAll((els) => els.map((e) => e.textContent));
-    check(conds.every((c) => /tk-\*/.test(c)), 'reglas: sólo las reglas de activos del módulo (tk-*)');
+    check(conds.every((c) => /(tk|silo)-\*/.test(c)), 'reglas: sólo las reglas de activos del módulo (tk-*, silo-*)');
     await shot(page, 'rules-module-desktop');
     await page.getByRole('button', { name: 'Nueva regla' }).click();
     const dlg = page.getByRole('dialog', { name: 'Nueva regla de alarma' });
@@ -385,8 +385,8 @@ try {
     await shot(page, 'rule-metrics-desktop');
     await page.keyboard.press('Escape');
     await page.getByRole('button', { name: 'Quitar filtro' }).click();
-    await page.waitForFunction(() => document.querySelectorAll('[data-testid^="rule-row-"]').length === 15);
-    check(true, 'reglas: «Quitar filtro» vuelve a las 15 reglas de la planta demo');
+    await page.waitForFunction(() => document.querySelectorAll('[data-testid^="rule-row-"]').length === 18);
+    check(true, 'reglas: «Quitar filtro» vuelve a las 18 reglas de la planta demo');
     check(errors.length === 0, `reglas con parámetros: sin errores de consola${errors.length ? ' → ' + errors.slice(0, 3).join(' | ') : ''}`);
     await ctx.close();
   }
@@ -429,9 +429,9 @@ try {
     dlg = page.getByRole('dialog', { name: 'Nuevo activo' });
     await dlg.waitFor();
     const enabled = await dlg.getByLabel('Tipo').locator('option:not([disabled])').allTextContents();
-    check(JSON.stringify(enabled) === JSON.stringify(['Tanque', 'Bomba', 'Válvula', 'Sensor']), `activos: los tipos se limitan a Tanques y llenado + genéricos (${enabled.join(', ')})`);
+    check(JSON.stringify(enabled) === JSON.stringify(['Tanque', 'Bomba', 'Válvula', 'Sensor', 'Silo', 'Estructura']), `activos: los tipos se limitan a Tanques y llenado + genéricos (silo incluido) (${enabled.join(', ')})`);
     const blocked = await dlg.getByLabel('Tipo').locator('option[disabled]').allTextContents();
-    check(blocked.length === 6 && blocked.every((b) => /no contratado/.test(b)), `activos: el resto figura como «no contratado» (${blocked.length})`);
+    check(blocked.length === 7 && blocked.every((b) => /no contratado/.test(b)), `activos: el resto figura como «no contratado» (${blocked.length})`);
     check(await vis(dlg.getByText(/Para sumarlo, contactá a Campos Ingeniería/)), 'activos: explica cómo sumar el módulo');
     await dlg.getByLabel('Id', { exact: true }).fill('cl-1');
     await dlg.getByLabel('Nombre').fill('Cámara');
