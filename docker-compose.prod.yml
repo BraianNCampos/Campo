@@ -123,10 +123,20 @@ services:
       TRUST_PROXY: "true"
       ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@campo.local}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:?define ADMIN_PASSWORD (scripts/bootstrap-secure.sh)}
+      # Control de llenado: usuario MQTT propio `api` (escribe cmd, lee cmd/ack) sobre TLS.
+      MQTT_URL: ssl://mosquitto:8883
+      MQTT_USERNAME: api
+      MQTT_PASSWORD: ${MQTT_API_PASSWORD:?define MQTT_API_PASSWORD (scripts/bootstrap-secure.sh)}
+      MQTT_CA_FILE: /certs/ca.crt
+    volumes:
+      - ${SECRETS_DIR:-./secrets}/certs/ca.crt:/certs/ca.crt:ro
+    depends_on:
+      mosquitto: { condition: service_healthy }
     ports: !reset []
     tmpfs:
       - /tmp
-    networks: !override [backend, edge]
+    # campo-net: alcanza al broker MQTT para publicar órdenes (control de llenado)
+    networks: !override [backend, edge, campo-net]
 
   web:
     <<: *hardened

@@ -60,6 +60,9 @@ type Reading struct {
 	Values    map[string]float64
 	Quality   Quality
 	Discarded int // valores no numéricos o no finitos descartados
+	// IngestTs: epoch ms del reloj de la ingesta al recibir el mensaje MQTT (§13). Lo sella la
+	// pipeline, no el parser; 0 = sin sello (no se emite `ingestTs`).
+	IngestTs int64
 }
 
 // ValidID implementa ^[a-z0-9][a-z0-9_-]{0,63}$ sin regexp (ruta caliente).

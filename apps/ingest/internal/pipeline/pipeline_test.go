@@ -202,3 +202,21 @@ func TestPipelineStopTimeout(t *testing.T) {
 	}
 	close(live.gate)
 }
+
+func TestPipelineStampsIngestTs(t *testing.T) {
+	live := &fakeLive{}
+	p, _ := newPipe(live, nil, Config{})
+	before := time.Now().UnixMilli()
+	p.Submit(topic, []byte(`{"ts":1,"values":{"level":1}}`)) // el ts del equipo no influye en ingestTs
+	stop(t, p)
+	after := time.Now().UnixMilli()
+
+	live.mu.Lock()
+	defer live.mu.Unlock()
+	if len(live.got) != 1 {
+		t.Fatalf("lecturas = %d", len(live.got))
+	}
+	if ts := live.got[0].IngestTs; ts < before || ts > after {
+		t.Errorf("IngestTs = %d, fuera de [%d, %d]", ts, before, after)
+	}
+}

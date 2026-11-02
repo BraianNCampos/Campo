@@ -3,6 +3,7 @@ package redisout
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -82,5 +83,54 @@ func TestWriteFailsWhenRedisDown(t *testing.T) {
 	r := parser.Reading{Plant: "demo", Asset: "a", TS: 1, Values: map[string]float64{"x": 1}}
 	if err := New(rdb).Write(context.Background(), []parser.Reading{r}); err == nil {
 		t.Fatal("se esperaba error con Redis caído")
+	}
+}
+
+func TestEventIngestTs(t *testing.T) {
+	r := parser.Reading{Plant: "demo", Asset: "tk-01", TS: 1730213000000, Values: map[string]float64{"level": 72.5}, IngestTs: 1730213000123}
+	state := []byte(`{"ts":1730213000000,"values":{"level":72.5},"quality":"good"}`)
+	got := string(Event(&r, state))
+	want := `{"type":"telemetry","plant":"demo","asset":"tk-01","ts":1730213000000,"values":{"level":72.5},"quality":"good","ingestTs":1730213000123}`
+	if got != want {
+		t.Errorf("evento = %s", got)
+	}
+	var ev map[string]any
+	if err := json.Unmarshal([]byte(got), &ev); err != nil || ev["ingestTs"] != float64(1730213000123) {
+		t.Errorf("JSON inválido o sin ingestTs: %v %v", err, ev)
+	}
+	// Sin sello no se emite el campo.
+	r.IngestTs = 0
+	if got := string(Event(&r, state)); strings.Contains(got, "ingestTs") {
+		t.Errorf("no debía emitir ingestTs: %s", got)
+	}
+}
+
+func TestWriteEventCarriesIngestTsButStateDoesNot(t *testing.T) {
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { rdb.Close() })
+	ctx := context.Background()
+	sub := rdb.Subscribe(ctx, "campo:events:demo")
+	t.Cleanup(func() { sub.Close() })
+	if _, err := sub.Receive(ctx); err != nil {
+		t.Fatal(err)
+	}
+	r := parser.Reading{Plant: "demo", Asset: "a", TS: 5, Values: map[string]float64{"x": 1}, IngestTs: 99}
+	if err := New(rdb).Write(ctx, []parser.Reading{r}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case msg := <-sub.Channel():
+		var ev struct {
+			IngestTs int64 `json:"ingestTs"`
+		}
+		if err := json.Unmarshal([]byte(msg.Payload), &ev); err != nil || ev.IngestTs != 99 {
+			t.Errorf("evento = %s (%v)", msg.Payload, err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("no llegó el evento")
+	}
+	if strings.Contains(mr.HGet("campo:state:demo", "a"), "ingestTs") {
+		t.Error("el estado no debe incluir ingestTs")
 	}
 }

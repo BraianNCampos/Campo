@@ -138,6 +138,7 @@ func (p *Pipeline) worker() {
 				p.m.Dropped.WithLabelValues(string(reason)).Inc()
 				continue
 			}
+			r.IngestTs = m.at.UnixMilli()
 			if r.Discarded > 0 {
 				p.m.ValuesDiscarded.Add(float64(r.Discarded))
 			}

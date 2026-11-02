@@ -41,14 +41,21 @@ type stateJSON struct {
 }
 
 // Event construye el TelemetryEvent reutilizando el JSON del estado
-// (TelemetryEvent = AssetState + type/plant/asset). plant y asset ya fueron
-// validados contra el regex de IDs, así que no necesitan escape.
+// (TelemetryEvent = AssetState + type/plant/asset + ingestTs). plant y asset ya fueron
+// validados contra el regex de IDs, así que no necesitan escape. `ingestTs` (§13) se añade
+// al final solo si la lectura lo trae; el estado en Redis (HSET) no lo incluye.
 func Event(r *parser.Reading, state []byte) []byte {
-	b := make([]byte, 0, len(state)+len(r.Plant)+len(r.Asset)+48)
+	b := make([]byte, 0, len(state)+len(r.Plant)+len(r.Asset)+72)
 	b = append(b, `{"type":"telemetry","plant":`...)
 	b = strconv.AppendQuote(b, r.Plant)
 	b = append(b, `,"asset":`...)
 	b = strconv.AppendQuote(b, r.Asset)
 	b = append(b, ',')
-	return append(b, state[1:]...)
+	if r.IngestTs == 0 {
+		return append(b, state[1:]...)
+	}
+	b = append(b, state[1:len(state)-1]...) // sin la llave de cierre
+	b = append(b, `,"ingestTs":`...)
+	b = strconv.AppendInt(b, r.IngestTs, 10)
+	return append(b, '}')
 }

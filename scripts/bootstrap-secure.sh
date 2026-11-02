@@ -116,7 +116,7 @@ elif [ "${#PLANT_SET[@]}" -eq 0 ]; then
 fi
 for p in "${!PLANT_SET[@]}"; do
   [[ $p =~ $PLANT_RE ]] || die "id de planta inválido: '$p' (debe cumplir $PLANT_RE)"
-  case $p in ingest|healthcheck) die "'$p' es un usuario reservado; elige otro id de planta" ;; esac
+  case $p in ingest|healthcheck|api) die "'$p' es un usuario reservado; elige otro id de planta" ;; esac
 done
 PLANTS=$(printf '%s\n' "${!PLANT_SET[@]}" | sort)
 
@@ -164,6 +164,7 @@ get_or_gen REDIS_PASSWORD 40 "$R"
 get_or_gen JWT_SECRET 64 "$R"
 get_or_gen ADMIN_PASSWORD 24            # nunca se rota aquí: la contraseña real del admin vive en la BD
 get_or_gen MQTT_INGEST_PASSWORD 32 "$R"
+get_or_gen MQTT_API_PASSWORD 32 "$R"
 
 # hc y plantas: viven en ficheros de secrets/ (el .env.prod sólo lleva la del simulador)
 gen_file_secret() { # fichero longitud rotar
@@ -232,16 +233,17 @@ fi
 # passwd de Mosquitto (hashes). Se reconstruye si falta, si cambió el conjunto de usuarios o se rotó.
 # ---------------------------------------------------------------------------------------------------
 PASSWD=$MQ/passwd
-want_users=$( { echo ingest; echo healthcheck; printf '%s\n' $PLANTS; } | sort)
+want_users=$( { echo ingest; echo api; echo healthcheck; printf '%s\n' $PLANTS; } | sort)
 have_users=""; [ -s "$PASSWD" ] && have_users=$(cut -d: -f1 "$PASSWD" | sort)
 rebuild_passwd=0
-{ [ "$R" = 1 ] || [ ! -s "$PASSWD" ] || [ "$want_users" != "$have_users" ] || [ "${#NEW_FILES[@]}" -gt 0 ] || [[ " ${NEW_KEYS[*]:-} " == *" MQTT_INGEST_PASSWORD "* ]]; } && rebuild_passwd=1
+{ [ "$R" = 1 ] || [ ! -s "$PASSWD" ] || [ "$want_users" != "$have_users" ] || [ "${#NEW_FILES[@]}" -gt 0 ] || [[ " ${NEW_KEYS[*]:-} " == *" MQTT_INGEST_PASSWORD "* ]] || [[ " ${NEW_KEYS[*]:-} " == *" MQTT_API_PASSWORD "* ]]; } && rebuild_passwd=1
 
 if [ "$rebuild_passwd" = 1 ]; then
   # Script que se entrega por STDIN a sh: las contraseñas no aparecen en argv del host ni en el entorno.
   script='set -e'$'\n''first=1'$'\n'
   add_user() { script+="if [ \$first = 1 ]; then mosquitto_passwd -b -c /tmp/passwd '$1' '$2' >/dev/null; first=0; else mosquitto_passwd -b /tmp/passwd '$1' '$2' >/dev/null; fi"$'\n'; }
   add_user ingest "${ENV_VALS[MQTT_INGEST_PASSWORD]}"
+  add_user api "${ENV_VALS[MQTT_API_PASSWORD]}"
   add_user healthcheck "$(cat "$MQ/healthcheck.pw")"
   for p in $PLANTS; do add_user "$p" "$(cat "$USERS/$p.pass")"; done
   script+='cat /tmp/passwd'$'\n'
@@ -305,6 +307,8 @@ tmpenv=$(mktemp "${ENV_FILE}.XXXXXX")
   echo
   echo "# --- MQTT ---"
   echo "MQTT_INGEST_PASSWORD=${ENV_VALS[MQTT_INGEST_PASSWORD]}"
+  echo "# API: publica órdenes de control y lee sus acuses."
+  echo "MQTT_API_PASSWORD=${ENV_VALS[MQTT_API_PASSWORD]}"
   echo "# Simulador (perfil sim): publica como el usuario de esta planta."
   echo "MQTT_SIM_PLANT=${ENV_VALS[MQTT_SIM_PLANT]}"
   echo "MQTT_SIM_PASSWORD=${ENV_VALS[MQTT_SIM_PASSWORD]}"
@@ -318,7 +322,7 @@ echo "Campo 2.0 — material seguro listo"
 info "entorno:      $ENV_FILE (600)"
 info "certificados: $CERTS/ (ca.crt = confianza de clientes; server.crt/server.key = broker)"
 info "SAN broker:   $(cat "$SAN_FILE")"
-info "usuarios MQTT: ingest, healthcheck, plantas: $(printf '%s ' $PLANTS)"
+info "usuarios MQTT: ingest, api, healthcheck, plantas: $(printf '%s ' $PLANTS)"
 info "contraseñas por planta: $USERS/<planta>.pass (entrégalas sólo a los dispositivos de esa planta)"
 [ "$CA_CREATED" = 1 ] && info "CA nueva creada (válida 10 años); ca.key puede guardarse fuera de línea tras emitir certificados"
 [ "$SRV_ISSUED" = 1 ] && info "certificado del servidor emitido (825 días)"
