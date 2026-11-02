@@ -29,10 +29,10 @@ export function moduleHealth(c: { all: number; alarm: number; near: number; noda
   return 'ok';
 }
 
-/** Módulos con activos (todos los activos salvo «Vista 3D», que no tiene) y su estado agregado. */
+/** Módulos con activos (todos salvo «Vista 3D» y «Control de llenado», que no tienen activos propios) y su estado agregado. */
 export function planOverview(ids: readonly ModuleId[], s: LiveSnapshot): ModuleOverview[] {
   return activeModules(ids)
-    .filter((m: ModuleDef) => m.id !== 'view3d')
+    .filter((m: ModuleDef) => m.id !== 'view3d' && m.id !== 'control') // sin activos propios: no son tableros de equipos
     .map((m) => {
       const c = countItems(moduleItems(m.id, s));
       return { id: m.id, label: m.label, total: c.all, attention: c.attention, alarm: c.alarm, near: c.near, status: moduleHealth(c) };

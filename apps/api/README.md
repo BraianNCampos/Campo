@@ -13,7 +13,7 @@ npm ci
 npm run start:dev                          # http://localhost:3001
 ```
 
-Los scripts SQL (`infra/timescaledb/init/010_telemetry.sql`, `020_app.sql`, `030_user_plants.sql`, `040_admin.sql`, `050_models.sql`, `060_orgs.sql` y `070_alarms_isa.sql`) se aplican en ese orden al crear el volumen de TimescaleDB por primera vez; `020_app.sql` es idempotente y también incluye el seed de la planta `demo`. El esquema no se sincroniza desde código (no hay `synchronize`).
+Los scripts SQL (`infra/timescaledb/init/010_telemetry.sql`, `020_app.sql`, `030_user_plants.sql`, `040_admin.sql`, `050_models.sql`, `060_orgs.sql`, `070_alarms_isa.sql` y `080_tags_control.sql`) se aplican en ese orden al crear el volumen de TimescaleDB por primera vez; `020_app.sql` es idempotente y también incluye el seed de la planta `demo`. El esquema no se sincroniza desde código (no hay `synchronize`).
 
 ### Bases de datos ya existentes: aplicar `030_user_plants.sql` a mano
 
@@ -101,6 +101,23 @@ Qué hace:
 
 **Verificado** contra PostgreSQL 16 real: sobre una base con reglas y alarmas de las fases anteriores (activa sin ack, activa reconocida, normalizada, huérfana de regla borrada), aplicando 020–060 y 070 dos veces cada uno, y reaplicando 020/060 **después** de 070; el estado de las alarmas (incluida una postergada simulada) no cambia al repetir 070.
 
+### Bases de datos ya existentes: aplicar `080_tags_control.sql` a mano (tags y control de llenado, §13-14)
+
+Igual que 030–070: sólo corre al crear el volumen; en una base existente se aplica **antes** de arrancar la versión nueva de la API (sin él fallan el catálogo —falta `assets.tag`— y las órdenes). Requiere 020–070. **Idempotente** y transaccional (`-v ON_ERROR_STOP=1`):
+
+```bash
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f infra/timescaledb/init/080_tags_control.sql
+```
+
+Qué hace:
+
+1. Amplía el CHECK de `organizations.modules` con `control` (8 módulos) y el de `assets.type` con `silo`, `conveyor` y `structure` (13 tipos). Los CHECK viejos se localizan por contenido, así que reaplicar 060 después no los rompe.
+2. `assets.tag` (CHECK = `TAG_PATTERN`) con índice único parcial `(plant, lower(tag)) WHERE tag IS NOT NULL` (único por planta sin distinguir mayúsculas). **Backfill una sola vez** (al crear la columna): a cada activo se le asigna `PREFIJO-101, 102…` por planta y prefijo (`DEFAULT_TAG_PREFIX`: tank/silo `TNK`, pump `PMP`, valve `VLV`, machine `MTR`, conveyor `CONV`, el resto `XMTR`), en orden de id; las `structure` no llevan tag. En esa misma pasada única se suma el módulo `control` a `campos-demo`.
+3. Tabla `orders` (`id uuid`, `org_id`, `plant`, `asset`, `tag`, `command`, `target`, `status`, `reason`, `requested_by`, `requested_email`, `max_duration_minutes`, `created_at`, `accepted_at`, `running_at`, `finished_at`, `updated_at`) sin FK a propósito (el registro sobrevive al borrado de activo/planta/cliente/usuario), con índices por planta, activo, cliente y órdenes abiertas, y un índice único parcial que garantiza **una sola orden en curso por activo**.
+4. Semillas de demo (§14.5, sólo si la planta es del cliente esperado, `ON CONFLICT DO NOTHING`): `silo-01/02` (`TNK-301/302`, `capacityM3: 120`), `conv-01/02` (`CONV-101/102`), `nave-01` (structure, con `layout`) y `metadata.control = {enabled: true, minTarget: 10, maxTarget: 90}` en `tk-01..04` de `demo` y `tk-a/tk-b` de `tanques` (sin pisar una configuración ya editada).
+
+**Verificado** contra PostgreSQL 16 real: aplicando 020–070 y luego 080 dos veces, y reaplicando 060/020/070/080 después; unicidad del tag sin distinguir mayúsculas, CHECKs e índice de órdenes abiertas.
+
 ## Arranque endurecido (producción)
 
 Con `NODE_ENV=production` la API **se niega a arrancar** (mensaje claro, código de salida 1) si `JWT_SECRET` tiene < 32 caracteres o parece un valor de ejemplo (contiene `cambia`, `changeme`, `change-me`, `secret` o `example`, sin distinguir mayúsculas), o si `ADMIN_PASSWORD` es de ejemplo (mismas palabras) o tiene < 12 caracteres. Genera un secreto con `openssl rand -base64 48`. En desarrollo sólo se registra un `warn` por cada problema. Ojo: la imagen Docker fija `NODE_ENV=production`, así que los valores de `.env.example` (`cambia-...`) **no sirven** para ella: hay que cambiarlos.
@@ -142,6 +159,9 @@ Se validan al arrancar (el proceso falla con un mensaje claro si algo es inváli
 | `HISTORY_MAX_POINTS` / `HISTORY_MAX_RANGE_DAYS` | `5000` / `366` | Límites de la consulta de histórico |
 | `ALARM_ENGINE_ENABLED` | `true` | Poner `false` en réplicas extra (ver límites) |
 | `ALARM_RULES_REFRESH_MS` | `60000` | Refresco periódico de la caché de reglas (además de al cambiar) |
+| `MQTT_URL` | — | Broker MQTT para las órdenes de control (`mqtts://mosquitto:8883`). **Sin él el control responde `503 control_unavailable`** y la API arranca igual |
+| `MQTT_USERNAME` / `MQTT_PASSWORD` | — | Credenciales del usuario `api` (escribe `campo/v1/+/+/cmd`, lee `campo/v1/+/+/cmd/ack`) |
+| `MQTT_CA_FILE` | — | CA que firma el certificado del broker (para `mqtts://`) |
 | `PG_POOL_MAX`, `LOG_LEVEL`, `NODE_ENV` | `10`, `info`, `development` | |
 
 ## Endpoints
@@ -296,7 +316,7 @@ Se validan al crear/editar un activo (el resto de claves de `metadata` es libre;
 
 ### WebSocket
 
-`ws://host:3001/ws?plant={plant}&token={jwt}` (también acepta `Authorization: Bearer`). Códigos de cierre: `4400` planta inválida, `4401` token inválido, revocado (`tv`), usuario inactivo/inexistente o **cliente desactivado**, `4403` sin acceso a la planta (otra planta, **otro cliente**, sin registrar o inexistente). Tras validar el token se consulta el usuario (misma caché) y se comprueba la planta antes de enviar nada. Los sockets abiertos se **revalidan**: al cambiar un usuario en este proceso se re-evalúan al instante, y cada `WS_REVALIDATE_MS` (por defecto = TTL de la caché) contra la base saltando la caché; si el usuario ya no está activo o su token fue revocado (4401) o perdió la planta (4403) el servidor cierra el socket, así que la revocación llega a los sockets abiertos en ≤ 30 s aunque el token siga vigente. Un cambio del cliente (desactivarlo, cambiar módulos) revalida **todos** los sockets al instante. Si una planta cambia de cliente, el socket se corta con 4403 en la siguiente revalidación. El gateway sólo reenvía eventos de la planta suscrita (la barrera es la comprobación de cliente+planta al conectar y al revalidar; no hay filtrado por cliente en cada mensaje). El primer mensaje es `snapshot`; luego `telemetry` (coalescido por activo en ventanas de ~100 ms, mezclando por métrica el último valor), `alarm` (inmediato; incluye cambios de ack) y `{type:"catalog", plant}` (el catálogo de la planta cambió —activos, modelos 3D, la propia planta—: el cliente vuelve a pedirlo por HTTP). Los avisos de catálogo llegan por `RealtimeBus` (la misma conexión Redis de suscripción de siempre, ahora también `SUBSCRIBE campo:catalog:changed`, sin conexiones nuevas por cliente) y se agrupan por planta en ventanas de `WS_CATALOG_COALESCE_MS` (250 ms): una ráfaga de altas produce un único mensaje por cliente. El cliente no envía mensajes (se ignoran; uno de más de 1 KiB cierra el socket).
+`ws://host:3001/ws?plant={plant}&token={jwt}` (también acepta `Authorization: Bearer`). Códigos de cierre: `4400` planta inválida, `4401` token inválido, revocado (`tv`), usuario inactivo/inexistente o **cliente desactivado**, `4403` sin acceso a la planta (otra planta, **otro cliente**, sin registrar o inexistente). Tras validar el token se consulta el usuario (misma caché) y se comprueba la planta antes de enviar nada. Los sockets abiertos se **revalidan**: al cambiar un usuario en este proceso se re-evalúan al instante, y cada `WS_REVALIDATE_MS` (por defecto = TTL de la caché) contra la base saltando la caché; si el usuario ya no está activo o su token fue revocado (4401) o perdió la planta (4403) el servidor cierra el socket, así que la revocación llega a los sockets abiertos en ≤ 30 s aunque el token siga vigente. Un cambio del cliente (desactivarlo, cambiar módulos) revalida **todos** los sockets al instante. Si una planta cambia de cliente, el socket se corta con 4403 en la siguiente revalidación. El gateway sólo reenvía eventos de la planta suscrita (la barrera es la comprobación de cliente+planta al conectar y al revalidar; no hay filtrado por cliente en cada mensaje). El primer mensaje es `snapshot`; luego `telemetry` (coalescido por activo en ventanas de ~100 ms, mezclando por métrica el último valor), `alarm` (inmediato; incluye cambios de ack) y `{type:"catalog", plant}` (el catálogo de la planta cambió —activos, modelos 3D, la propia planta—: el cliente vuelve a pedirlo por HTTP). Los avisos de catálogo llegan por `RealtimeBus` (la misma conexión Redis de suscripción de siempre, ahora también `SUBSCRIBE campo:catalog:changed`, sin conexiones nuevas por cliente) y se agrupan por planta en ventanas de `WS_CATALOG_COALESCE_MS` (250 ms): una ráfaga de altas produce un único mensaje por cliente. Más: `{type:"order", order}` (cambio de estado de una orden de control, sólo a los sockets de la planta de la orden; §14) y `{type:"time", t0, t1}` (respuesta a `{type:"time", t0}` del cliente, con `t1 = Date.now()` del servidor: sincronización de reloj, §13). La telemetría reenvía `ingestTs` (sello del servicio de ingesta; con coalescing se conserva el del último valor). Cualquier otro mensaje del cliente se ignora sin cerrar el socket; uno de más de 1 KiB cierra el socket.
 
 ## Alarmas ISA-18.2 y desviación (§12)
 
@@ -376,6 +396,27 @@ La evaluación es síncrona y en memoria; la E/S (Postgres, Redis, diario) va a 
 - Las reglas deshabilitadas antes de 070 no tienen motivo (no se exige hasta que se vuelvan a deshabilitar).
 - Con patrón en `suppressWhen.asset` el último dato sólo se conoce desde que llega telemetría (no se siembra de Redis); con id exacto sí.
 - Los `*_sp` de telemetría no se validan contra el catálogo: se aplican a cualquier activo que envíe la métrica.
+
+## Tags, tipos nuevos y control de llenado (§13-14)
+
+- **Tags:** `tag` en `POST/PATCH /api/plants/:plant/assets` y en el catálogo (`AssetDef.tag`, `null` si no tiene): se normaliza a mayúsculas y debe cumplir `TAG_PATTERN` (400); único por planta sin distinguir mayúsculas (**409** si otro activo lo usa); `PATCH {tag: null}` lo quita. Tipos nuevos `silo` (módulo `tanks`), `conveyor` (módulo `machines`) y `structure` (sin módulo). `metadata.control = {enabled, minTarget?, maxTarget?, maxDurationMinutes?}` se valida (`enabled` booleano obligatorio; objetivos 1–99 con `minTarget < maxTarget`; duración entera 1–1440) y la edita `engineer`+; el cambio de `enabled` queda en la auditoría `asset.update` (`controlEnabled`).
+- **Setpoints:** `PUT /api/plants/:plant/assets/:asset/setpoints/:metric {value}` (`engineer`+): el valor debe caer en la escala de la métrica (`metadata.scale` o `METRICS`), se guarda en `metadata.setpoints` y se audita `asset.setpoint` (`metric`, `value`, `previous`).
+- **Módulo `control`** (desactivado por defecto: hay que contratarlo; `module_disabled` 403 `{module:"control"}` al usarlo). Cada activo además debe tener `metadata.control.enabled`.
+- **Órdenes** (operator, engineer, admin y platform_admin; el viewer sólo lee):
+
+| Endpoint | Qué hace |
+|---|---|
+| `POST /api/plants/:plant/assets/:asset/commands/preview {command, target?}` | Valida y devuelve `OrderPreview {confirmId, expiresAt, summary, warnings, blocked}`. Si un enclavamiento bloquea: `blocked` con el motivo y `confirmId: ""`. No envía nada |
+| `POST /api/plants/:plant/assets/:asset/commands {confirmId}` | Ejecuta (201 → `Order`). El `confirmId` es de un solo uso (Redis `GETDEL`), dura 60 s y está atado a usuario + activo + orden; los enclavamientos se **reevalúan** al confirmar |
+| `GET /api/plants/:plant/orders?asset&status&limit&before` | Registro (cualquier rol con acceso a la planta). `before` = `requestedAt` (epoch ms) de la última orden de la página anterior |
+| `POST /api/orders/:id/cancel` | Envía un `stop` y deja la orden `cancelled` (la orden de `stop` queda registrada). Funciona aunque el módulo se haya desactivado después. Orden ajena o inexistente: el mismo 403 (404 sólo para `platform_admin`) |
+| `GET /api/plants/:plant/assets/:asset/interlocks[?command&target]` | `InterlockItem[]` (`broker`, `module`, `enabled`, `online`, `idle`, `no_hh` y, con comando, `target_range`, `target_hi`, `level_direction`); operator+. Nunca 403 por módulo: lo muestra como ítem en falla |
+
+- **Errores:** `503 control_unavailable` (sin `MQTT_URL`, o broker caído al publicar —la orden queda `failed`—), `403 module_disabled`, `409` con `error` = `device_offline` (sin telemetría < 30 s), `order_in_progress`, `interlock_blocked` (+ `interlock`: `enabled`, `no_hh`, `target_range`, `target_hi`, `level_direction`), `invalid_confirm` (usado, vencido o de otra orden/usuario/activo) y `order_not_cancellable`; `429 rate_limited` (10 órdenes/min por usuario, ventana deslizante en Redis; los `stop` no cuentan en ese límite sino en uno aparte de 60/min para frenar abusos).
+- **Enclavamientos:** módulo, `enabled`, telemetría reciente, sin otra orden en curso (el índice único de la base lo garantiza), objetivo en `[minTarget, maxTarget]` (por defecto 5–95), objetivo ≤ límite alto − 2 % (el menor umbral entre las reglas HI y HH de nivel del activo; si sólo hay HH se usa ése), `fill` sólo con nivel < objetivo y sin alarma HH activa, `drain` sólo con nivel > objetivo. **`stop` nunca se bloquea por un enclavamiento** (sí exige el módulo contratado) y reemplaza (`cancelled`) lo que haya en curso.
+- **MQTT:** publica en `campo/v1/{planta}/{activo}/cmd` (QoS 1, sin retención) `{id, command, target?, ts, by}` (`by` = email) y escucha `campo/v1/+/+/cmd/ack` `{id, status, reason?, ts}`. Un ack sólo se acepta si viene del tópico de la planta y el activo de la orden. Transiciones: `pending → accepted → running → done` (o `rejected`, `failed`); no se retrocede ni se sale de un estado terminal. **Plazos** (barrido cada 2 s): sin `accepted` en 10 s → `timeout`; `accepted|running` sin `done` pasados `maxDurationMinutes` (copia de `metadata.control`, por defecto 120) → `timeout`.
+- **Auditoría:** `order.create` (quién, activo, comando, objetivo, `cancelOf`), `order.status` (estado nuevo/previo y motivo; sin actor cuando lo informa el equipo o vence un plazo) y `asset.setpoint`. Cada cambio de estado se difunde por Redis (`campo:orders:{planta}`) y de ahí por WebSocket.
+- **Notas:** el `confirmId` y el límite de frecuencia viven en Redis (varias réplicas coinciden); el cliente MQTT está detrás de la clase abstracta `CommandBus` (sustituible en pruebas).
 
 ## Límites conocidos (clientes)
 

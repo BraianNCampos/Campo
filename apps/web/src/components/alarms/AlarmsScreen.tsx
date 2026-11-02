@@ -148,7 +148,7 @@ export function AlarmsScreen() {
   };
 
   const count: Record<AlarmTab, number | null> = { active: activeList.length, shelved: shelvedList.length, history: null };
-  const moduleOptions = MODULES.filter((m) => modules.includes(m.id));
+  const moduleOptions = MODULES.filter((m) => modules.includes(m.id) && m.assetTypes.length > 0); // los módulos sin activos (Vista 3D, Control) no tienen alarmas propias
 
   return (
     <div className="mx-auto w-full max-w-[88rem] px-4 py-5 md:px-6" data-testid="alarms-screen">

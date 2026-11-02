@@ -34,6 +34,9 @@ describe('planOverview', () => {
   it('una entrada por módulo con activos (sin «Vista 3D»), en el orden del registro', () => {
     expect(planOverview(ids, snap()).map((o) => [o.id, o.total, o.status])).toEqual([['tanks', 2, 'ok'], ['climate', 1, 'ok']]);
   });
+  it('«Control de llenado» tampoco aparece: no tiene activos propios', () => {
+    expect(planOverview(['tanks', 'control'], snap()).map((o) => o.id)).toEqual(['tanks']);
+  });
   it('alarma y cerca del límite se agregan por módulo y cuentan los activos que requieren atención', () => {
     const s = snap({
       alarmSeverityByAsset: { 'tk-1': 'critical' },
