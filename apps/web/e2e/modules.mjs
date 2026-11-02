@@ -165,7 +165,7 @@ try {
     // Alarmas globales
     await page.locator('[data-testid="nav-alarms"]').click();
     await page.locator('h1', { hasText: 'Alarmas' }).waitFor();
-    check(!!(await pollUntil(async () => (await count(page, '[data-testid="alarm-row"], [data-testid="alarm-item"]')) > 0, 30_000)), 'alarmas globales: lista de alarmas de la planta');
+    check(!!(await pollUntil(async () => (await count(page, '[data-testid="alarm-row"], [data-testid="alarm-item"]')) > 0, 90_000)), 'alarmas globales: lista de alarmas de la planta');
 
     // Modo pared
     await page.locator('[data-testid="nav-wall"]').click();

@@ -208,20 +208,24 @@ try {
     await page.screenshot({ path: path.join(shots, 'mobile-summary-full.png'), fullPage: false });
 
     await page.locator('[data-testid="alarm-count"]').tap(); // la insignia de alarmas lleva a /alarmas
-    const hasAlarm = await pollUntil(async () => (await page.locator('[data-testid="alarm-item"]').count()) > 0, 60_000);
+    const ROW = '[data-testid="alarm-row"], [data-testid="alarm-item"]'; // /alarmas: filas de la lista (7b) o tarjetas anteriores
+    const hasAlarm = await pollUntil(async () => (await page.locator(ROW).count()) > 0, 60_000);
     check(!!hasAlarm, 'móvil: lista de alarmas con elementos');
     await sleep(300);
     await page.screenshot({ path: path.join(shots, 'mobile-alarms-390x844.png') });
-    const ack = page.getByRole('button', { name: 'Reconocer', exact: true }).first();
+    const ack = page.locator('[data-testid="ack"], button:text-is("Reconocer")').first();
+    await ack.waitFor({ timeout: 20_000 });
+    const nAck = await page.locator('[data-testid="ack"], button:text-is("Reconocer")').count();
     const ab = await ack.boundingBox();
     check(!!ab && ab.height >= 44, `móvil: botón Reconocer ≥44px (${Math.round(ab?.height ?? 0)}px)`);
-    const before = await page.locator('[data-testid="alarm-item"]').count();
+    const before = await page.locator(ROW).count();
     await ack.tap();
     // la alarma reconocida pasa a "Reconocida"; (si justo se limpia por histéresis, el nº de alarmas baja)
     const acked = await pollUntil(
       async () =>
         (await page.getByRole('button', { name: 'Reconocida', exact: true }).count()) > 0 ||
-        (await page.locator('[data-testid="alarm-item"]').count()) < before,
+        (await page.locator('[data-testid="ack"], button:text-is("Reconocer")').count()) < nAck ||
+        (await page.locator(ROW).count()) < before,
       3000,
       50,
     );
