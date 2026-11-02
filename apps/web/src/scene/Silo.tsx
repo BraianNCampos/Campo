@@ -126,7 +126,7 @@ function rot90(tan: [number, number]): [number, number, number] {
 }
 
 /** Silo: cuerpo cilíndrico nervado, techo cónico, escalera con jaula, patas e indicador de nivel con el nivel real. */
-export function Silo({ id, name, placement }: AssetNodeProps) {
+export function Silo({ id, name, tag, placement }: AssetNodeProps) {
   const target = useAssetTarget(id);
   const prof = useQualityProfile();
   const geo = useBuilt(() => buildSiloGeometry(prof.radial, prof.detail), [prof.radial, prof.detail]);
@@ -154,7 +154,7 @@ export function Silo({ id, name, placement }: AssetNodeProps) {
   });
 
   return (
-    <Equipment id={id} name={name} type="silo" placement={placement} ringRadius={SILO_R + 0.7} labelPos={[0, SILO_TOP + 1.0, 0]} valueRef={valueEl}>
+    <Equipment id={id} name={name} tag={tag} type="silo" placement={placement} ringRadius={SILO_R + 0.7} labelPos={[0, SILO_TOP + 1.0, 0]} valueRef={valueEl}>
       <Merged geo={geo} />
       {/* columna de producto en el indicador (nivel real) */}
       <mesh ref={fill} position={[GAUGE_X + 0.04, GAUGE_Y0, 0]} visible={false} userData={{ noOutline: true }}>

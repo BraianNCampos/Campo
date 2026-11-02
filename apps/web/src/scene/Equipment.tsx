@@ -7,6 +7,7 @@ import type { AssetType } from '@campo/shared';
 import { useUiStore } from '@/store/ui-store';
 import { AnomalyFx } from './AnomalyFx';
 import { labelPortalRef } from './label-portal';
+import { labelEntries, labelFocus } from './label-registry';
 import type { Placement, Vec3 } from './layout';
 
 /** Props comunes de los componentes de activo (procedurales y GLB). */
@@ -67,6 +68,16 @@ export function Equipment({
   const noteRef = useRef<HTMLElement>(null);
   const holoRef = useRef<HTMLElement>(null);
   const groupRef = useRef<THREE.Group>(null);
+  // inscribe la etiqueta en el director (qué se ve y cuándo: label-plan.ts)
+  useEffect(() => {
+    labelEntries.set(id, { id, group: groupRef, label: labelRef, labelPos, decorative: !!decorative, mode: 'off', sizes: new Map() });
+    return () => {
+      labelEntries.delete(id);
+      if (labelFocus.hover === id) labelFocus.hover = null;
+    };
+    // labelPos es una constante por tipo de equipo
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, decorative]);
   // sombras en todas las mallas opacas del activo (procedural o GLB); sólo cuestan si la luz principal las proyecta
   useLayoutEffect(() => {
     groupRef.current?.traverse((o) => {
@@ -98,10 +109,12 @@ export function Equipment({
           : (e) => {
               e.stopPropagation();
               document.body.style.cursor = 'pointer';
+              labelFocus.hover = id;
             }
       }
       onPointerOut={decorative ? undefined : () => {
         document.body.style.cursor = '';
+        if (labelFocus.hover === id) labelFocus.hover = null;
       }}
     >
       {children}
@@ -110,10 +123,10 @@ export function Equipment({
         <AnomalyFx id={id} name={name} tag={tag} radius={ringRadius} labelPos={labelPos} groupRef={groupRef} labelRef={labelRef} noteRef={noteRef} holoRef={holoRef} />
       )}
       <Html position={labelPos} center zIndexRange={[20, 0]} portal={labelPortalRef} style={{ pointerEvents: 'none' }}>
-        <div ref={labelRef} className="scene-label" data-minor={type === 'tank' || type === 'silo' ? undefined : ''} data-model={glb ? 'glb' : undefined}>
+        <div ref={labelRef} className="scene-label" data-mode="off" data-notag={tag ? undefined : ''} data-minor={type === 'tank' || type === 'silo' ? undefined : ''} data-model={glb ? 'glb' : undefined}>
           <i ref={noteRef} className="scene-alarm" />
           {tag && <code className="mr-1 font-mono text-[10px] font-semibold text-[#a6b5c7]">{tag}</code>}
-          {name}
+          <span className="scene-name">{name}</span>
           {!decorative && <b ref={valueRef as RefObject<HTMLElement>}>—</b>}
           {!decorative && <span ref={holoRef} className="scene-holo" />}
         </div>

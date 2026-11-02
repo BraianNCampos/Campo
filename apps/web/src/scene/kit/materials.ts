@@ -50,8 +50,8 @@ function make(profile: QualityProfile): KitMaterials {
     roof: std({ color: '#8f9aa4', metalness: metal(0.6), roughness: 0.46, bumpMap: wall, bumpScale: wall ? 0.8 : 0 }),
     glass: std({ color: '#9bd3e6', metalness: 0.1, roughness: 0.15, transparent: true, opacity: 0.35, depthWrite: false }),
     shell: std({ color: '#9fb3c6', metalness: metal(0.6), roughness: 0.34, transparent: true, opacity: 0.3, side: THREE.DoubleSide, depthWrite: false }),
-    panel: std({ color: '#b9c3cc', metalness: metal(0.4), roughness: 0.55, transparent: true, opacity: 0.3, side: THREE.DoubleSide, depthWrite: false }),
-    roofPanel: std({ color: '#98a3ad', metalness: metal(0.5), roughness: 0.5, transparent: true, opacity: 0.42, side: THREE.DoubleSide, depthWrite: false }),
+    panel: std({ color: '#c3cdd6', metalness: metal(0.4), roughness: 0.55, transparent: true, opacity: 0.36, side: THREE.DoubleSide, depthWrite: false }),
+    roofPanel: std({ color: '#a7b3bd', metalness: metal(0.5), roughness: 0.5, transparent: true, opacity: 0.5, side: THREE.DoubleSide, depthWrite: false }),
     pipe: std({ color: '#a9bccf', metalness: metal(0.6), roughness: 0.32, transparent: true, opacity: 0.55, depthWrite: false }),
   };
 }

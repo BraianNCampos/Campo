@@ -207,22 +207,46 @@ export interface Bounds {
   cz: number;
   halfX: number;
   halfZ: number;
+  /** altura máxima de los activos (incluye el rótulo y la cubierta de las naves); por defecto 5 */
+  top?: number;
+}
+
+/** Altura aproximada de cada tipo (para encuadrar la cámara con la planta entera y sin aire de sobra). */
+const HEIGHT: Record<AssetType, number> = {
+  tank: 5, silo: 7.6, pump: 3.4, valve: 2.4, sensor: 2.4, climate: 2.4, energy: 2.4, gas: 2.4, machine: 2.4, pressure: 2.4, flow: 2.4,
+  conveyor: 2.6, structure: 4,
+};
+
+function heightOf(e: Pick<SceneEntry, 'type' | 'id' | 'name' | 'metadata'>, scale: number): number {
+  if (e.type === 'structure') {
+    const sp = structureSpec(e);
+    return (sp.variant === 'hall' ? sp.h + (sp.d / 2) * 0.27 + 0.4 : sp.h + 0.9) * scale;
+  }
+  return HEIGHT[e.type] * scale;
 }
 
 /** Límites de la planta (centro y semiejes) incluyendo la huella de los activos. Vacía → los de la planta demo. */
 export function sceneBounds(entries: readonly SceneEntry[], placements: Record<string, Placement>): Bounds {
-  let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+  let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity, top = 0;
   for (const e of entries) {
     const p = placements[e.id];
     if (!p) continue;
-    const r = footprint(e, p.scale) + 0.4;
-    minX = Math.min(minX, p.position[0] - r);
-    maxX = Math.max(maxX, p.position[0] + r);
-    minZ = Math.min(minZ, p.position[2] - r);
-    maxZ = Math.max(maxZ, p.position[2] + r);
+    top = Math.max(top, p.position[1] + heightOf(e, p.scale));
+    // piezas alargadas (naves, bastidores, cintas): su rectángulo real (girado si hace falta), no un círculo
+    let rx = footprint(e, p.scale) + 0.4, rz = rx;
+    if (e.type === 'structure' || e.type === 'conveyor') {
+      const [hx, hz] = halfExtents(e);
+      const turned = Math.abs(Math.sin(p.rotY)) > 0.7;
+      rx = (turned ? hz : hx) * p.scale + 0.4;
+      rz = (turned ? hx : hz) * p.scale + 0.4;
+    }
+    minX = Math.min(minX, p.position[0] - rx);
+    maxX = Math.max(maxX, p.position[0] + rx);
+    minZ = Math.min(minZ, p.position[2] - rz);
+    maxZ = Math.max(maxZ, p.position[2] + rz);
   }
   if (!Number.isFinite(minX)) return { cx: -0.5, cz: 0, halfX: 8.9, halfZ: 4.9 };
-  return { cx: (minX + maxX) / 2, cz: (minZ + maxZ) / 2, halfX: Math.max(2, (maxX - minX) / 2), halfZ: Math.max(2, (maxZ - minZ) / 2) };
+  return { cx: (minX + maxX) / 2, cz: (minZ + maxZ) / 2, halfX: Math.max(2, (maxX - minX) / 2), halfZ: Math.max(2, (maxZ - minZ) / 2), top: Math.max(3, top) };
 }
 
 export interface CameraFit {
@@ -232,19 +256,72 @@ export interface CameraFit {
   dir: Vec3;
 }
 
-/** Encuadre de cámara: apaisado → vista frontal (la planta es ancha en x); retrato → vista lateral. */
-export function fitView(b: Bounds, aspect: number): CameraFit {
+/** Fracción del lienzo tapada por paneles superpuestos (0..0.5 por lado); la planta se encuadra en lo que queda libre. */
+export interface ViewInsets {
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+}
+
+export const CAMERA_FOV = 38;
+/** Fracción del lienzo libre que ocupa la planta (el resto es margen). */
+export const FIT_FILL = 0.94;
+
+/**
+ * Encuadre de cámara: apaisado → vista frontal (la planta es ancha en x); retrato → vista lateral. La distancia se
+ * calcula proyectando la caja real de la planta (huellas + altura máxima) sobre el frustum, de modo que ocupe la
+ * pantalla con un margen pequeño; el objetivo se recentra para que la caja quede centrada en lo que dejan libre los
+ * paneles (`insets`). El desplazamiento de imagen correspondiente lo aplica `FitCamera` con `setViewOffset`.
+ */
+export function fitView(b: Bounds, aspect: number, insets: Partial<ViewInsets> = {}): CameraFit {
   const a = Math.max(aspect, 0.2);
   const portrait = aspect < 0.9;
-  const widthExt = 2 * b.halfX * 1.1 + 1.9;
-  const depthExt = 2 * b.halfZ * 1.2 + 3.7;
-  const ext = portrait ? Math.max(depthExt, widthExt * 0.5) : Math.max(widthExt, depthExt * 1.2);
-  const floor = ext >= 18 ? 22 : 12;
-  return {
-    target: [b.cx, 1.3, b.cz],
-    distance: Math.min(4000, Math.max(floor, ext / (0.689 * a))),
-    dir: portrait ? [0.84, 0.55, 0.2] : [0.22, 0.5, 0.84],
-  };
+  const dir: Vec3 = portrait ? [0.84, 0.55, 0.2] : [0.22, 0.5, 0.84];
+  const n = Math.hypot(...dir);
+  const D: Vec3 = [dir[0] / n, dir[1] / n, dir[2] / n]; // hacia la cámara
+  const F: Vec3 = [-D[0], -D[1], -D[2]];
+  // base de cámara: derecha = F × arriba, arriba' = derecha × F
+  const R0: Vec3 = [-F[2], 0, F[0]];
+  const rl = Math.hypot(...R0);
+  const R: Vec3 = [R0[0] / rl, 0, R0[2] / rl];
+  const U: Vec3 = [R[1] * F[2] - R[2] * F[1], R[2] * F[0] - R[0] * F[2], R[0] * F[1] - R[1] * F[0]];
+  const tanV = Math.tan((CAMERA_FOV * DEG) / 2);
+  const availX = Math.max(0.2, 1 - (insets.left ?? 0) - (insets.right ?? 0));
+  const availY = Math.max(0.2, 1 - (insets.top ?? 0) - (insets.bottom ?? 0));
+  const hx = tanV * a * availX * FIT_FILL;
+  const hy = tanV * availY * FIT_FILL;
+  const top = b.top ?? 5;
+  const corners: Vec3[] = [];
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) for (const y of [0, top]) corners.push([b.cx + sx * b.halfX, y, b.cz + sz * b.halfZ]);
+  const dot = (p: Vec3, q: Vec3) => p[0] * q[0] + p[1] * q[1] + p[2] * q[2];
+  let target: Vec3 = [b.cx, top * 0.4, b.cz];
+  let distance = 6;
+  for (let iter = 0; iter < 3; iter++) {
+    // distancia mínima para que todas las esquinas queden dentro de la ventana libre
+    distance = 6;
+    for (const c of corners) {
+      const p: Vec3 = [c[0] - target[0], c[1] - target[1], c[2] - target[2]];
+      distance = Math.max(distance, dot(p, D) + Math.abs(dot(p, R)) / hx, dot(p, D) + Math.abs(dot(p, U)) / hy);
+    }
+    // recentra: lleva el centro de la caja proyectada al centro de la ventana
+    let uMin = Infinity, uMax = -Infinity, vMin = Infinity, vMax = -Infinity;
+    for (const c of corners) {
+      const p: Vec3 = [c[0] - target[0], c[1] - target[1], c[2] - target[2]];
+      const depth = distance - dot(p, D);
+      uMin = Math.min(uMin, dot(p, R) / depth);
+      uMax = Math.max(uMax, dot(p, R) / depth);
+      vMin = Math.min(vMin, dot(p, U) / depth);
+      vMax = Math.max(vMax, dot(p, U) / depth);
+    }
+    const du = (uMin + uMax) / 2, dv = (vMin + vMax) / 2;
+    target = [
+      target[0] + (R[0] * du + U[0] * dv) * distance,
+      target[1] + (R[1] * du + U[1] * dv) * distance,
+      target[2] + (R[2] * du + U[2] * dv) * distance,
+    ];
+  }
+  return { target, distance: Math.min(4000, distance), dir };
 }
 
 /** Fuente de caudal de una tubería: una línea bomba+válvula de demo, o el propio activo origen. */

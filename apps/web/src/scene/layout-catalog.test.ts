@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { AssetDef } from '@campo/shared';
 import { entryOf, type SceneEntry } from '@/lib/catalog';
-import { connectionPipes, DEMO_PIPES, fitView, LAYOUT, orthogonalRoute, pipeSetFor, resolvePlacements, sceneBounds, trimPolyline } from './layout';
+import * as THREE from 'three';
+import { CAMERA_FOV, connectionPipes, DEMO_PIPES, fitView, LAYOUT, orthogonalRoute, pipeSetFor, resolvePlacements, sceneBounds, trimPolyline } from './layout';
 import { connectionFlow, flowOf } from './Pipes';
 
 const e = (id: string, type: SceneEntry['type'], extra: Partial<SceneEntry> = {}): SceneEntry => ({ id, type, name: id, model3dRef: null, connectsTo: [], ...extra });
@@ -113,19 +114,50 @@ describe('límites y cámara', () => {
     expect(b.cz).toBeCloseTo(5);
     expect(sceneBounds([], {})).toMatchObject({ cx: -0.5 });
   });
-  it('fitView: más lejos cuanto mayor la planta; retrato → vista lateral; objetivo en el centro', () => {
+  it('fitView: más lejos cuanto mayor la planta; retrato → vista lateral; objetivo cerca del centro', () => {
     const small = fitView({ cx: 0, cz: 0, halfX: 3, halfZ: 3 }, 1.6);
     const big = fitView({ cx: 50, cz: -20, halfX: 200, halfZ: 100 }, 1.6);
     expect(big.distance).toBeGreaterThan(small.distance * 5);
-    expect(big.target).toEqual([50, 1.3, -20]);
+    expect(Math.abs(big.target[0] - 50)).toBeLessThan(15); // recentrado en pantalla, cerca del centro
+    expect(Math.abs(big.target[2] + 20)).toBeLessThan(25);
     expect(fitView({ cx: 0, cz: 0, halfX: 9, halfZ: 5 }, 0.5).dir[0]).toBeGreaterThan(fitView({ cx: 0, cz: 0, halfX: 9, halfZ: 5 }, 1.6).dir[0]);
   });
-  it('la planta demo conserva el encuadre de siempre (≈22 de distancia en 16:10)', () => {
+  it('fitView ajusta la caja real: todas las esquinas dentro de la pantalla y casi tocando el borde', () => {
+    for (const aspect of [1.6, 1, 0.6]) {
+      for (const b of [{ cx: -0.5, cz: 0, halfX: 9.2, halfZ: 5.4, top: 5 }, { cx: 2, cz: -3, halfX: 12, halfZ: 14, top: 8 }]) {
+        const f = fitView(b, aspect);
+        const cam = new THREE.PerspectiveCamera(CAMERA_FOV, aspect, 0.1, 5000);
+        const t = new THREE.Vector3(...f.target);
+        cam.position.copy(new THREE.Vector3(...f.dir).normalize().multiplyScalar(f.distance)).add(t);
+        cam.lookAt(t);
+        cam.updateMatrixWorld();
+        let worst = 0;
+        for (const sx of [-1, 1]) for (const sz of [-1, 1]) for (const y of [0, b.top]) {
+          const p = new THREE.Vector3(b.cx + sx * b.halfX, y, b.cz + sz * b.halfZ).project(cam);
+          worst = Math.max(worst, Math.abs(p.x), Math.abs(p.y));
+        }
+        expect(worst).toBeLessThanOrEqual(1);
+        expect(worst).toBeGreaterThan(0.85); // sin aire de sobra
+      }
+    }
+  });
+  it('con paneles superpuestos la planta se aleja lo justo para caber en el hueco libre', () => {
+    const b = { cx: 0, cz: 0, halfX: 10, halfZ: 6, top: 5 };
+    expect(fitView(b, 1.6, { left: 0.2, right: 0.2 }).distance).toBeGreaterThan(fitView(b, 1.6).distance);
+  });
+  it('sceneBounds incluye la altura y usa el rectángulo real de naves y cintas', () => {
+    const es = [e('nave', 'structure', { layout: { x: 0, z: 0 }, metadata: { structure: { kind: 'hall', width: 16, depth: 6, height: 4 } } }), e('s', 'silo', { layout: { x: 0, z: 10 } })];
+    const b = sceneBounds(es, resolvePlacements(es));
+    expect(b.top).toBeGreaterThan(7); // el silo manda
+    expect(b.halfX).toBeCloseTo(8.4, 0); // 16/2 + margen
+    expect(b.cz).toBeCloseTo((-3.4 + 11.8) / 2, 0);
+  });
+  it('la planta demo (núcleo manual) cabe con un encuadre ajustado', () => {
     const demo = [...Object.keys(LAYOUT)].map((id) => entryOf(def(id, id.startsWith('tk') ? 'tank' : id.startsWith('pump') ? 'pump' : 'valve')));
     const b = sceneBounds(demo, resolvePlacements(demo));
     const f = fitView(b, 1.6);
-    expect(f.distance).toBeGreaterThan(21);
-    expect(f.distance).toBeLessThan(26);
+    expect(f.distance).toBeGreaterThan(14);
+    expect(f.distance).toBeLessThan(30);
     expect(f.target[0]).toBeCloseTo(-0.5, 0);
   });
 });

@@ -127,11 +127,14 @@ function Title({ glass = false }: { glass?: boolean }) {
   );
 }
 
+const SCENE_INSETS = { left: 210, right: 270 } as const;
+
 /** Con 3D (escritorio): la escena ocupa todo y los datos agregados flotan en paneles de vidrio. */
 function SceneOverview({ modules }: { modules: ModuleOverview[] }) {
   return (
     <div data-testid="plant-overview" data-mode="scene" className="scene-overview relative h-full min-h-[600px] overflow-hidden bg-[#0d141d]">
-      <PlantView />
+      {/* los paneles (280 y 320 px) son de vidrio: la planta se encuadra en el hueco libre dejando que su borde pase bajo ellos */}
+      <PlantView insets={SCENE_INSETS} />
       <div className="pointer-events-none absolute inset-0 flex items-start justify-between gap-4 p-4 lg:p-5">
         <GlassPanel as="section" aria-label="Estado de la planta" className="pointer-events-auto flex w-[280px] flex-col gap-4 p-4">
           <Title glass />

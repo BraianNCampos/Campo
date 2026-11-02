@@ -25,10 +25,26 @@
   font: 600 10.5px/1.25 var(--font-mono);
   font-variant-numeric: tabular-nums;
   color: var(--color-fg);
-  white-space: pre-line;
+  white-space: pre;
 }
 @container (max-width: 560px) {
   .scene-label[data-anomaly][data-minor] {
     display: block; /* una anomalía siempre se ve, aunque sea una bomba o una válvula */
   }
+}
+
+/* Modos de la etiqueta (label-plan.ts): sólo anomalías, foco y cercanía; el resto, oculto o con tag corto */
+.scene-label[data-mode='off'] {
+  display: none;
+}
+.scene-label[data-mode='tag'] .scene-name,
+.scene-label[data-mode='tag'] b,
+.scene-label[data-mode='tag'] .scene-holo {
+  display: none;
+}
+.scene-label[data-mode='tag'][data-notag] .scene-name {
+  display: inline;
+}
+.scene-label[data-mode='tag'] {
+  padding: 1px 5px;
 }

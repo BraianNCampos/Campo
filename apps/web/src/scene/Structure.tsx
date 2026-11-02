@@ -148,12 +148,23 @@ export function Structure({ id, name, placement, spec }: AssetNodeProps & { spec
   const prof = useQualityProfile();
   const { variant, w, d, h } = spec;
   const geo = useBuilt(() => (variant === 'hall' ? buildHallGeometry(w, d, h, prof.detail) : variant === 'rack' ? buildRackGeometry(w, d, h, prof.detail) : buildSlabGeometry(w, d, h)), [variant, w, d, h, prof.detail]);
+  // aristas de los paneles de la nave: la dibujan como edificio aunque los cerramientos sean translúcidos
+  const edges = useMemo(() => {
+    if (variant !== 'hall') return null;
+    return ['panel', 'roofPanel'].flatMap((k) => (geo[k] ? [new THREE.EdgesGeometry(geo[k], 20)] : []));
+  }, [variant, geo]);
+  useEffect(() => () => edges?.forEach((g) => g.dispose()), [edges]);
   const joints = useMemo(() => (variant === 'slab' ? jointLines(0, 0, w, d, 4, h + 0.004) : null), [variant, w, d, h]);
   useEffect(() => () => joints?.dispose(), [joints]);
   const top = variant === 'hall' ? h + (d / 2) * 0.27 + 0.6 : h + 0.9;
   return (
     <Equipment id={id} name={name} type="structure" placement={placement} ringRadius={Math.max(w, d) / 2} labelPos={[0, top, 0]} valueRef={{ current: null }} decorative>
       <Merged geo={geo} />
+      {edges?.map((g, i) => (
+        <lineSegments key={i} geometry={g} userData={{ noOutline: true }}>
+          <lineBasicMaterial color={i === 0 ? '#8fa6bb' : '#b4c6d8'} transparent opacity={0.9} />
+        </lineSegments>
+      ))}
       {joints && (
         <lineSegments geometry={joints} userData={{ noOutline: true }}>
           <lineBasicMaterial color="#3b4047" />

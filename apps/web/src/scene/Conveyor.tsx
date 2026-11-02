@@ -114,7 +114,7 @@ export function buildConveyorGeometry(detail: number): Record<string, THREE.Buff
 }
 
 /** Cinta transportadora: bastidor, rodillos y banda con textura animada cuya velocidad sigue `rpm`/`state`. */
-export function Conveyor({ id, name, placement }: AssetNodeProps) {
+export function Conveyor({ id, name, tag, placement }: AssetNodeProps) {
   const target = useAssetTarget(id);
   const prof = useQualityProfile();
   const geo = useBuilt(() => buildConveyorGeometry(prof.detail), [prof.detail]);
@@ -174,7 +174,7 @@ export function Conveyor({ id, name, placement }: AssetNodeProps) {
   });
 
   return (
-    <Equipment id={id} name={name} type="conveyor" placement={placement} ringRadius={CONV_L / 2 + 0.7} labelPos={[0, 2.3, 0]} valueRef={valueEl}>
+    <Equipment id={id} name={name} tag={tag} type="conveyor" placement={placement} ringRadius={CONV_L / 2 + 0.7} labelPos={[0, 2.3, 0]} valueRef={valueEl}>
       <Merged geo={geo} />
       {/* banda superior y retorno */}
       <mesh position={[0, TOP - 0.02, 0]} material={belt.top} castShadow receiveShadow>

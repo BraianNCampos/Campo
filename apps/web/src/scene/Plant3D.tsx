@@ -4,12 +4,12 @@ import { useMemo } from 'react';
 import { sceneEntries } from '@/lib/catalog';
 import { useLiveStore } from '@/store/live-store';
 import { useUiStore } from '@/store/ui-store';
-import { SceneCanvas } from './SceneCanvas';
+import { SceneCanvas, type SceneInsets } from './SceneCanvas';
 import { SceneEntities, useSceneLayout } from './SceneEntities';
 import { liveSceneData } from './scene-data';
 
 /** Gemelo digital de la planta activa: los activos salen del catálogo (con su GLB o modelo procedural) y los valores del stream. */
-export default function Plant3D() {
+export default function Plant3D({ insets }: { insets?: SceneInsets } = {}) {
   const select = useUiStore((s) => s.select);
   // sólo cambian cuando cambia el conjunto de activos o el catálogo, no con cada mensaje de telemetría
   const ids = useLiveStore((s) => s.assetIds);
@@ -24,6 +24,7 @@ export default function Plant3D() {
       shadowKey={entries.map((e) => e.id).join()}
       label="Gemelo digital 3D de la planta. Usá la lista de activos para elegir equipos con el teclado."
       onMissed={() => select(null)}
+      insets={insets}
     >
       <SceneEntities key={plant} entries={entries} layout={layout} />
     </SceneCanvas>

@@ -3,6 +3,7 @@
 import dynamic from 'next/dynamic';
 import { ErrorBoundary } from './ErrorBoundary';
 import { IconCube } from './icons';
+import type { SceneInsets } from '@/scene/SceneCanvas';
 
 function Placeholder({ text }: { text: string }) {
   return (
@@ -19,10 +20,11 @@ const Plant3D = dynamic(() => import('@/scene/Plant3D'), {
   loading: () => <Placeholder text="Cargando gemelo digital…" />,
 });
 
-export function PlantView() {
+/** `insets`: paneles de vidrio superpuestos (px); la planta se encuadra en el hueco que dejan. */
+export function PlantView({ insets }: { insets?: SceneInsets } = {}) {
   return (
     <ErrorBoundary fallback={<Placeholder text="No pudimos iniciar el 3D (WebGL no está disponible)." />}>
-      <Plant3D />
+      <Plant3D insets={insets} />
     </ErrorBoundary>
   );
 }
