@@ -47,6 +47,10 @@ Arranque tolerante: MQTT, Redis y Postgres pueden estar caídos al iniciar; se r
 `ingest_rows_written_total`, `ingest_history_rows_dropped_total{reason}`, `ingest_batch_errors_total`,
 `ingest_batch_write_seconds`.
 
+**`ingestTs` (§13).** Al recibir cada mensaje MQTT la ingesta guarda su reloj (epoch ms) y lo añade como
+`ingestTs` al `TelemetryEvent` publicado en `campo:events:{plant}`. No se escribe en `campo:state:{plant}` ni
+en TimescaleDB, y no añade trabajo a la ruta caliente más que un entero por mensaje.
+
 ## Correr
 
 ```bash
@@ -87,7 +91,7 @@ casi siempre. Modelos de dominio puros (`cmd/simulator/models*.go`), sin I/O y c
 **Flags (o env)**: `-broker`/`MQTT_BROKER_URL`, `-ca-file`/`MQTT_CA_FILE`, `-plants`/`SIM_PLANTS`,
 `-plant`/`SIM_PLANT`, `-username`/`MQTT_USERNAME`, `-password`/`MQTT_PASSWORD`,
 `-passwords`/`MQTT_SIM_PASSWORDS`, `-tanks`/`SIM_TANKS`, `-pumps`/`SIM_PUMPS`, `-valves`/`SIM_VALVES`,
-`-rate`/`SIM_RATE_HZ` (msg/s por activo, 1 por defecto), `-conns`/`SIM_CONNS` (conexiones **por planta**),
+`-rate`/`SIM_RATE_HZ` (msg/s por activo, 1 por defecto), `-cmd-speed`/`SIM_CMD_SPEED`, `-conns`/`SIM_CONNS` (conexiones **por planta**),
 `-qos`/`SIM_QOS`, `-duration`/`SIM_DURATION`, `-excursion-every`/`SIM_EXCURSION_EVERY` (media por activo,
 `0` desactiva), `-seed`, `-stats`.
 
@@ -97,8 +101,8 @@ Precedencia: flag `-plants` > flag `-plant` > env `SIM_PLANTS` > env `SIM_PLANT`
 
 | Planta | Activos (tipo: métricas) |
 |---|---|
-| `demo` | `tk-01..04` (tank: `level`, `temp`), `pump-01..02` (pump: `rpm`, `current`), `valve-01..02` (valve: `position`), `clima-01`, `clima-02` (climate: `temp` °C con ciclo diario, `humidity` % anticorrelada, 35-80), `en-linea1` (~120-180 kW), `en-compresores` (~80-110), `en-clima` (~50-70), `en-calderas` (~60-95 con picos) (energy: `kw`, `kwh` contador acumulado, `pf` 0,88-0,98), `gas-01` (gas: `flow` 0-30 m³/h a escalones, `total` m³ contador), `maq-01..03` (machine: `state` 0/1, cambios cada varios minutos), `pres-01` (pressure: `pressure` 4-7 bar, con excursiones > 8), `cau-01` (flow: `flow` 5-40 m³/h) |
-| `tanques` | `tk-a`, `tk-b` (tank: `level`, `temp`) |
+| `demo` | `tk-01..04` (tank: `level`, `temp`, `level_sp`, `sts`, `mode`), `pump-01..02` (pump: `rpm`, `current`, `sts`), `valve-01..02` (valve: `position`), `silo-01..02` (silo: como un tanque, más lento), `conv-01..02` (conveyor: `state`, `rpm`, `current`, `sts`), `nave-01` (structure: sin telemetría, no se simula), `clima-01`, `clima-02` (climate: `temp` °C con ciclo diario, `humidity` % anticorrelada, 35-80), `en-linea1` (~120-180 kW), `en-compresores` (~80-110), `en-clima` (~50-70), `en-calderas` (~60-95 con picos) (energy: `kw`, `kwh` contador acumulado, `pf` 0,88-0,98), `gas-01` (gas: `flow` 0-30 m³/h a escalones, `total` m³ contador), `maq-01..03` (machine: `state` 0/1, cambios cada varios minutos), `pres-01` (pressure: `pressure` 4-7 bar, con excursiones > 8), `cau-01` (flow: `flow` 5-40 m³/h) |
+| `tanques` | `tk-a`, `tk-b` (tank: `level`, `temp`, `level_sp`, `sts`, `mode`) |
 | cualquier otra | solo `tk-NN`, `pump-NN`, `valve-NN` (comportamiento histórico de `-plant <id>`) |
 
 Los contadores `kwh` y `total` integran `kw`/`flow` con el tiempo real transcurrido y nunca decrecen
@@ -110,6 +114,25 @@ vuelven a empezar). Excursiones que cruzan umbrales típicos: `level` > 90 ó < 
 las plantas sin perfil propio); `demo` publica además siempre sus 12 activos nuevos y `tanques` siempre
 `tk-a`/`tk-b`. `-rate` es por activo y `-conns` por planta (cada planta tiene sus propias conexiones).
 Para una prueba de carga conviene `-plants demo`.
+
+**Control de llenado (§14.3-14.4).** Cada planta suscribe una conexión a `campo/v1/<planta>/+/cmd` (QoS 1,
+con las credenciales de planta) y responde en `campo/v1/<planta>/<activo>/cmd/ack` con `{id,status,reason?,ts}`.
+Órdenes `{id,command,target?,ts,by}`:
+
+| Activo | Comandos | Efecto |
+|---|---|---|
+| tanque / silo | `fill`, `drain` (`target` 1-99), `stop` | el nivel sube/baja de verdad (tanque 1,5 %/s, silo 0,7 %/s, × `-cmd-speed`); `sts` 1 llenando / 2 vaciando, `mode`=1 y `level_sp`=objetivo mientras dura; al llegar queda 90 s en el objetivo y retoma su vaivén |
+| bomba | `start`, `stop` | `done` cuando las rpm llegan a ≥1200 o <5; `sts` 3/0; no vuelve a su ciclo de paros programados durante 5 min tras un `start` ni rearranca sola hasta 10 min tras un `stop` |
+| válvula | `open`, `close`, `set_position` (`target` 0-100), `stop` | sigue la consigna a 10 %/s y la mantiene 5 min |
+| cinta, resto | (ninguno) | `rejected` / `unsupported_command` |
+
+Secuencia: `accepted` y `running` al aceptar, `done` al alcanzar el objetivo. `rejected` con `reason`:
+`stale` (`ts` de más de 30 s), `invalid_target`, `already_at_target` (fill con nivel ≥ objetivo, drain con nivel ≤),
+`busy` (ya hay una orden en curso), `unsupported_command`, `bad_request` (sin `command` o `ts`). Un `stop` siempre se
+acepta y deja la orden interrumpida en `failed` / `stopped`. Los reenvíos QoS 1 del mismo `id` se ignoran, y un
+activo que el simulador no conoce no se responde. `-cmd-speed`/`SIM_CMD_SPEED` (def. 1) acelera llenado/vaciado.
+La lógica es pura (`control.go`, `models.go`) y se prueba sin broker; el caso de extremo a extremo con
+mochi-mqtt y el ACL de §14.4 está en `control_integration_test.go`.
 
 **Credenciales MQTT.** Cada planta es una identidad distinta (usuario = id de planta, §8.2) con **su propia
 conexión**:

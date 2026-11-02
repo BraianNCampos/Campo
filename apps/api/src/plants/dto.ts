@@ -1,9 +1,10 @@
-import { ID_PATTERN } from '@campo/shared';
+import { ID_PATTERN, TAG_PATTERN } from '@campo/shared';
 import type { AssetType } from '@campo/shared';
 import { OmitType, PartialType } from '@nestjs/mapped-types';
 import { Transform } from 'class-transformer';
 import {
   IsIn,
+  IsNumber,
   IsNotEmpty,
   IsObject,
   IsOptional,
@@ -39,6 +40,9 @@ function MaxJsonBytes(max: number, options?: ValidationOptions): PropertyDecorat
 
 const trim = ({ value }: { value: unknown }): unknown =>
   typeof value === 'string' ? value.trim() : value;
+/** Los tags son en mayúsculas: se normaliza antes de validar (la unicidad no distingue mayúsculas). */
+const upperTrim = ({ value }: { value: unknown }): unknown =>
+  typeof value === 'string' ? value.trim().toUpperCase() : value;
 
 export class CreatePlantDto {
   @Matches(ID_PATTERN, { message: 'id debe cumplir ^[a-z0-9][a-z0-9_-]{0,63}$' })
@@ -95,7 +99,33 @@ export class CreateAssetDto {
   @IsObject()
   @MaxJsonBytes(METADATA_MAX_BYTES)
   metadata?: Record<string, unknown>;
+
+  /** Etiqueta estándar (§14.1), p. ej. `TNK-101`; única por planta sin distinguir mayúsculas. `null` = sin tag. */
+  @IsOptional()
+  @Transform(upperTrim)
+  @Matches(TAG_PATTERN, {
+    message:
+      'tag debe cumplir ^(TNK|PMP|VLV|MTR|XMTR|PID|COMP|CONV)-[0-9]{3,4}[A-Z]?$ (p. ej. TNK-101)',
+  })
+  tag?: string | null;
 }
 
 /** PATCH: todo opcional; el `id` no se puede cambiar (no está en el DTO -> 400 por forbidNonWhitelisted). */
 export class UpdateAssetDto extends PartialType(OmitType(CreateAssetDto, ['id'] as const)) {}
+
+/** `:plant/:asset/setpoints/:metric`. */
+export class SetpointParams {
+  @Matches(ID_PATTERN, { message: 'plant debe cumplir ^[a-z0-9][a-z0-9_-]{0,63}$' })
+  plant!: string;
+
+  @Matches(ID_PATTERN, { message: 'asset debe cumplir ^[a-z0-9][a-z0-9_-]{0,63}$' })
+  asset!: string;
+
+  @Matches(/^[A-Za-z0-9_.-]{1,64}$/, { message: 'metric inválida' })
+  metric!: string;
+}
+
+export class SetpointDto {
+  @IsNumber({ allowNaN: false, allowInfinity: false })
+  value!: number;
+}

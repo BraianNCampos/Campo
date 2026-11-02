@@ -107,6 +107,45 @@ function setpointsError(sp: unknown): string | null {
   return null;
 }
 
+/** Límites de `metadata.control` (§14.3). */
+export const CONTROL_META_LIMITS = {
+  minTarget: 1,
+  maxTarget: 99,
+  maxDurationMinutes: 1440,
+} as const;
+const CONTROL_KEYS = ['enabled', 'minTarget', 'maxTarget', 'maxDurationMinutes'] as const;
+
+/** `control: {enabled, minTarget?, maxTarget?, maxDurationMinutes?}`: habilita las órdenes sobre el activo (§14.3). */
+function controlError(control: unknown): string | null {
+  if (!isObject(control)) {
+    return 'metadata.control debe ser un objeto {enabled, minTarget?, maxTarget?, maxDurationMinutes?}';
+  }
+  for (const key of Object.keys(control)) {
+    if (!(CONTROL_KEYS as readonly string[]).includes(key)) {
+      return `metadata.control.${key} no es un campo válido (admitidos: ${CONTROL_KEYS.join(', ')})`;
+    }
+  }
+  if (typeof control['enabled'] !== 'boolean')
+    return 'metadata.control.enabled es obligatorio y debe ser true o false';
+  const { minTarget: lo, maxTarget: hi, maxDurationMinutes: dur } = CONTROL_META_LIMITS;
+  for (const key of ['minTarget', 'maxTarget'] as const) {
+    const v = control[key];
+    if (v !== undefined && (!isNumber(v) || v < lo || v > hi)) {
+      return `metadata.control.${key} debe ser un número entre ${lo} y ${hi} (%)`;
+    }
+  }
+  const min = control['minTarget'];
+  const max = control['maxTarget'];
+  if (isNumber(min) && isNumber(max) && min >= max) {
+    return 'metadata.control: minTarget debe ser menor que maxTarget';
+  }
+  const d = control['maxDurationMinutes'];
+  if (d !== undefined && (!isNumber(d) || !Number.isInteger(d) || d < 1 || d > dur)) {
+    return `metadata.control.maxDurationMinutes debe ser un entero entre 1 y ${dur}`;
+  }
+  return null;
+}
+
 /**
  * Valida las claves conocidas de `metadata` (el resto es libre). Devuelve el primer error en español o null.
  * `selfId` = id del activo, para impedir que se conecte consigo mismo.
@@ -131,6 +170,10 @@ export function assetMetadataError(
   }
   if (metadata['setpoints'] !== undefined) {
     const e = setpointsError(metadata['setpoints']);
+    if (e) return e;
+  }
+  if (metadata['control'] !== undefined) {
+    const e = controlError(metadata['control']);
     if (e) return e;
   }
   if (metadata['connectsTo'] !== undefined) return connectsToError(metadata['connectsTo'], selfId);

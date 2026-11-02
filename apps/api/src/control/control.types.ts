@@ -65,7 +65,8 @@ export const CONTROL_LIMITS = {
 /** Tópicos MQTT de control (§14.4). */
 export const cmdTopic = (plant: string, asset: string): string => `campo/v1/${plant}/${asset}/cmd`;
 export const CMD_ACK_FILTER = 'campo/v1/+/+/cmd/ack';
-export const CMD_ACK_TOPIC = /^campo\/v1\/([a-z0-9][a-z0-9_-]{0,63})\/([a-z0-9][a-z0-9_-]{0,63})\/cmd\/ack$/;
+export const CMD_ACK_TOPIC =
+  /^campo\/v1\/([a-z0-9][a-z0-9_-]{0,63})\/([a-z0-9][a-z0-9_-]{0,63})\/cmd\/ack$/;
 
 /** Canal Redis por el que se difunden los cambios de estado de las órdenes (de ahí lo toma el WebSocket). */
 export const ordersChannel = (plant: string): string => `campo:orders:${plant}`;

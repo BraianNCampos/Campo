@@ -1,10 +1,20 @@
-import { Body, Controller, Delete, HttpCode, Param, Patch, Post, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  HttpCode,
+  Param,
+  Patch,
+  Post,
+  Put,
+  UseGuards,
+} from '@nestjs/common';
 import type { AuthUser } from '../auth/auth.types';
 import { CurrentUser, PlantOrgId, Roles } from '../auth/decorators';
 import { PlantAccessGuard } from '../auth/plant-access.guard';
 import { AssetParams, PlantParams } from '../common/params';
 import { AssetResult, AssetsService } from './assets.service';
-import { CreateAssetDto, UpdateAssetDto } from './dto';
+import { CreateAssetDto, SetpointDto, SetpointParams, UpdateAssetDto } from './dto';
 
 /**
  * Altas/ediciones/bajas de activos: admin y engineer. El rol lo comprueba el RolesGuard global y la
@@ -34,6 +44,17 @@ export class AssetsController {
     @PlantOrgId() orgId: string | null,
   ): Promise<AssetResult> {
     return this.assets.update(p.plant, orgId, p.asset, dto, actor);
+  }
+
+  /** Ajusta el setpoint de una métrica (§14.2). Auditado `asset.setpoint`. */
+  @Put(':asset/setpoints/:metric')
+  setSetpoint(
+    @Param() p: SetpointParams,
+    @Body() dto: SetpointDto,
+    @CurrentUser() actor: AuthUser,
+    @PlantOrgId() orgId: string | null,
+  ): Promise<AssetResult> {
+    return this.assets.setSetpoint(p.plant, orgId, p.asset, p.metric, dto.value, actor);
   }
 
   @Delete(':asset')

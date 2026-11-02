@@ -5,7 +5,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { MODEL_REF_PATTERN, moduleForAssetType } from '@campo/shared';
+import { METRICS, MODEL_REF_PATTERN, moduleForAssetType } from '@campo/shared';
 import type { AssetType } from '@campo/shared';
 import { AlarmRulesRepository } from '../alarms/alarm-rules.repository';
 import { compileAssetPattern } from '../alarms/alarm-evaluator';
@@ -15,7 +15,7 @@ import { ModelsRepository } from '../models/models.repository';
 import { OrgsRepository } from '../orgs/orgs.repository';
 import { CatalogNotifier } from '../redis/catalog-notifier';
 import { assetMetadataError, unknownConnections } from './asset-metadata';
-import { Asset, AssetPatch, AssetsRepository } from './assets.repository';
+import { Asset, AssetPatch, AssetTagTakenError, AssetsRepository } from './assets.repository';
 import { CreateAssetDto, UpdateAssetDto } from './dto';
 
 export { CATALOG_CHANGED_CHANNEL } from '../redis/catalog-notifier';
@@ -48,20 +48,25 @@ export class AssetsService {
     this.checkMetadata(dto.metadata, dto.id);
     await this.assertModule(orgId, dto.type);
     await this.checkModelRef(plant, dto.model3dRef);
-    const asset = await this.repo.create({
-      plant,
-      id: dto.id,
-      name: dto.name,
-      type: dto.type,
-      model3dRef: dto.model3dRef ?? null,
-      metadata: dto.metadata ?? {},
-    });
+    if (dto.tag) await this.checkTag(plant, dto.tag);
+    const asset = await this.taken(() =>
+      this.repo.create({
+        plant,
+        id: dto.id,
+        name: dto.name,
+        type: dto.type,
+        model3dRef: dto.model3dRef ?? null,
+        metadata: dto.metadata ?? {},
+        tag: dto.tag ?? null,
+      }),
+    );
     if (!asset) throw new ConflictException('El activo ya existe en la planta');
     await this.notifier.changed(plant);
     await this.audit.record(actor, 'asset.create', `asset:${plant}/${asset.id}`, orgId, {
       name: asset.name,
       type: asset.type,
       model3dRef: asset.model3dRef,
+      tag: asset.tag,
     });
     return this.withWarnings(asset);
   }
@@ -89,28 +94,97 @@ export class AssetsService {
       // Un valor ya guardado (p. ej. texto libre de antes de la Fase 5) no se revalida si no cambia.
       await this.checkModelRef(plant, dto.model3dRef, current?.model3dRef);
     }
+    if (typeof dto.tag === 'string') await this.checkTag(plant, dto.tag, id);
     const patch: AssetPatch = {
       name: dto.name,
       type: dto.type,
       model3dRef: dto.model3dRef,
       metadata: dto.metadata === null ? {} : dto.metadata,
+      tag: dto.tag,
     };
     const changed = (Object.keys(patch) as (keyof AssetPatch)[]).filter(
       (k) => patch[k] !== undefined,
     );
     if (changed.length === 0) {
-      throw new BadRequestException('Nada que modificar (name, type, model3dRef o metadata)');
+      throw new BadRequestException('Nada que modificar (name, type, model3dRef, tag o metadata)');
     }
-    const asset = await this.repo.update(plant, id, patch);
+    const asset = await this.taken(() => this.repo.update(plant, id, patch));
     if (!asset) throw new NotFoundException('Activo no encontrado');
     await this.notifier.changed(plant);
+    const control = patch.metadata?.['control'] as { enabled?: unknown } | undefined;
     await this.audit.record(actor, 'asset.update', `asset:${plant}/${id}`, orgId, {
       changed, // sólo nombres de campo; el contenido de metadata no se audita
       name: patch.name,
       type: patch.type,
       model3dRef: patch.model3dRef,
+      tag: patch.tag,
+      // Habilitar/deshabilitar el control de un equipo es una decisión de seguridad: queda visible.
+      controlEnabled: control && typeof control.enabled === 'boolean' ? control.enabled : undefined,
     });
     return patch.metadata === undefined ? asset : this.withWarnings(asset);
+  }
+
+  /**
+   * Fija el setpoint de una métrica (`metadata.setpoints[metric]`, §12.4/§14.2). engineer+ (lo exige el
+   * controlador). El valor debe caer dentro de la escala de la métrica (`metadata.scale` o el registro `METRICS`).
+   */
+  async setSetpoint(
+    plant: string,
+    orgId: string | null,
+    id: string,
+    metric: string,
+    value: number,
+    actor: AuthUser,
+  ): Promise<AssetResult> {
+    const current = await this.repo.get(plant, id);
+    if (!current) throw new NotFoundException('Activo no encontrado');
+    const range = this.scaleOf(current.metadata, metric);
+    if (!range) {
+      throw new BadRequestException(
+        `La métrica "${metric}" no tiene escala: no se puede fijar un setpoint`,
+      );
+    }
+    if (
+      typeof value !== 'number' ||
+      !Number.isFinite(value) ||
+      value < range.min ||
+      value > range.max
+    ) {
+      throw new BadRequestException(
+        `value debe ser un número entre ${range.min} y ${range.max} (escala de ${metric})`,
+      );
+    }
+    const prev = current.metadata['setpoints'];
+    const setpoints: Record<string, unknown> =
+      typeof prev === 'object' && prev !== null && !Array.isArray(prev)
+        ? { ...(prev as Record<string, unknown>) }
+        : {};
+    const previous =
+      typeof setpoints[metric] === 'number' ? (setpoints[metric]) : undefined;
+    setpoints[metric] = value;
+    const metadata = { ...current.metadata, setpoints };
+    this.checkMetadata(metadata, id);
+    const asset = await this.repo.update(plant, id, { metadata });
+    if (!asset) throw new NotFoundException('Activo no encontrado');
+    await this.notifier.changed(plant);
+    await this.audit.record(actor, 'asset.setpoint', `asset:${plant}/${id}`, orgId, {
+      plant,
+      metric,
+      value,
+      previous,
+    });
+    return asset;
+  }
+
+  private scaleOf(
+    metadata: Record<string, unknown>,
+    metric: string,
+  ): { min: number; max: number } | null {
+    const custom = (
+      metadata['scale'] as Record<string, { min: number; max: number }> | undefined
+    )?.[metric];
+    if (custom && typeof custom.min === 'number' && typeof custom.max === 'number') return custom;
+    return METRICS[metric]?.scale ?? null;
   }
 
   /** Las reglas que nombran el activo (id exacto o patrón) NO se tocan: se informa de cuántas son. */
@@ -147,6 +221,24 @@ export class AssetsService {
         module,
         message: `El módulo "${module}" no está contratado por el cliente: no se pueden crear activos de tipo "${type}"`,
       });
+    }
+  }
+
+  /** 409 si otro activo de la planta ya usa el tag (sin distinguir mayúsculas). */
+  private async checkTag(plant: string, tag: string, selfId?: string): Promise<void> {
+    const other = await this.repo.findByTag(plant, tag);
+    if (other && other.id !== selfId) {
+      throw new ConflictException(`El tag ${tag} ya está en uso en la planta`);
+    }
+  }
+
+  /** La base también garantiza la unicidad del tag (carrera entre dos altas): se traduce al mismo 409. */
+  private async taken<T>(fn: () => Promise<T>): Promise<T> {
+    try {
+      return await fn();
+    } catch (err) {
+      if (err instanceof AssetTagTakenError) throw new ConflictException(err.message);
+      throw err;
     }
   }
 

@@ -1,14 +1,16 @@
-import type { AlarmEvent, ServerMessage } from '@campo/shared';
+import type { AlarmEvent, Order, ServerMessage } from '@campo/shared';
 import { getAdminApi } from '@/lib/admin';
 import { AdminApiError } from '@/lib/admin/errors';
 import { config, buildWsUrl } from '@/lib/env';
 import { getToken } from '@/lib/auth';
 import { createBatcher } from '@/lib/batcher';
+import { attachDemoControl, getControlApi } from '@/lib/control';
 import { loadLimits, LimitsError } from '@/lib/limits';
 import { parseServerMessage } from '@/lib/messages';
 import { loadSnapshot, saveSnapshot } from '@/lib/snapshot-cache';
 import { clearHistory } from '@/store/history';
 import { useLiveStore } from '@/store/live-store';
+import { useOrderStore } from '@/store/order-store';
 import { useUiStore } from '@/store/ui-store';
 import { createCatalogSync } from './catalog-sync';
 import { startMockSource } from './mock-source';
@@ -39,6 +41,17 @@ function fetchActiveAlarms(plant: string, push: (m: ServerMessage) => void, isCu
   return Promise.all([fetchAlarmsOf('active', plant, push, isCurrent), fetchAlarmsOf('shelved', plant, push, isCurrent)]).then(() => undefined);
 }
 
+/** Registro de órdenes al (re)conectar: los eventos WS `order` sólo traen lo que pasa de ahora en adelante. Best-effort. */
+async function loadOrders(plant: string, isCurrent: () => boolean): Promise<void> {
+  try {
+    const list = await getControlApi().listOrders(plant, { limit: 100 });
+    if (isCurrent()) useOrderStore.getState().merge(list.map((o) => (o.plant ? o : { ...o, plant })));
+  } catch {
+    // 403/404 (sin módulo o sin acceso) o sin red: el registro queda vacío y la pantalla lo avisa
+    if (isCurrent()) useOrderStore.getState().setError(true);
+  }
+}
+
 /** Red o servidor caído: se reintenta. 403/404 (planta sin acceso o borrada): no. */
 const retriable = (e: unknown) => !(e instanceof AdminApiError) || ['network', 'server', 'unknown'].includes(e.kind);
 
@@ -66,6 +79,7 @@ export function startLive(plant: string, opts: StartLiveOptions = {}): () => voi
   store.getState().reset();
   clearHistory();
   useUiStore.getState().select(null);
+  useOrderStore.getState().reset();
   store.getState().setMode(config.mock ? 'mock' : 'live', plant);
   let alive = true;
   const batcher = createBatcher((b) => {
@@ -87,16 +101,24 @@ export function startLive(plant: string, opts: StartLiveOptions = {}): () => voi
     limits.schedule();
   };
 
+  const pushOrder = (o: Order) => {
+    if (alive && (!o.plant || o.plant === plant)) useOrderStore.getState().upsert(o);
+  };
+
   if (config.mock) {
     store.getState().setConnection('open');
     const emit = (m: ServerMessage) => {
       if (m.type === 'catalog') {
         if (m.plant === plant) refreshAll();
-      } else batcher.push(m);
+      } else if (m.type === 'order') pushOrder(m.order);
+      else if (m.type !== 'time') batcher.push(m);
     };
+    const detach = attachDemoControl(plant, (o) => emit({ type: 'order', order: o }));
+    void loadOrders(plant, () => alive);
     const stop = startMockSource(emit, plant);
     return () => {
       alive = false;
+      detach();
       stop();
       catalog.dispose();
       limits.dispose();
@@ -114,7 +136,12 @@ export function startLive(plant: string, opts: StartLiveOptions = {}): () => voi
       return token ? buildWsUrl(config.wsUrl, plant, token) : null;
     },
     onMessage: (m) => {
-      if (!alive || m.plant !== plant) return;
+      if (!alive || m.type === 'time') return;
+      if (m.type === 'order') {
+        pushOrder(m.order);
+        return;
+      }
+      if (m.plant !== plant) return;
       if (m.type === 'catalog') {
         refreshAll();
         return;
@@ -122,6 +149,7 @@ export function startLive(plant: string, opts: StartLiveOptions = {}): () => voi
       batcher.push(m);
       if (m.type === 'snapshot') {
         void fetchActiveAlarms(plant, (a) => batcher.push(a), () => alive);
+        void loadOrders(plant, () => alive);
         // al reconectar pudo cambiar el catálogo mientras estábamos desconectados (el primer snapshot ya va con la carga inicial)
         if (snapshots++ > 0) refreshAll();
       }

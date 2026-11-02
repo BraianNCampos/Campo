@@ -53,6 +53,74 @@ export function positionsFor(ids: readonly string[]): Record<string, Vec3> {
   return out;
 }
 
+/** Semiejes (x, z) de la huella para empaquetar activos sin layout: cintas largas, silos anchos, naves enormes. */
+function halfExtents(e: SceneEntry): [number, number] {
+  switch (e.type) {
+    case 'conveyor': return [3.3, 1.0];
+    case 'silo': return [1.8, 1.8];
+    case 'tank': return [1.7, 1.7];
+    case 'pump': return [1.5, 1.1];
+    case 'valve': return [0.9, 0.9];
+    case 'structure': {
+      const sp = structureSpec(e);
+      return [sp.w / 2, sp.d / 2];
+    }
+    default: return [0.7, 0.7];
+  }
+}
+
+const needsPacking = (entries: readonly SceneEntry[]): boolean => entries.some((e) => e.type === 'silo' || e.type === 'conveyor' || e.type === 'structure');
+
+/**
+ * Autoposición cuando hay piezas grandes (silos, cintas, naves): filas por tipo (orden de `sortAssetIds`), cada fila
+ * con el ancho real de sus piezas y centrada; las estructuras decorativas van en una franja trasera para no
+ * tapar el equipo.
+ */
+export function packPlacements(entries: readonly SceneEntry[]): Record<string, Vec3> {
+  const out: Record<string, Vec3> = {};
+  const byId = new Map(entries.map((e) => [e.id, e]));
+  const order = sortAssetIds(entries.map((e) => e.id), (id) => byId.get(id)?.type);
+  const equipment = order.map((id) => byId.get(id) as SceneEntry).filter((e) => e.type !== 'structure');
+  const structures = order.map((id) => byId.get(id) as SceneEntry).filter((e) => e.type === 'structure');
+  const GAP = 1.2;
+  const MAX_W = 24;
+  const rows: { items: { e: SceneEntry; rx: number; rz: number }[]; w: number; d: number }[] = [];
+  let cur: (typeof rows)[number] = { items: [], w: 0, d: 0 };
+  for (const e of equipment) {
+    const [rx, rz] = halfExtents(e);
+    if (cur.items.length > 0 && cur.w + GAP + 2 * rx > MAX_W) {
+      rows.push(cur);
+      cur = { items: [], w: 0, d: 0 };
+    }
+    cur.w += (cur.items.length > 0 ? GAP : 0) + 2 * rx;
+    cur.d = Math.max(cur.d, 2 * rz);
+    cur.items.push({ e, rx, rz });
+  }
+  if (cur.items.length > 0) rows.push(cur);
+  const rowGap = 1.6;
+  const total = rows.reduce((a, r) => a + r.d, 0) + rowGap * Math.max(0, rows.length - 1);
+  let z = -total / 2;
+  for (const r of rows) {
+    let x = -r.w / 2;
+    for (const it of r.items) {
+      out[it.e.id] = [x + it.rx, 0, z + r.d / 2];
+      x += 2 * it.rx + GAP;
+    }
+    z += r.d + rowGap;
+  }
+  // franja trasera de estructuras
+  const sw = structures.reduce((a, e) => a + 2 * halfExtents(e)[0], 0) + GAP * Math.max(0, structures.length - 1);
+  const maxD = structures.reduce((a, e) => Math.max(a, 2 * halfExtents(e)[1]), 0);
+  const backZ = (rows.length > 0 ? -total / 2 - 2 : 0) - maxD / 2;
+  let sx = -sw / 2;
+  for (const e of structures) {
+    const [rx] = halfExtents(e);
+    out[e.id] = [sx + rx, 0, backZ];
+    sx += 2 * rx + GAP;
+  }
+  return out;
+}
+
 /** Posición, giro (rad) y escala de un activo en la planta. */
 export interface Placement {
   position: Vec3;
@@ -74,17 +142,63 @@ export function resolvePlacements(entries: readonly SceneEntry[]): Record<string
       out[e.id] = { position: [e.layout.x, e.layout.y ?? 0, e.layout.z], rotY: (e.layout.rotY ?? 0) * DEG, scale: e.layout.scale ?? 1 };
     } else rest.push(e.id);
   }
-  for (const [id, position] of Object.entries(positionsFor(rest))) out[id] = { position, rotY: 0, scale: 1 };
+  const restEntries = entries.filter((e) => rest.includes(e.id));
+  const positions = needsPacking(restEntries) && !hasKnownLayout(rest) ? packPlacements(restEntries) : positionsFor(rest);
+  for (const [id, position] of Object.entries(positions)) out[id] = { position, rotY: 0, scale: 1 };
   return out;
 }
 
 /** Radio aproximado de la huella de cada tipo (para recortar las tuberías y encuadrar la cámara). */
 export const FOOTPRINT: Record<AssetType, number> = {
   tank: 1.5, pump: 1.4, valve: 0.8, sensor: 0.4, climate: 0.4, energy: 0.4, gas: 0.4, machine: 0.4, pressure: 0.4, flow: 0.4,
+  silo: 1.7, conveyor: 3.2, structure: 5,
 };
+
+/** Variantes de las estructuras decorativas (§13): nave a dos aguas, bastidor de tuberías y losa de hormigón. */
+export type StructureVariant = 'hall' | 'rack' | 'slab';
+export interface StructureSpec {
+  variant: StructureVariant;
+  /** ancho (x), fondo (z) y alto (y) en unidades de escena (≈ metros) */
+  w: number;
+  d: number;
+  h: number;
+}
+
+const STRUCTURE_DEFAULTS: Record<StructureVariant, { w: number; d: number; h: number }> = {
+  hall: { w: 10, d: 7, h: 4.5 },
+  rack: { w: 9, d: 1.6, h: 3.6 },
+  slab: { w: 10, d: 8, h: 0.25 },
+};
+
+const finiteIn = (v: unknown, min: number, max: number): number | undefined =>
+  typeof v === 'number' && Number.isFinite(v) ? Math.min(max, Math.max(min, v)) : undefined;
+
+/**
+ * Forma de una estructura: `metadata.structure = {kind: 'hall'|'rack'|'slab', width?, depth?, height?}`; sin `kind`
+ * se deduce del nombre/id (rack/tubería → bastidor; losa/suelo/piso → losa) y por defecto es una nave.
+ */
+export function structureSpec(e: { id?: string; name?: string; metadata?: Record<string, unknown> }): StructureSpec {
+  const meta = e.metadata?.structure;
+  const m = meta && typeof meta === 'object' && !Array.isArray(meta) ? (meta as Record<string, unknown>) : {};
+  const text = `${e.id ?? ''} ${e.name ?? ''}`;
+  const kind = m.kind ?? m.variant;
+  const variant: StructureVariant =
+    kind === 'hall' || kind === 'rack' || kind === 'slab' ? kind : /rack|tuber|bastidor/i.test(text) ? 'rack' : /losa|suelo|piso|slab|floor/i.test(text) ? 'slab' : 'hall';
+  const d = STRUCTURE_DEFAULTS[variant];
+  return {
+    variant,
+    w: finiteIn(m.width, 2, 80) ?? d.w,
+    d: finiteIn(m.depth, 1, 80) ?? d.d,
+    h: finiteIn(m.height, 0.1, 20) ?? d.h,
+  };
+}
 const MODEL_FOOTPRINT = 0.55; // modelo GLB normalizado a 1 unidad de lado
 
-export function footprint(e: Pick<SceneEntry, 'type' | 'model3dRef'>, scale: number): number {
+export function footprint(e: Pick<SceneEntry, 'type' | 'model3dRef'> & Partial<Pick<SceneEntry, 'id' | 'name' | 'metadata'>>, scale: number): number {
+  if (e.type === 'structure') {
+    const sp = structureSpec(e);
+    return (Math.max(sp.w, sp.d) / 2) * scale;
+  }
   return (modelIdOf(e.model3dRef) ? MODEL_FOOTPRINT : FOOTPRINT[e.type]) * scale;
 }
 

@@ -6,36 +6,45 @@ import type { AssetDef, AssetType, Limit } from '@campo/shared';
  * `metadata.setpoints` (docs §12.4): nivel 60 % en tanques, temperatura 20 °C en clima, presión 6 bar en `pres-01`;
  * los simuladores (`PlantSimulator`, `SeedSimulator`) oscilan alrededor de estos valores.
  */
-const a = (plant: string, id: string, name: string, type: AssetType, metadata: Record<string, unknown> = {}, model3dRef: string | null = null): AssetDef => ({
-  plant, id, name, type, model3dRef, metadata,
+const a = (plant: string, id: string, name: string, type: AssetType, metadata: Record<string, unknown> = {}, model3dRef: string | null = null, tag?: string): AssetDef => ({
+  plant, id, name, type, model3dRef, metadata, ...(tag ? { tag } : {}),
 });
+
+/** Control de llenado habilitado (docs §14.5): mínimo 10 %, máximo 90 %. */
+const CONTROL_ON = { enabled: true, minTarget: 10, maxTarget: 90 } as const;
 
 export const DEMO_ASSETS: Record<string, AssetDef[]> = {
   demo: [
-    a('demo', 'tk-01', 'Tanque 01', 'tank', { capacityM3: 60, setpoints: { level: 60 } }, 'tank'), // 'tank' = valor antiguo de texto libre (se trata como sin modelo)
-    a('demo', 'tk-02', 'Tanque 02', 'tank', { capacityM3: 60, setpoints: { level: 60 } }),
-    a('demo', 'tk-03', 'Tanque 03', 'tank', { capacityM3: 60, setpoints: { level: 60 } }),
-    a('demo', 'tk-04', 'Tanque 04', 'tank', { capacityM3: 60, setpoints: { level: 60 } }),
-    a('demo', 'pump-01', 'Bomba 01', 'pump'),
-    a('demo', 'pump-02', 'Bomba 02', 'pump'),
-    a('demo', 'valve-01', 'Válvula 01', 'valve'),
-    a('demo', 'valve-02', 'Válvula 02', 'valve'),
-    a('demo', 'clima-01', 'Cámara 1', 'climate', { setpoints: { temp: 20 } }),
-    a('demo', 'clima-02', 'Depósito de insumos', 'climate', { setpoints: { temp: 20 } }),
-    a('demo', 'en-linea1', 'Línea de producción 1', 'energy', { contractedKw: 220 }),
-    a('demo', 'en-compresores', 'Compresores', 'energy', { contractedKw: 130 }),
-    a('demo', 'en-clima', 'Climatización y frío', 'energy', { contractedKw: 118 }),
-    a('demo', 'en-calderas', 'Calderas y hornos', 'energy', { contractedKw: 90 }),
-    a('demo', 'gas-01', 'Gas natural', 'gas'),
-    a('demo', 'maq-01', 'Envasadora', 'machine'),
-    a('demo', 'maq-02', 'Cinta transportadora', 'machine'),
-    a('demo', 'maq-03', 'Mezcladora', 'machine'),
-    a('demo', 'pres-01', 'Presión de aire comprimido', 'pressure', { setpoints: { pressure: 6 } }),
-    a('demo', 'cau-01', 'Agua de proceso', 'flow'),
+    a('demo', 'tk-01', 'Tanque 01', 'tank', { capacityM3: 60, setpoints: { level: 60 }, control: { ...CONTROL_ON } }, 'tank', 'TNK-101'), // 'tank' = valor antiguo de texto libre (se trata como sin modelo)
+    a('demo', 'tk-02', 'Tanque 02', 'tank', { capacityM3: 60, setpoints: { level: 60 }, control: { ...CONTROL_ON } }, null, 'TNK-102'),
+    a('demo', 'tk-03', 'Tanque 03', 'tank', { capacityM3: 60, setpoints: { level: 60 }, control: { ...CONTROL_ON } }, null, 'TNK-103'),
+    a('demo', 'tk-04', 'Tanque 04', 'tank', { capacityM3: 60, setpoints: { level: 60 }, control: { ...CONTROL_ON } }, null, 'TNK-104'),
+    a('demo', 'pump-01', 'Bomba 01', 'pump', {}, null, 'PMP-101'),
+    a('demo', 'pump-02', 'Bomba 02', 'pump', {}, null, 'PMP-102'),
+    a('demo', 'valve-01', 'Válvula 01', 'valve', {}, null, 'VLV-101'),
+    a('demo', 'valve-02', 'Válvula 02', 'valve', {}, null, 'VLV-102'),
+    a('demo', 'clima-01', 'Cámara 1', 'climate', { setpoints: { temp: 20 } }, null, 'XMTR-101'),
+    a('demo', 'clima-02', 'Depósito de insumos', 'climate', { setpoints: { temp: 20 } }, null, 'XMTR-102'),
+    a('demo', 'en-linea1', 'Línea de producción 1', 'energy', { contractedKw: 220 }, null, 'XMTR-103'),
+    a('demo', 'en-compresores', 'Compresores', 'energy', { contractedKw: 130 }, null, 'XMTR-104'),
+    a('demo', 'en-clima', 'Climatización y frío', 'energy', { contractedKw: 118 }, null, 'XMTR-105'),
+    a('demo', 'en-calderas', 'Calderas y hornos', 'energy', { contractedKw: 90 }, null, 'XMTR-106'),
+    a('demo', 'gas-01', 'Gas natural', 'gas', {}, null, 'XMTR-107'),
+    a('demo', 'maq-01', 'Envasadora', 'machine', {}, null, 'MTR-101'),
+    a('demo', 'maq-02', 'Cinta transportadora', 'machine', {}, null, 'MTR-102'),
+    a('demo', 'maq-03', 'Mezcladora', 'machine', {}, null, 'MTR-103'),
+    a('demo', 'pres-01', 'Presión de aire comprimido', 'pressure', { setpoints: { pressure: 6 } }, null, 'XMTR-108'),
+    a('demo', 'cau-01', 'Agua de proceso', 'flow', {}, null, 'XMTR-109'),
+    // kit industrial (docs §13, §14.5): silos, cintas y una nave decorativa
+    a('demo', 'silo-01', 'Silo de granos 01', 'silo', { capacityM3: 120, setpoints: { level: 60 }, layout: { x: -9, z: 11 } }, null, 'TNK-301'),
+    a('demo', 'silo-02', 'Silo de granos 02', 'silo', { capacityM3: 120, setpoints: { level: 60 }, layout: { x: -4.5, z: 11 } }, null, 'TNK-302'),
+    a('demo', 'conv-01', 'Cinta de carga 01', 'conveyor', { layout: { x: 4, z: 11 } }, null, 'CONV-101'),
+    a('demo', 'conv-02', 'Cinta de carga 02', 'conveyor', { layout: { x: 4, z: 14 } }, null, 'CONV-102'),
+    a('demo', 'nave-01', 'Nave de producción', 'structure', { layout: { x: 0, z: -13 } }),
   ],
   tanques: [
-    a('tanques', 'tk-a', 'Agua de proceso', 'tank', { capacityM3: 40, setpoints: { level: 60 } }),
-    a('tanques', 'tk-b', 'Gasoil', 'tank', { capacityM3: 40, setpoints: { level: 60 } }),
+    a('tanques', 'tk-a', 'Agua de proceso', 'tank', { capacityM3: 40, setpoints: { level: 60 }, control: { ...CONTROL_ON } }, null, 'TNK-101'),
+    a('tanques', 'tk-b', 'Gasoil', 'tank', { capacityM3: 40, setpoints: { level: 60 }, control: { ...CONTROL_ON } }, null, 'TNK-102'),
   ],
 };
 
@@ -45,7 +54,7 @@ const lim = (asset: string, metric: string, operator: Limit['operator'], thresho
 
 export const DEMO_LIMITS: Record<string, Limit[]> = {
   demo: [
-    ...['tk-01', 'tk-02', 'tk-03', 'tk-04'].flatMap((id) => [
+    ...['tk-01', 'tk-02', 'tk-03', 'tk-04', 'silo-01', 'silo-02'].flatMap((id) => [
       lim(id, 'level', 'gt', 90, 'critical'),
       lim(id, 'level', 'lt', 10, 'warning'),
       lim(id, 'temp', 'gt', 35, 'warning'),

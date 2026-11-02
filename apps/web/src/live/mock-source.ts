@@ -5,6 +5,7 @@ import { setpointOf } from '@/lib/modules/status';
 import { PlantSimulator } from './simulator';
 import { SeedSimulator } from './seed-simulator';
 import { startDemoAlarms } from './alarm-demo';
+import { getDemoControl } from '@/lib/control';
 
 export const MOCK_TICK_MS = 250;
 /** Ritmo de la planta demo: más lento que el de los tests para que los caudales y tasas sean creíbles. */
@@ -48,13 +49,21 @@ export function startMockSource(emit: (m: ServerMessage) => void, plant = 'demo'
   const snaps = sources.map((s) => s.snapshot(now0)).filter((m): m is Extract<ServerMessage, { type: 'snapshot' }> => m.type === 'snapshot');
   emit({ type: 'snapshot', plant, assets: Object.assign({}, ...snaps.map((s) => s.assets)) });
   // las alarmas las genera el motor ISA-18.2 de la demo (alarm-lifecycle.ts) a partir de esta telemetría
+  const control = getDemoControl(plant);
   const alarms = startDemoAlarms(plant, emit, now0, snaps[0]?.assets);
   let last = now0;
   const id = setInterval(() => {
     const now = Date.now();
     const dt = (now - last) / 1000;
     last = now;
-    for (const s of sources) for (const m of s.step(dt, now)) if (!alarms.consume(m)) emit(m);
+    control.step(dt);
+    for (const s of sources) {
+      for (const m of s.step(dt, now)) {
+        // el «servidor» de control mueve el nivel hacia el objetivo de la orden en curso (y añade STS/MODE)
+        const out = m.type === 'telemetry' ? { ...m, values: control.transform(m.asset, m.values) } : m;
+        if (!alarms.consume(out)) emit(out);
+      }
+    }
     alarms.step(now);
   }, MOCK_TICK_MS);
   return () => {
@@ -78,17 +87,20 @@ export function startCatalogSource(emit: (m: ServerMessage) => void, plant: stri
   const offCatalog = watchCatalog(emit, plant);
   void getAdminApi()
     .listAssets(plant)
-    .then((assets) => {
+    .then((all) => {
+      let assets = all;
       if (stopped) return;
       const t0 = Date.now();
       const values = (id: string, type: string, t: number): Record<string, number> => {
         const k = [...id].reduce((a, c) => a + c.charCodeAt(0), 0);
         const wave = Math.sin(t / 7 + k);
-        if (type === 'tank') return { level: Math.round((50 + 35 * wave) * 10) / 10, temp: Math.round((20 + 3 * wave) * 10) / 10 };
+        if (type === 'conveyor') return { state: wave > -0.6 ? 1 : 0, rpm: wave > -0.6 ? 42 : 0 };
+        if (type === 'tank' || type === 'silo') return { level: Math.round((50 + 35 * wave) * 10) / 10, temp: Math.round((20 + 3 * wave) * 10) / 10 };
         if (type === 'pump') return { rpm: Math.round(1450 + 20 * wave) };
         if (type === 'valve') return { position: Math.round(50 + 50 * wave) };
         return { value: Math.round(wave * 100) / 10 };
       };
+      assets = assets.filter((a) => a.type !== 'structure'); // decorativas: sin telemetría
       const state = (now: number) =>
         Object.fromEntries(
           assets.map((a) => [a.id, { ts: now, quality: 'good' as const, values: values(a.id, a.type, (now - t0) / 1000) }]),

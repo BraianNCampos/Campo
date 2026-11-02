@@ -143,6 +143,9 @@ func subscribe(t *testing.T, broker, user, pass string) *collector {
 			c.badTopic++
 		}
 		c.last[r.Plant+"/"+r.Asset] = r
+		if h, ok := c.watch[r.Plant+"/"+r.Asset]; ok {
+			c.watch[r.Plant+"/"+r.Asset] = append(h, r)
+		}
 	})
 	if !tok.WaitTimeout(5*time.Second) || tok.Error() != nil {
 		t.Fatalf("suscripción: %v", tok.Error())

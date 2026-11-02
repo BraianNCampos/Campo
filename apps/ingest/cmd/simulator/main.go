@@ -4,7 +4,7 @@
 //
 //	demo     tk-01..04 (tank), pump-01..02 (pump), valve-01..02 (valve), clima-01..02 (climate),
 //	         en-linea1, en-compresores, en-clima, en-calderas (energy), gas-01 (gas),
-//	         maq-01..03 (machine), pres-01 (pressure), cau-01 (flow)
+//	         maq-01..03 (machine), pres-01 (pressure), cau-01 (flow), silo-01..02 (silo), conv-01..02 (conveyor)
 //	tanques  tk-a, tk-b (tank)
 //	otra     (-plant <id>, compatibilidad) sólo tk/pump/valve escalables con -tanks/-pumps/-valves
 //
@@ -12,6 +12,8 @@
 // excursiones que cruzan umbrales típicos de alarma:
 //
 //	level  > 90 ó < 10     temp > 35 (tanques)     current > 18     position > 95     pressure > 8
+//
+// Además atiende órdenes de control en campo/v1/{planta}/+/cmd y responde en .../cmd/ack (control.go).
 //
 // Carga: p. ej. 5000 msg/s = -plants demo -tanks 2000 -pumps 2000 -valves 1000 -rate 1 -conns 4
 package main

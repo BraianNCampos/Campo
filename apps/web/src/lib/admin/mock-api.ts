@@ -273,6 +273,9 @@ export class MockAdminApi implements AdminApi {
     Object.assign(this.rules[0]!, { kind: 'HH', description: 'Nivel muy alto en el tanque.', consequence: 'Riesgo de rebalse y pérdida de producto.', response: 'Cerrá la válvula de entrada y detené la bomba de carga.' });
     rule('demo', 'tk-*', 'level', 'lt', 10, 'warning', 5, 2);
     rule('demo', 'tk-*', 'temp', 'gt', 35, 'warning', 10, 1);
+    rule('demo', 'silo-*', 'level', 'gt', 90, 'critical', 5, 2);
+    rule('demo', 'silo-*', 'level', 'lt', 10, 'warning', 5, 2);
+    rule('demo', 'silo-*', 'temp', 'gt', 35, 'warning', 10, 1);
     rule('demo', 'clima-*', 'temp', 'gt', 30, 'warning', 60, 1);
     rule('demo', 'clima-*', 'humidity', 'gt', 80, 'warning', 60, 2);
     for (const a of DEMO_ASSETS.demo ?? []) {

@@ -74,6 +74,8 @@ export interface SceneEntry {
   model3dRef: string | null;
   layout?: AssetLayout;
   connectsTo: string[];
+  /** metadata del activo (p. ej. `structure` para dimensionar naves en el 3D) */
+  metadata?: Record<string, unknown>;
 }
 
 export function entryOf(def: AssetDef): SceneEntry {
@@ -85,6 +87,7 @@ export function entryOf(def: AssetDef): SceneEntry {
     model3dRef: def.model3dRef,
     layout: parseLayout(def.metadata),
     connectsTo: parseConnectsTo(def.metadata),
+    metadata: def.metadata,
   };
 }
 

@@ -90,6 +90,21 @@ function makeGen(def: AssetDef, rnd: () => number, index: number): Gen {
         },
       };
     }
+    case 'conveyor': {
+      // cinta: en marcha o detenida, con velocidad (rpm del rodillo) mientras corre
+      let on = h % 4 !== 0;
+      let next = 50 + (h % 70);
+      return {
+        def,
+        step: (t) => {
+          if (t >= next) {
+            on = !on;
+            next = t + (on ? 100 + rnd() * 150 : 20 + rnd() * 40);
+          }
+          return { state: on ? 1 : 0, rpm: on ? round(42 + noise(1.2), 1) : 0 };
+        },
+      };
+    }
     case 'machine': {
       let on = h % 3 !== 0;
       let next = 40 + (h % 80);
@@ -111,6 +126,7 @@ function makeGen(def: AssetDef, rnd: () => number, index: number): Gen {
     }
     case 'flow':
       return { def, step: (t) => ({ flow: round(Math.max(0, 54 + 9 * Math.sin(t / 110 + phase) + noise(0.6)), 2) }) };
+    case 'silo':
     case 'tank': {
       // oscila alrededor del SP (60 %) y, una vez por ciclo, hace una excursión hacia un límite: los pares suben hasta
       // ~95 % (alto) y los impares bajan hasta ~8 % (bajo), con la subida lenta para que se vea el ámbar antes de la alarma
@@ -161,7 +177,8 @@ export class SeedSimulator {
     opts: SeedSimOptions = {},
   ) {
     const rnd = mulberry32(seed);
-    const defs = (DEMO_ASSETS[plant] ?? []).filter((d) => !opts.skip?.(d));
+    // las estructuras (naves) son decorativas: no tienen telemetría
+    const defs = (DEMO_ASSETS[plant] ?? []).filter((d) => d.type !== 'structure' && !opts.skip?.(d));
     this.gens = defs.map((d, i) => makeGen(d, rnd, i));
     const ids = new Set(defs.map((d) => d.id));
     this.limits = (DEMO_LIMITS[plant] ?? []).filter((l) => ids.has(l.asset));

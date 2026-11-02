@@ -32,9 +32,7 @@ describe('080_tags_control.sql: coherencia con el código', () => {
   });
 
   it('el CHECK de assets.type lista los 13 tipos de ASSET_KINDS', () => {
-    expect(code).toContain(
-      `CHECK (type IN\n            (${quoted(Object.keys(ASSET_KINDS))}))`,
-    );
+    expect(code).toContain(`CHECK (type IN\n            (${quoted(Object.keys(ASSET_KINDS))}))`);
   });
 
   it('el CHECK del tag es TAG_PATTERN (prefijos incluidos)', () => {
@@ -76,8 +74,9 @@ describe('080_tags_control.sql: coherencia con el código', () => {
   });
 
   it('es idempotente: IF NOT EXISTS / guardas, INSERT con ON CONFLICT, backfill una sola vez, transacción', () => {
-    for (const ddl of code.match(/(CREATE TABLE|CREATE INDEX|CREATE UNIQUE INDEX|ADD COLUMN)[^;,]*/g) ??
-      []) {
+    for (const ddl of code.match(
+      /(CREATE TABLE|CREATE INDEX|CREATE UNIQUE INDEX|ADD COLUMN)[^;,]*/g,
+    ) ?? []) {
       if (ddl.trim() === 'ADD COLUMN tag TEXT') continue; // protegido por un IF NOT EXISTS (information_schema)
       expect(ddl).toMatch(/IF NOT EXISTS/);
     }

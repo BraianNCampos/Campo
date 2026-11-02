@@ -102,6 +102,7 @@ describe('AssetsService', () => {
         type: 'pump',
         model3dRef: null,
         metadata: {},
+        tag: null,
       });
       await flush();
       expect(published).toEqual([JSON.stringify({ plant: 'demo' })]);
@@ -618,6 +619,207 @@ describe('AssetsService', () => {
     ])('rechaza %j con 400', async (metadata) => {
       await expect(create(metadata as Record<string, unknown>)).rejects.toBeInstanceOf(
         BadRequestException,
+      );
+    });
+  });
+
+  describe('tags (§14.1) y tipos nuevos', () => {
+    const create = (o: Partial<CreateAssetDto>) =>
+      svc.create('demo', ORG_ID, dto<CreateAssetDto>({ name: 'X', type: 'tank', ...o }), eng);
+
+    it('crea con tag, lo devuelve y lo audita', async () => {
+      const a = await create({ id: 'tk-02', tag: 'TNK-102' });
+      expect(a.tag).toBe('TNK-102');
+      expect(audit.entries.at(-1)).toMatchObject({
+        action: 'asset.create',
+        detail: { tag: 'TNK-102' },
+      });
+    });
+
+    it('un tag repetido en la planta (sin distinguir mayúsculas) es 409; en otra planta se admite', async () => {
+      await create({ id: 'tk-02', tag: 'TNK-102' });
+      await expect(create({ id: 'tk-03', tag: 'tnk-102' })).rejects.toBeInstanceOf(
+        ConflictException,
+      );
+      await expect(create({ id: 'tk-03', tag: 'TNK-102' })).rejects.toBeInstanceOf(
+        ConflictException,
+      );
+      assets.assets.push({
+        plant: 'otra',
+        id: 'x',
+        name: 'x',
+        type: 'tank',
+        model3dRef: null,
+        metadata: {},
+        tag: null,
+      });
+      await expect(
+        svc.create(
+          'otra',
+          ORG_ID,
+          dto<CreateAssetDto>({ id: 'tk-02', name: 'X', type: 'tank', tag: 'TNK-102' }),
+          eng,
+        ),
+      ).resolves.toMatchObject({ tag: 'TNK-102' });
+    });
+
+    it('la carrera de dos altas (la base rechaza el tag) también da 409', async () => {
+      jest.spyOn(assets, 'findByTag').mockResolvedValue(null); // el pre-chequeo no lo ve
+      await create({ id: 'tk-02', tag: 'TNK-102' });
+      await expect(create({ id: 'tk-03', tag: 'TNK-102' })).rejects.toBeInstanceOf(
+        ConflictException,
+      );
+    });
+
+    it('update: cambia, quita (null) y no choca con su propio tag', async () => {
+      await create({ id: 'tk-02', tag: 'TNK-102' });
+      await expect(
+        svc.update('demo', ORG_ID, 'tk-02', dto<UpdateAssetDto>({ tag: 'TNK-102' }), eng),
+      ).resolves.toMatchObject({ tag: 'TNK-102' });
+      await expect(
+        svc.update('demo', ORG_ID, 'tk-01', dto<UpdateAssetDto>({ tag: 'TNK-102' }), eng),
+      ).rejects.toBeInstanceOf(ConflictException);
+      await expect(
+        svc.update('demo', ORG_ID, 'tk-02', dto<UpdateAssetDto>({ tag: null }), eng),
+      ).resolves.toMatchObject({ tag: null });
+      expect(audit.entries.at(-1)).toMatchObject({
+        action: 'asset.update',
+        detail: { changed: ['tag'] },
+      });
+    });
+
+    it('silo/conveyor siguen los módulos tanks/machines; structure no tiene módulo', async () => {
+      const only = async (type: 'silo' | 'conveyor' | 'structure') => {
+        const orgs = memoryOrgs(new MemoryUsersRepository());
+        await orgs.create({ id: 'x', name: 'x', modules: ['tanks'], active: true });
+        const s = new AssetsService(
+          assets,
+          rules,
+          orgs,
+          new AuditService(audit),
+          models,
+          new CatalogNotifier(redis),
+        );
+        return s.create(
+          'demo',
+          'x',
+          dto<CreateAssetDto>({ id: `${type}-1`, name: 'n', type }),
+          eng,
+        );
+      };
+      await expect(only('silo')).resolves.toMatchObject({ type: 'silo' });
+      await expect(only('structure')).resolves.toMatchObject({ type: 'structure' });
+      await expect(only('conveyor')).rejects.toMatchObject({
+        response: { error: 'module_disabled', module: 'machines' },
+      });
+    });
+  });
+
+  describe('metadata.control (§14.3)', () => {
+    const create = (metadata: Record<string, unknown>) =>
+      svc.create(
+        'demo',
+        ORG_ID,
+        dto<CreateAssetDto>({ id: 'c1', name: 'x', type: 'tank', metadata }),
+        eng,
+      );
+
+    it('acepta una configuración válida y la audita (sin volcar metadata)', async () => {
+      await expect(
+        create({
+          control: { enabled: true, minTarget: 10, maxTarget: 90, maxDurationMinutes: 60 },
+        }),
+      ).resolves.toMatchObject({ id: 'c1' });
+      await svc.update(
+        'demo',
+        ORG_ID,
+        'c1',
+        dto<UpdateAssetDto>({ metadata: { control: { enabled: false } } }),
+        eng,
+      );
+      expect(audit.entries.at(-1)).toMatchObject({
+        action: 'asset.update',
+        detail: { changed: ['metadata'], controlEnabled: false },
+      });
+      expect(JSON.stringify(audit.entries.at(-1))).not.toContain('minTarget');
+    });
+
+    it.each([
+      [{ control: true }],
+      [{ control: [] }],
+      [{ control: {} }],
+      [{ control: { enabled: 'yes' } }],
+      [{ control: { enabled: true, extra: 1 } }],
+      [{ control: { enabled: true, minTarget: 0 } }],
+      [{ control: { enabled: true, maxTarget: 100 } }],
+      [{ control: { enabled: true, minTarget: 50, maxTarget: 50 } }],
+      [{ control: { enabled: true, minTarget: 60, maxTarget: 50 } }],
+      [{ control: { enabled: true, maxDurationMinutes: 0 } }],
+      [{ control: { enabled: true, maxDurationMinutes: 1.5 } }],
+      [{ control: { enabled: true, maxDurationMinutes: 1441 } }],
+    ])('rechaza %j con 400', async (metadata) => {
+      await expect(create(metadata)).rejects.toBeInstanceOf(BadRequestException);
+    });
+  });
+
+  describe('setSetpoint (§14.2)', () => {
+    it('fusiona el setpoint en metadata.setpoints sin pisar el resto, notifica y audita con el anterior', async () => {
+      await svc.update(
+        'demo',
+        ORG_ID,
+        'tk-01',
+        dto<UpdateAssetDto>({ metadata: { capacityM3: 60, setpoints: { level: 60, temp: 20 } } }),
+        eng,
+      );
+      published.length = 0;
+      const a = await svc.setSetpoint('demo', ORG_ID, 'tk-01', 'level', 75, eng);
+      expect(a.metadata).toEqual({ capacityM3: 60, setpoints: { level: 75, temp: 20 } });
+      expect(published).toEqual([JSON.stringify({ plant: 'demo' })]);
+      expect(audit.entries.at(-1)).toMatchObject({
+        action: 'asset.setpoint',
+        target: 'asset:demo/tk-01',
+        detail: { metric: 'level', value: 75, previous: 60 },
+      });
+      expect(audit.orgOfEntry.get(audit.entries.at(-1)!.id)).toBe(ORG_ID);
+    });
+
+    it('usa la escala propia del activo (metadata.scale) o la del registro', async () => {
+      await svc.update(
+        'demo',
+        ORG_ID,
+        'tk-01',
+        dto<UpdateAssetDto>({ metadata: { scale: { level: { min: 0, max: 50 } } } }),
+        eng,
+      );
+      await expect(
+        svc.setSetpoint('demo', ORG_ID, 'tk-01', 'level', 60, eng),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      await expect(
+        svc.setSetpoint('demo', ORG_ID, 'tk-01', 'level', 50, eng),
+      ).resolves.toBeDefined();
+      await expect(
+        svc.setSetpoint('demo', ORG_ID, 'tk-01', 'temp', 20, eng),
+      ).resolves.toBeDefined();
+    });
+
+    it.each([[-0.1], [100.1], [Number.NaN], [Infinity]])(
+      'fuera de la escala (%p) -> 400, sin cambios ni auditoría',
+      async (v) => {
+        const before = audit.entries.length;
+        await expect(
+          svc.setSetpoint('demo', ORG_ID, 'tk-01', 'level', v, eng),
+        ).rejects.toBeInstanceOf(BadRequestException);
+        expect(audit.entries.length).toBe(before);
+        expect(assets.assets[0].metadata).toEqual({});
+      },
+    );
+
+    it('métrica sin escala -> 400; activo inexistente -> 404', async () => {
+      await expect(svc.setSetpoint('demo', ORG_ID, 'tk-01', 'rara', 1, eng)).rejects.toBeInstanceOf(
+        BadRequestException,
+      );
+      await expect(svc.setSetpoint('demo', ORG_ID, 'nada', 'level', 1, eng)).rejects.toBeInstanceOf(
+        NotFoundException,
       );
     });
   });

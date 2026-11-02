@@ -209,18 +209,19 @@ export class MemoryAssetsRepository extends AssetsRepository {
     return Promise.resolve(this.assets.find((a) => a.plant === plant && a.id === id) ?? null);
   }
 
+  /** El índice único de la base (plant, lower(tag)). */
+  private tagUsedBy(plant: string, tag: string): Asset | undefined {
+    return this.assets.find((a) => a.plant === plant && a.tag?.toLowerCase() === tag.toLowerCase());
+  }
+
   findByTag(plant: string, tag: string): Promise<Asset | null> {
-    return Promise.resolve(
-      this.assets.find((a) => a.plant === plant && a.tag?.toLowerCase() === tag.toLowerCase()) ??
-        null,
-    );
+    return Promise.resolve(this.tagUsedBy(plant, tag) ?? null);
   }
 
   async create(asset: Asset): Promise<Asset | null> {
     if (await this.get(asset.plant, asset.id)) return null;
-    if (asset.tag && (await this.findByTag(asset.plant, asset.tag))) {
+    if (asset.tag && this.tagUsedBy(asset.plant, asset.tag))
       throw new AssetTagTakenError(asset.tag);
-    }
     this.assets.push({ ...asset });
     return { ...asset };
   }
@@ -229,7 +230,7 @@ export class MemoryAssetsRepository extends AssetsRepository {
     const cur = this.assets.find((a) => a.plant === plant && a.id === id);
     if (!cur) return null;
     if (patch.tag) {
-      const other = await this.findByTag(plant, patch.tag);
+      const other = this.tagUsedBy(plant, patch.tag);
       if (other && other.id !== id) throw new AssetTagTakenError(patch.tag);
     }
     const defined = Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined));

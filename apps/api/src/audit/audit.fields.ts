@@ -18,8 +18,9 @@ export const AUDIT_FIELDS = {
   'plant.create': ['name'],
   'plant.update': ['name'],
   'plant.delete': ['name', 'unassignedUsers'],
-  'asset.create': ['name', 'type', 'model3dRef'],
-  'asset.update': ['changed', 'name', 'type', 'model3dRef'],
+  'asset.create': ['name', 'type', 'model3dRef', 'tag'],
+  // controlEnabled: si el cambio de metadata trae `control`, si queda habilitado (el resto de metadata no se audita).
+  'asset.update': ['changed', 'name', 'type', 'model3dRef', 'tag', 'controlEnabled'],
   'asset.delete': ['affectedRules'],
   // Modelos 3D: nunca el contenido del archivo, sólo su identidad (nombre, tamaño, hash).
   'model.upload': ['name', 'size', 'sha256', 'dedup'],
@@ -46,6 +47,10 @@ export const AUDIT_FIELDS = {
   'alarm.ack': ['plant', 'asset', 'metric', 'severity'],
   'alarm.shelve': ['plant', 'asset', 'metric', 'severity', 'minutes'],
   'alarm.unshelve': ['plant', 'asset', 'metric', 'severity'],
+  // Control de llenado (§14.3): quién ordenó qué y cómo terminó. `by` vacío = el equipo/sistema (acks, plazos).
+  'asset.setpoint': ['plant', 'metric', 'value', 'previous'],
+  'order.create': ['plant', 'asset', 'command', 'target', 'cancelOf'],
+  'order.status': ['plant', 'asset', 'command', 'status', 'previous', 'reason'],
   'plant.alarm_policy': ['ratePerDay', 'peak10min', 'staleHours'],
 } as const satisfies Record<string, readonly string[]>;
 
