@@ -17,6 +17,7 @@ alarma), las credenciales de acceso al panel, los comandos hacia campo (reservad
 | Escucha o manipulación del tráfico sensor → nube | MQTT sólo por TLS (8883, TLS ≥ 1.2); el cliente verifica cadena y nombre del certificado, sin opción de saltarse la verificación | Mosquitto, `ingest`, simulador |
 | Cliente anónimo o con credenciales robadas de otra planta publica datos falsos | Sin acceso anónimo; un usuario por planta; ACL `pattern write campo/v1/%u/+/telemetry` | `mosquitto.secure.conf`, `acl.conf` |
 | Una planta espía a otra | Los usuarios de planta no pueden suscribirse a telemetría (sólo a su `.../cmd`); `ingest` es de sólo lectura | `acl.conf` |
+| Órdenes de control falsas o a otra planta | Sólo el usuario `api` escribe `campo/v1/+/+/cmd`; cada planta lee únicamente su `cmd` y responde en su `cmd/ack`; la API exige módulo contratado, rol, confirmación de un solo uso y enclavamientos (§14.3); los equipos ignoran órdenes de más de 30 s | `acl.conf`, `apps/api` |
 | Acceso directo a Redis o Postgres desde fuera | Sin puertos publicados; red `backend` interna; Redis con contraseña y Postgres con contraseña (scram) | `docker-compose.prod.yml` |
 | Acceso a la API sin permiso o a otra planta | JWT + guard por planta (§8.1); 401 sin token | `apps/api` |
 | Intercepción del tráfico web, clickjacking, XSS | HTTPS (Caddy), HSTS, CSP, `X-Frame-Options`/`frame-ancestors`, `nosniff`, `Referrer-Policy` | `Caddyfile` |
@@ -29,9 +30,9 @@ alarma), las credenciales de acceso al panel, los comandos hacia campo (reservad
 
 - **Borde MQTT.** Un único listener TLS 8883. No existen 1883 ni WebSocket (9001) en la config segura. `allow_anonymous false`,
   `password_file` (hashes), `acl_file`, `max_packet_size 65536`, `allow_zero_length_clientid false` (todo cliente debe
-  indicar `client id`) y log de conexiones/fallos de autenticación. Usuarios: `ingest` (lee `campo/v1/#`), `healthcheck`
+  indicar `client id`) y log de conexiones/fallos de autenticación. Usuarios: `ingest` (lee `campo/v1/#`), `api` (publica órdenes en `cmd` y lee `cmd/ack`; control de llenado), `healthcheck`
   (sólo `$SYS/broker/uptime`, para el healthcheck del contenedor) y uno por planta con el id de la planta como nombre.
-  Los ids `ingest` y `healthcheck` están reservados. Las reglas `pattern` valen para todos los usuarios, también `ingest`
+  Los ids `ingest`, `api` y `healthcheck` están reservados. Las reglas `pattern` valen para todos los usuarios, también `ingest`
   (podría publicar en `campo/v1/ingest/...`, que no corresponde a ninguna planta real).
   El broker sólo acepta TLS ≥ 1.2: Mosquitto 2.1.2 rechaza TLS 1.0/1.1 por defecto (verificado en `smoke-secure.sh`);
   Mosquitto no ofrece un "mínimo" configurable sin fijar una versión única, así que con imágenes antiguas
@@ -86,7 +87,7 @@ Un dispositivo se conecta así (ejemplo con las herramientas de Mosquitto):
 scripts/bootstrap-secure.sh --rotate
 docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env.prod --profile apps up -d --force-recreate
 ```
-- Regenera `passwd` de Mosquitto y las contraseñas de `ingest`, `healthcheck` y todas las plantas: hay que **entregar
+- Regenera `passwd` de Mosquitto y las contraseñas de `ingest`, `api`, `healthcheck` y todas las plantas: hay que **entregar
   las nuevas** de `secrets/mqtt-users/` a los dispositivos (las antiguas dejan de valer al recrear Mosquitto).
 - Postgres: la contraseña vive en el volumen, así que sólo se rota si el contenedor `campo-timescaledb` está en marcha
   (el script aplica `ALTER ROLE`); si está parado se conserva y el script lo avisa.

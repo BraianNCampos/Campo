@@ -105,11 +105,9 @@ Límites conocidos:
 
 ## Siguientes pasos
 
-Hecho de la guía ISA-101 / ISA-18.2 ([`docs/ux-isa.md`](docs/ux-isa.md)): vista general de la planta con paneles de vidrio, barras de desviación respecto del setpoint con ámbar al 90 % del límite, tendencia a un clic, y gestión de alarmas completa (tipos HH/HI/LO/LL/DEV/ROC, ciclo de vida con "normalizada sin reconocer", postergación, supresión por estado, diario y panel de salud con la política de 150 por día y 10 en 10 minutos).
+Hecho de la guía ISA-101 / ISA-18.2 ([`docs/ux-isa.md`](docs/ux-isa.md)): 3D realista (silos, cintas, naves) con contorno brillante y marcador en anomalías, latencia extremo a extremo medida en el pie, tags estándar (`TNK-101`…), niveles 3 y 4, **control de llenado** con confirmación en dos pasos, enclavamientos en el servidor y registro de órdenes (módulo `control`, apagado por defecto); vista general de la planta con paneles de vidrio, barras de desviación respecto del setpoint con ámbar al 90 % del límite, tendencia a un clic, y gestión de alarmas completa (tipos HH/HI/LO/LL/DEV/ROC, ciclo de vida con "normalizada sin reconocer", postergación, supresión por estado, diario y panel de salud con la política de 150 por día y 10 en 10 minutos).
 
 Lo que falta para la entrega (plan en [`docs/entrega.md`](docs/entrega.md)):
 
-1. **7c** — 3D realista (silos, cintas, naves) con contornos brillantes en anomalías.
-2. **7d** — tags estándar (`TNK-101`…), niveles 3 y 4, y comandos de control de llenado con confirmación, permisos y registro de órdenes.
-3. **8** — avisos por Telegram, histórico y alarmas cerradas, consumo de energía por hora.
-4. **9** — manual de usuario, guía de despliegue en un servidor, copias de seguridad y pull request listo para fusionar.
+1. **8** — avisos por Telegram, histórico y alarmas cerradas, consumo de energía por hora.
+2. **9** — manual de usuario, guía de despliegue en un servidor, copias de seguridad y pull request listo para fusionar.

@@ -15,6 +15,7 @@
 | CI en GitHub | **Verde en los servidores de GitHub** (6 jobs; incluye la pila completa y la endurecida en Docker) |
 | Demo publicable (GitHub Pages) | Lista; falta que el dueño del repo la active |
 | Fases 7a y 7b: vista de planta, barras de desviación, tendencia, alarmas ISA-18.2 | Hecho y verificado con Docker y navegador contra la API real |
+| Fases 7c y 7d: 3D realista con anomalías, latencia medida, tags, niveles 3 y 4, control de llenado | Hecho. Orden real de punta a punta (web → API → MQTT con TLS y ACL → simulador → telemetría) en `smoke.sh` (dev) y `smoke-secure.sh` (endurecido, 83 comprobaciones) |
 
 ## Lo que falta, en orden
 
@@ -22,8 +23,8 @@
 |---|---|---|
 | ~~**7a**~~ | Setpoints y barras de desviación, regla del 90 %, tendencia a un clic, vista general de la planta (Nivel 1) con paneles de vidrio | e2e en navegador + pruebas unitarias |
 | ~~**7b**~~ | Alarmas ISA-18.2: tipos HH/HI/LO/LL/DEV/ROC, ciclo de vida, shelving, supresión por estado, banda muerta y retardos, racionalización, indicadores de salud | pruebas del motor + prueba con Postgres real |
-| **7c** | 3D realista (silos, cintas, naves), contornos brillantes en anomalías, indicador de latencia extremo a extremo | capturas + medición de latencia |
-| **7d** | Tags estándar (`TNK-101`…), niveles 3 y 4, comandos de control de llenado con confirmación, permisos y registro de órdenes | prueba de comandos de punta a punta con el simulador |
+| ~~**7c**~~ | 3D realista (silos, cintas, naves), contornos brillantes en anomalías, indicador de latencia extremo a extremo | capturas + medición de latencia |
+| ~~**7d**~~ | Tags estándar (`TNK-101`…), niveles 3 y 4, comandos de control de llenado con confirmación, permisos y registro de órdenes | prueba de comandos de punta a punta con el simulador |
 | **8** | Avisos por Telegram, histórico y alarmas cerradas, consumo de energía por hora | pruebas con un servidor de Telegram simulado |
 | **9** | Cierre: manual de usuario, guía de despliegue en un servidor, copias de seguridad, pull request listo para fusionar, CI verde | `docs/` completo y CI verde |
 
