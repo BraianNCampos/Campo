@@ -20,7 +20,11 @@ describe('useSessionStore.load', () => {
   });
 
   it('usuario sin plantas: ready con plantas vacías y sin selección', async () => {
-    await useSessionStore.getState().load(new MockAdminApi({ role: 'viewer' }));
+    const api = {
+      me: () => Promise.resolve({ id: 'v', email: 'v@c.d', role: 'viewer', plants: [], org: { id: 'campos-demo', name: 'C', modules: ['tanks'] } }),
+      listPlants: () => Promise.resolve([]),
+    } as unknown as AdminApi;
+    await useSessionStore.getState().load(api);
     expect(useSessionStore.getState().status).toBe('ready');
     expect(usePlantStore.getState().plants).toEqual([]);
     expect(usePlantStore.getState().selected).toBeNull();

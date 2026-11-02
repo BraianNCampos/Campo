@@ -176,8 +176,8 @@ check "el simulador publica como '$PLANT' con TLS (log)" sh -c "docker logs camp
 TOKEN=$("${CURL[@]}" "$BASE/api/auth/login" -H 'content-type: application/json' \
   -d "{\"email\":\"${ADMIN_EMAIL:-admin@campo.local}\",\"password\":\"$ADMIN_PASSWORD\"}" | json 'd["accessToken"]' 2>/dev/null) && [ -n "$TOKEN" ] && ok "login admin con la contraseña generada (vía HTTPS)" || bad "login admin falló"
 AUTH="authorization: Bearer ${TOKEN:-}"
-assets8() { [ "$("${CURL[@]}" -f "$BASE/api/plants/$PLANT/state" -H "$AUTH" | json 'len(d.get("assets", d))')" = 20 ]; }
-wait_for "estado de $PLANT con 20 activos (Redis -> API)" assets8
+assets8() { [ "$("${CURL[@]}" -f "$BASE/api/plants/$PLANT/state" -H "$AUTH" | json 'len(d.get("assets", d))')" = 24 ]; }
+wait_for "estado de $PLANT con 24 activos (Redis -> API)" assets8
 rows() { [ "$(docker exec campo-timescaledb psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -qAt -c 'select count(*) from telemetry')" -gt 50 ]; }
 wait_for "filas en TimescaleDB (telemetry)" rows
 BAD=$(docker exec campo-timescaledb psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -qAt -c "select count(*) from telemetry where plant <> '$PLANT'" 2>/dev/null || echo "?")
@@ -190,7 +190,7 @@ if command -v node >/dev/null 2>&1 && [ -n "${TOKEN:-}" ]; then
     ws.onmessage = (e) => { const m = JSON.parse(e.data); if (m.type === "snapshot") { console.log("snapshot " + Object.keys(m.assets).length); clearTimeout(t); ws.close(); process.exit(0); } };
     ws.onerror = (e) => { console.log("error " + (e.message || "")); process.exit(1); };
   ' 2>&1)
-  [ "$OUT" = "snapshot 20" ] && ok "WebSocket wss://$DOMAIN/ws por Caddy entrega snapshot de 20 activos" || bad "WebSocket vía Caddy: $OUT"
+  [ "$OUT" = "snapshot 24" ] && ok "WebSocket wss://$DOMAIN/ws por Caddy entrega snapshot de 24 activos" || bad "WebSocket vía Caddy: $OUT"
 else
   note "node no disponible: se omite la prueba del WebSocket"
 fi
@@ -224,6 +224,23 @@ if [ -n "${TOKEN:-}" ] && command -v node >/dev/null 2>&1; then
   rm -rf "$TMPM"
 else
   note "sin token o sin node: se omite la prueba de modelos 3D"
+fi
+
+if [ -n "${TOKEN:-}" ]; then
+  # Control de llenado en el stack endurecido: API -> mqtts (usuario `api`, ACL) -> simulador (usuario de planta) -> acuse -> telemetría
+  note "control de llenado (órdenes por MQTT con TLS y ACL)"
+  JH='content-type: application/json'
+  LVL=$("${CURL[@]}" -f "$BASE/api/plants/$PLANT/state" -H "$AUTH" | json 'int(d.get("assets", d)["tk-01"]["values"]["level"])')
+  if [ "$LVL" -gt 50 ]; then CMD=drain; TGT=$((LVL - 10)); else CMD=fill; TGT=$((LVL + 10)); fi
+  CID=$("${CURL[@]}" -f -X POST "$BASE/api/plants/$PLANT/assets/tk-01/commands/preview" -H "$AUTH" -H "$JH" -d "{\"command\":\"$CMD\",\"target\":$TGT}" | json 'd["confirmId"]')
+  [ -n "$CID" ] && ok "vista previa de la orden ($CMD a $TGT %) por HTTPS" || bad "la vista previa no devolvió confirmId"
+  OID=$("${CURL[@]}" -f -X POST "$BASE/api/plants/$PLANT/assets/tk-01/commands" -H "$AUTH" -H "$JH" -d "{\"confirmId\":\"$CID\"}" | json 'd["id"]')
+  [ -n "$OID" ] && ok "orden publicada por mqtts con el usuario api" || bad "no se pudo crear la orden"
+  ST=""; for _ in $(seq 1 40); do
+    ST=$("${CURL[@]}" -f "$BASE/api/plants/$PLANT/orders?asset=tk-01&limit=5" -H "$AUTH" | json 'next((o["status"] for o in d if o["id"] == "'"$OID"'"), "")')
+    case $ST in done|rejected|failed|timeout|cancelled) break ;; esac; sleep 3
+  done
+  [ "$ST" = done ] && ok "el simulador (usuario de planta, ACL cmd/ack) aceptó, ejecutó y completó la orden" || bad "la orden terminó en '$ST' (¿ACL de cmd o cmd/ack?)"
 fi
 
 if [ -n "${TOKEN:-}" ]; then

@@ -258,11 +258,11 @@ export class MockAdminApi implements AdminApi {
       mk(0xa1, 'admin@campo.demo', 'admin', 'campos-demo', []),
       mk(0xa2, 'ingeniera@campo.demo', 'engineer', 'campos-demo', ['demo']),
       mk(0xa3, 'operador@campo.demo', 'operator', 'campos-demo', ['demo']),
-      mk(0xa4, 'consulta@campo.demo', 'viewer', 'campos-demo', []),
+      mk(0xa4, 'consulta@campo.demo', 'viewer', 'campos-demo', ['demo']),
       mk(0xb1, 'admin@tanques.demo', 'admin', 'cliente-tanques', []),
       mk(0xb2, 'ingeniero@tanques.demo', 'engineer', 'cliente-tanques', ['tanques']),
       mk(0xb3, 'operador@tanques.demo', 'operator', 'cliente-tanques', ['tanques']),
-      mk(0xb4, 'consulta@tanques.demo', 'viewer', 'cliente-tanques', []),
+      mk(0xb4, 'consulta@tanques.demo', 'viewer', 'cliente-tanques', ['tanques']),
     );
 
     // Reglas de ejemplo: expandidas dan exactamente DEMO_LIMITS (docs §11.3).

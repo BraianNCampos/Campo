@@ -181,7 +181,7 @@ function CardImpl({ id, plant }: { id: string; plant: string }) {
           )}
 
           <details data-testid={`control-interlocks-${id}`} className="rounded-lg border border-line bg-bg px-3 py-2 text-sm">
-            <summary className="min-h-8 cursor-pointer font-semibold">
+            <summary className="flex min-h-11 cursor-pointer items-center font-semibold">
               Permisos de enclavamiento ({okCount} de {shown.items.length})
             </summary>
             <ul className="mt-2 flex flex-col gap-1.5">
