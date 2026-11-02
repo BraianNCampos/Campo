@@ -66,6 +66,8 @@ export interface TelemetryEvent extends AssetState {
   type: 'telemetry';
   plant: string;
   asset: string;
+  /** Epoch ms (reloj del servicio de ingesta) al recibir la muestra por MQTT; base de la latencia medida (§13). */
+  ingestTs?: number;
 }
 
 /** Publicado por api en campo:alarms:{plant} */
@@ -98,7 +100,7 @@ export interface SnapshotMessage {
 }
 
 /** Mensajes servidor → cliente por WebSocket */
-export type ServerMessage = SnapshotMessage | TelemetryEvent | AlarmEvent | CatalogMessage;
+export type ServerMessage = SnapshotMessage | TelemetryEvent | AlarmEvent | CatalogMessage | OrderEvent | TimeSyncMessage;
 
 export const redisKeys = {
   state: (plant: string) => `campo:state:${plant}`,
@@ -139,7 +141,20 @@ export interface ManagedUser extends Me {
 }
 
 // ---- Administración (docs/architecture.md §9) ----
-export type AssetType = 'tank' | 'pump' | 'valve' | 'sensor' | 'climate' | 'energy' | 'gas' | 'machine' | 'pressure' | 'flow';
+export type AssetType =
+  | 'tank'
+  | 'pump'
+  | 'valve'
+  | 'sensor'
+  | 'climate'
+  | 'energy'
+  | 'gas'
+  | 'machine'
+  | 'pressure'
+  | 'flow'
+  | 'silo'
+  | 'conveyor'
+  | 'structure';
 
 export interface Plant {
   id: string;
@@ -156,6 +171,8 @@ export interface AssetDef {
   type: AssetType;
   model3dRef: string | null;
   metadata: Record<string, unknown>;
+  /** Etiqueta estándar (docs/architecture.md §14.1), p. ej. `TNK-101`. */
+  tag?: string | null;
 }
 
 export interface AuditEntry {
@@ -197,7 +214,7 @@ export interface CatalogMessage {
 export const MODEL_REF_PATTERN = /^model:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 // ---- Clientes y módulos (docs/architecture.md §11) ----
-export type ModuleId = 'tanks' | 'climate' | 'energy' | 'gas' | 'machines' | 'flow' | 'view3d';
+export type ModuleId = 'tanks' | 'climate' | 'energy' | 'gas' | 'machines' | 'flow' | 'view3d' | 'control';
 
 export interface ModuleDef {
   id: ModuleId;
@@ -208,13 +225,14 @@ export interface ModuleDef {
 
 /** Módulos que un cliente puede contratar, en el orden en que se muestran. */
 export const MODULES: readonly ModuleDef[] = [
-  { id: 'tanks', label: 'Tanques y llenado', description: 'Nivel de tanques, bombas y válvulas.', assetTypes: ['tank', 'pump', 'valve'] },
+  { id: 'tanks', label: 'Tanques y llenado', description: 'Nivel de tanques, bombas y válvulas.', assetTypes: ['tank', 'pump', 'valve', 'silo'] },
   { id: 'climate', label: 'Temperatura y humedad', description: 'Sensores ambientales de cámaras, depósitos y salas.', assetTypes: ['climate'] },
   { id: 'energy', label: 'Energía', description: 'Potencia, consumo y factor de potencia por línea.', assetTypes: ['energy'] },
   { id: 'gas', label: 'Consumo de gases', description: 'Caudal y consumo acumulado de gases.', assetTypes: ['gas'] },
-  { id: 'machines', label: 'Estado de máquinas', description: 'Máquinas en marcha o detenidas.', assetTypes: ['machine'] },
+  { id: 'machines', label: 'Estado de máquinas', description: 'Máquinas en marcha o detenidas.', assetTypes: ['machine', 'conveyor'] },
   { id: 'flow', label: 'Presión y caudal', description: 'Presión de líneas y caudal de proceso.', assetTypes: ['pressure', 'flow'] },
   { id: 'view3d', label: 'Vista 3D', description: 'Gemelo digital de la planta con modelos propios.', assetTypes: [] },
+  { id: 'control', label: 'Control de llenado', description: 'Órdenes de llenado, vaciado y detención con confirmación y registro.', assetTypes: [] },
 ] as const;
 
 export const MODULE_IDS: readonly ModuleId[] = MODULES.map((m) => m.id);
@@ -268,6 +286,9 @@ export const ASSET_KINDS: Record<AssetType, AssetKindDef> = {
   machine: { type: 'machine', label: 'Máquina', module: 'machines', primaryMetric: 'state', metrics: ['state'] },
   pressure: { type: 'pressure', label: 'Sensor de presión', module: 'flow', primaryMetric: 'pressure', metrics: ['pressure'] },
   flow: { type: 'flow', label: 'Caudalímetro', module: 'flow', primaryMetric: 'flow', metrics: ['flow'] },
+  silo: { type: 'silo', label: 'Silo', module: 'tanks', primaryMetric: 'level', metrics: ['level', 'temp'] },
+  conveyor: { type: 'conveyor', label: 'Cinta transportadora', module: 'machines', primaryMetric: 'state', metrics: ['state', 'rpm'] },
+  structure: { type: 'structure', label: 'Estructura', module: null, primaryMetric: 'value', metrics: [] },
 };
 
 /** Organización (cliente) tal como la ve el personal de plataforma. */
@@ -289,4 +310,80 @@ export interface Limit {
   threshold: number;
   severity: Severity;
   kind?: AlarmKind;
+}
+
+// ---- Tags, control y latencia (docs/architecture.md §13-14) ----
+export const TAG_PREFIXES = ['TNK', 'PMP', 'VLV', 'MTR', 'XMTR', 'PID', 'COMP', 'CONV'] as const;
+export type TagPrefix = (typeof TAG_PREFIXES)[number];
+export const TAG_PATTERN = /^(TNK|PMP|VLV|MTR|XMTR|PID|COMP|CONV)-[0-9]{3,4}[A-Z]?$/;
+
+export const DEFAULT_TAG_PREFIX: Record<AssetType, TagPrefix> = {
+  tank: 'TNK',
+  silo: 'TNK',
+  pump: 'PMP',
+  valve: 'VLV',
+  machine: 'MTR',
+  conveyor: 'CONV',
+  sensor: 'XMTR',
+  climate: 'XMTR',
+  energy: 'XMTR',
+  gas: 'XMTR',
+  pressure: 'XMTR',
+  flow: 'XMTR',
+  structure: 'XMTR',
+};
+
+export type OrderCommand = 'fill' | 'drain' | 'stop' | 'start' | 'open' | 'close' | 'set_position';
+export type OrderStatus = 'pending' | 'accepted' | 'running' | 'done' | 'failed' | 'rejected' | 'timeout' | 'cancelled';
+
+export interface Order {
+  id: string;
+  plant: string;
+  asset: string;
+  tag?: string | null;
+  command: OrderCommand;
+  target?: number;
+  status: OrderStatus;
+  requestedBy: { id: string; email: string };
+  requestedAt: number; // epoch ms
+  updatedAt: number;
+  completedAt?: number;
+  reason?: string; // motivo del rechazo/fallo o nota del operador
+}
+
+/** Servidor → cliente: una orden cambió de estado (registro de órdenes en vivo). */
+export interface OrderEvent {
+  type: 'order';
+  order: Order;
+}
+
+export interface OrderPreview {
+  confirmId: string;
+  expiresAt: number; // epoch ms (60 s)
+  summary: string;
+  warnings: string[];
+  /** Motivo del bloqueo por enclavamiento; `null`/ausente si se puede ejecutar. */
+  blocked?: string | null;
+}
+
+export interface InterlockItem {
+  id: string;
+  label: string;
+  ok: boolean;
+  reason?: string;
+}
+
+/** `metadata.control` de un activo (§14.3). */
+export interface ControlConfig {
+  enabled: boolean;
+  minTarget?: number;
+  maxTarget?: number;
+  maxDurationMinutes?: number;
+}
+
+/** Sincronización de reloj: cliente → servidor `{t0}`; servidor → cliente `{t0, t1}` (§13). */
+export interface TimeSyncMessage {
+  type: 'time';
+  t0: number;
+  t1?: number;
 }

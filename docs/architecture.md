@@ -272,3 +272,44 @@ Implementa lo pedido en `docs/ux-isa.md`. Todo lo nuevo es **aditivo**: una regl
 - **Salud de alarmas** (`/alarmas/salud`): indicadores contra la política (tasa por día, pico de 10 min), top 10, alarmas intermitentes, estancadas, postergadas y suprimidas; ventana 24 h / 7 d / 30 d.
 - **Editor de reglas:** tipo (HH/HI/LO/LL/DEV/ROC) con campos dependientes, banda muerta, retardos, ventana y dirección de ROC, condición de supresión, racionalización y "fuera de servicio" con motivo.
 - **Vista general de la planta (nivel 1)** en `/`: KPIs de alto nivel y alertas agregadas por módulo, **sin valores de instrumentos**; con 3D si el cliente tiene `view3d` (paneles de vidrio sobre la escena) o mapa 2D de módulos si no.
+
+## 13. 3D realista y latencia medida (Fase 7c)
+
+- **Sello de ingesta:** el servicio de ingesta añade `ingestTs` (epoch ms de su reloj al recibir el mensaje MQTT) al `TelemetryEvent` que publica en Redis; la API lo reenvía tal cual por WebSocket (con coalescing se conserva el del último valor).
+- **Sincronización de reloj por WebSocket:** el cliente envía `{type:"time", t0}` (su `Date.now()`) cada 10 s (y al conectar); el servidor responde `{type:"time", t0, t1}` con su reloj. El cliente estima `offset = t1 − (t0 + rtt/2)` quedándose con la muestra de menor RTT de las últimas 6. Latencia extremo a extremo de una muestra = `(Date.now() + offset) − ingestTs` medida **al pintar** (no al recibir). El pie muestra p50 y p95 de los últimos 60 s: normal < 500 ms, ámbar 500–2000 ms, rojo > 2000 ms. Sin `ingestTs` (demo) se usa la latencia del búfer simulado.
+- **Kit industrial paramétrico** (sin descargas externas; funciona sin red y con la CSP de producción): `silo` (cuerpo cilíndrico con nervaduras, techo cónico, escalera con jaula, patas, indicador de nivel con el nivel real), `conveyor` (bastidor, rodillos, banda con textura animada cuya velocidad sigue la métrica `rpm`/`state`), `structure` (naves con cubierta a dos aguas y puertas, bastidores de tuberías, suelo de hormigón con juntas), tanques con bandeja de contención, tuberías con soportes. Materiales PBR, iluminación de estudio con luces de relleno propias (sin HDR remoto) y sombras suaves; el 3D se degrada por niveles de calidad (alta, media, baja) con `PerformanceMonitor` y por `?quality=`; el render por software (sin GPU) usa la baja.
+- **Anomalías sobre el modelo (ISA-101):** el equipo con alarma o cerca del límite recibe **contorno brillante** (ámbar = atención, rojo = alarma crítica, magenta = alarma sin reconocer de más de 5 min), un **marcador holográfico** flotante (anillo + etiqueta con tag, valor y límite) y una **luz puntual** del mismo color; el resto del modelo no se tiñe. Respeta `prefers-reduced-motion` (sin pulso). En el contraste alto se usan contornos más gruesos.
+- Tipos de activo nuevos: `silo` (módulo `tanks`), `conveyor` (módulo `machines`) y `structure` (decorativo, sin módulo ni telemetría; sólo se dibuja en la Vista 3D).
+
+## 14. Tags, niveles 3-4 y control de llenado (Fase 7d)
+
+### 14.1 Tags y nomenclatura
+
+- `assets.tag` (opcional, único por planta sin distinguir mayúsculas): `^(TNK|PMP|VLV|MTR|XMTR|PID|COMP|CONV)-[0-9]{3,4}[A-Z]?$` (`TAG_PATTERN`, `TAG_PREFIXES`). Prefijo sugerido por tipo (`DEFAULT_TAG_PREFIX`): tank/silo → `TNK`, pump → `PMP`, valve → `VLV`, machine → `MTR`, conveyor → `CONV`, el resto de instrumentos → `XMTR`. `AssetDef.tag` viaja en el catálogo; el id técnico y los tópicos MQTT **no cambian**. La migración asigna tags a los activos existentes (101, 102… por tipo y planta) y la administración sugiere el siguiente libre.
+- Variables: `PV` (valor de proceso = métrica principal), `SP` (setpoint: `metadata.setpoints` o `<métrica>_sp`), `OP` (salida %: métrica `op` o posición de la válvula asociada), `MV`; estados/comandos: `STS` (métrica `sts`: 0 inactivo, 1 llenando, 2 vaciando, 3 en marcha, 4 falla; para máquinas `state`), `CMD` (última orden), `FB` (feedback del equipo), `MODE` (métrica `mode`: 0 manual, 1 automático). Alarmas: `HH/HI/LO/LL/DEV/ROC` (§12). La web muestra el tag junto al nombre en toda la interfaz (tipografía monoespaciada).
+
+### 14.2 Niveles 3 y 4 (web)
+
+- **Nivel 3 — detalle de la unidad:** `/m/<módulo>/<tag>` (el `tag` en minúsculas): panel frontal (*faceplate*) con PV/SP/OP/MODE/STS, barra de desviación, tendencia, posición de válvulas y totales de flujo asociados, y las alarmas del equipo con **tag, descripción, valor y límite**.
+- **Nivel 4 — detalle del equipo** (`/m/<módulo>/<tag>/equipo`, diagnóstico y mantenimiento; acceso `operator`+, edición de setpoint `engineer`+): panel de motor (STS, rpm, corriente, horas), **permisos de enclavamiento** (`GET /api/plants/:plant/assets/:asset/interlocks`) y ajuste de setpoints (`PUT /api/plants/:plant/assets/:asset/setpoints/:metric {value}`; `engineer`/`admin`/`platform_admin`; valor dentro de la escala de la métrica; auditado `asset.setpoint`).
+
+### 14.3 Control de llenado (módulo `control`)
+
+Módulo nuevo `control` ("Control de llenado"), contratable por cliente y **desactivado por defecto**; además cada activo debe habilitarse explícitamente: `metadata.control = {enabled: true, minTarget?: 5, maxTarget?: 95, maxDurationMinutes?: 120}` (editable por `engineer`/`admin`).
+
+**Reglas de seguridad (no negociables):**
+1. **Confirmación en dos pasos:** `POST .../commands/preview {command,target?}` devuelve un `OrderPreview {confirmId, expiresAt (60 s), summary, warnings[], blocked}`; sólo `POST .../commands {confirmId}` ejecuta. El `confirmId` es de un solo uso y está atado al usuario, al activo y a la orden exacta.
+2. **Enclavamientos en el servidor** (la UI sólo los muestra): módulo `control` activo en el cliente; `metadata.control.enabled`; equipo con telemetría reciente (< 30 s, si no `409 device_offline`); objetivo dentro de `[minTarget, maxTarget]` y por debajo del límite `HI` del nivel menos un margen del 2 %; `fill` sólo si nivel < objetivo y sin alarma `HH` activa, `drain` sólo si nivel > objetivo; una sola orden en curso por activo (`409 order_in_progress`). **`stop` siempre se permite** a `operator`+ aunque haya otros enclavamientos.
+3. **Roles:** `operator`, `engineer`, `admin`, `platform_admin` pueden ordenar (dentro de su cliente); `viewer` sólo lee. Máximo 10 órdenes por minuto y usuario (429).
+4. **Todo queda registrado:** tabla `orders` (quién, cuándo, qué, estado, resultado) + auditoría `order.create|order.status`; **registro de órdenes** `GET /api/plants/:plant/orders?asset&status&limit&before` (cualquier rol con acceso a la planta) y evento `{type:"order", order}` por WebSocket.
+5. **El equipo manda:** la API publica la orden por MQTT en `campo/v1/{planta}/{activo}/cmd` (QoS 1, sin retención) con `{id, command, target?, ts, by}`; el equipo/simulador responde en `.../cmd/ack` con `{id, status: accepted|rejected|running|done|failed, reason?, ts}` y **ignora órdenes de más de 30 s de antigüedad**. Sin `accepted` en 10 s → `timeout`; `running` sin `done` pasado `maxDurationMinutes` → `timeout`. Estados de la orden: `pending → accepted → running → done` (o `rejected`, `failed`, `timeout`, `cancelled`). `POST /api/orders/:id/cancel` envía un `stop`.
+6. Comandos: tanque/silo `fill`, `drain`, `stop` (con `target` 1–99 %); bomba `start`, `stop`; válvula `open`, `close`, `set_position` (0–100). El simulador implementa los tres tipos.
+7. **Aislamiento entre clientes** como todo lo demás (matriz de pruebas ampliada); si la API no tiene `MQTT_URL`, el control responde `503 control_unavailable`.
+
+### 14.4 MQTT
+
+Usuario `api` (credenciales propias): escribe `campo/v1/+/+/cmd`, lee `campo/v1/+/+/cmd/ack`. Los usuarios de planta leen `campo/v1/%u/+/cmd` y escriben `campo/v1/%u/+/cmd/ack` (además de la telemetría). Variables de la API: `MQTT_URL`, `MQTT_USERNAME`, `MQTT_PASSWORD`, `MQTT_CA_FILE`.
+
+### 14.5 Semillas (demo)
+
+`demo`: añade `silo-01`, `silo-02` (silo, TNK-3xx, `capacityM3` 120), `conv-01`, `conv-02` (conveyor), `nave-01` (structure, con `layout`), y `metadata.control.enabled=true` (mín. 10, máx. 90) en `tk-01..tk-04`; `tanques`: `tk-a`, `tk-b` igual. El cliente `campos-demo` suma el módulo `control`; `cliente-tanques` queda con `tanks` (el personal de plataforma puede activarle `control`).
