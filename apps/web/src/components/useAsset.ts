@@ -2,12 +2,18 @@
 
 import { assetLabel, resolveKind } from '@/lib/assets';
 import { isUncataloged } from '@/lib/catalog';
+import { displayTag } from '@/lib/tags';
 import { assetStatus } from '@/lib/status';
 import { useLiveStore } from '@/store/live-store';
 
 /** Nombre a mostrar: el del catálogo; sin catálogo, deducido del id (tk-01 → "Tanque 01"). */
 export function useAssetName(id: string): string {
   return useLiveStore((s) => s.catalog[id]?.name ?? assetLabel(id));
+}
+
+/** Tag a mostrar junto al nombre: el del catálogo; sin tag, el id técnico. */
+export function useAssetTag(id: string): string {
+  return useLiveStore((s) => displayTag(id, s.catalog[id]));
 }
 
 export function useAsset(id: string) {
@@ -19,6 +25,7 @@ export function useAsset(id: string) {
     state,
     def,
     name: def?.name ?? assetLabel(id),
+    tag: displayTag(id, def),
     kind: resolveKind(id, state?.values, def?.type),
     status: assetStatus(state, severity),
     /** envía telemetría pero no figura en el catálogo */

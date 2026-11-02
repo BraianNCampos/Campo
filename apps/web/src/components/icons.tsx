@@ -307,6 +307,63 @@ export const IconPlay = (p: P) => (
   </Svg>
 );
 
+export const IconSilo = (p: P) => (
+  <Svg {...p}>
+    <path d="M6 8v11.500M18 8v11.500M6 19.500h12M3.500 20.500h17" />
+    <path d="M6 8c0-2 2.700-3.500 6-3.500S18 6 18 8" />
+    <path d="M12 4.500V3M6 12.500c2.200 1 3.800 1 6 0s3.800-1 6 0" />
+  </Svg>
+);
+export const IconConveyor = (p: P) => (
+  <Svg {...p}>
+    <rect x="3" y="11" width="18" height="5" rx="2.500" />
+    <circle cx="6.500" cy="13.500" r=".6" />
+    <circle cx="17.500" cy="13.500" r=".6" />
+    <path d="M7 8.500h2.500M12 7h2.500M10 19.500v-3.500M14 19.500v-3.500M7 19.500h10" />
+  </Svg>
+);
+export const IconStructure = (p: P) => (
+  <Svg {...p}>
+    <path d="M3.500 20V10.500L12 5l8.500 5.500V20" />
+    <path d="M3 20.500h18M9 20.500v-6h6v6M9 17.500h6" />
+  </Svg>
+);
+export const IconControl = (p: P) => (
+  <Svg {...p}>
+    <path d="M5 4v16M12 4v16M19 4v16" />
+    <circle cx="5" cy="14" r="2.200" />
+    <circle cx="12" cy="8" r="2.200" />
+    <circle cx="19" cy="15.500" r="2.200" />
+  </Svg>
+);
+export const IconStop = (p: P) => (
+  <Svg {...p}>
+    <rect x="6" y="6" width="12" height="12" rx="2" />
+  </Svg>
+);
+export const IconArrowUp = (p: P) => (
+  <Svg {...p}>
+    <path d="M12 19V5M6.500 10.500 12 5l5.500 5.500" />
+  </Svg>
+);
+export const IconArrowDown = (p: P) => (
+  <Svg {...p}>
+    <path d="M12 5v14M6.500 13.500 12 19l5.500-5.500" />
+  </Svg>
+);
+export const IconLock = (p: P) => (
+  <Svg {...p}>
+    <rect x="5" y="10.500" width="14" height="9.500" rx="2" />
+    <path d="M8.500 10.500V8a3.500 3.500 0 0 1 7 0v2.500" />
+  </Svg>
+);
+export const IconClock = (p: P) => (
+  <Svg {...p}>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M12 7v5.500l3.500 2" />
+  </Svg>
+);
+
 export const STATUS_ICON: Record<AssetStatus, (p: P) => React.JSX.Element> = {
   ok: IconCheck,
   warning: IconWarning,
@@ -318,6 +375,9 @@ export const STATUS_ICON: Record<AssetStatus, (p: P) => React.JSX.Element> = {
 
 export const KIND_ICON: Record<AssetKind, (p: P) => React.JSX.Element> = {
   tank: IconTank,
+  silo: IconSilo,
+  conveyor: IconConveyor,
+  structure: IconStructure,
   pump: IconPump,
   valve: IconValve,
   sensor: IconSensor,

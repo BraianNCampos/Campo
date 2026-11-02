@@ -9,6 +9,7 @@ import { metricMeta } from '@/lib/metrics';
 import { useLiveStore } from '@/store/live-store';
 import { IconCheck, IconChevron, IconCritical, IconPause, IconWarning } from '../icons';
 import { useAssetName } from '../useAsset';
+import { LatencyBadge } from './LatencyBadge';
 
 function Entry({ a, first }: { a: LiveAlarm; first: boolean }) {
   const name = useAssetName(a.asset);
@@ -88,6 +89,7 @@ export function AlarmFooter() {
           ))}
         </ul>
       )}
+      <LatencyBadge />
       <Link
         prefetch={false}
         href="/alarmas"

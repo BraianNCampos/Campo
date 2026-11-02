@@ -1,6 +1,7 @@
 import { ASSET_KINDS, ID_PATTERN, METRICS, MODEL_REF_PATTERN, MODULE_IDS, moduleForAssetType } from '@campo/shared';
-import type { AssetDef, AssetLayout, ModuleId, Role } from '@campo/shared';
+import type { AssetDef, AssetLayout, ControlConfig, ModuleId, Role } from '@campo/shared';
 import { LAYOUT_LIMITS, parseConnectsTo, parseLayout } from '@/lib/catalog';
+import { validateTag } from '@/lib/tags';
 import { MODULE_DISABLED_TEXT } from './errors';
 import { ASSET_TYPES, ROLES } from './types';
 import type { AssetInput, AssetType } from './types';
@@ -193,6 +194,8 @@ export interface AssetForm {
   metadataText: string;
   /** Campos de dominio opcionales; si falta, no se tocan los metadatos de dominio. */
   domain?: DomainForm;
+  /** Tag estándar (§14.1), p. ej. `TNK-101`; vacío = sin tag. Si falta (`undefined`), no se toca. */
+  tag?: string;
 }
 
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -321,18 +324,37 @@ export interface ScaleForm {
   min: string;
   max: string;
 }
+/** `metadata.control` (§14.3), como texto de formulario. */
+export interface ControlForm {
+  enabled: boolean;
+  minTarget: string;
+  maxTarget: string;
+  maxDurationMinutes: string;
+}
+export const emptyControlForm = (): ControlForm => ({ enabled: false, minTarget: '', maxTarget: '', maxDurationMinutes: '' });
+
 export interface DomainForm {
   capacityM3: string;
   contractedKw: string;
   scale: Record<string, ScaleForm>;
+  /** Control de llenado (tanques y silos). Si falta, no se toca `metadata.control`. */
+  control?: ControlForm;
 }
-export const emptyDomainForm = (): DomainForm => ({ capacityM3: '', contractedKw: '', scale: {} });
+export const emptyDomainForm = (): DomainForm => ({ capacityM3: '', contractedKw: '', scale: {}, control: emptyControlForm() });
+
+/** Tipos que admiten control de llenado (nivel). */
+export const CONTROL_TYPES: readonly AssetType[] = ['tank', 'silo'];
+export const supportsControl = (type: AssetType | ''): boolean => type !== '' && CONTROL_TYPES.includes(type);
+
+/** Límites razonables del contrato (§14.3): objetivos 1–99 %, duración máxima en minutos. */
+export const CONTROL_LIMITS = { targetMin: 1, targetMax: 99, durationMax: 1440 } as const;
 
 /** Valores listos para escribir en los metadatos: `undefined` = no tocar, `null` = quitar la clave. */
 export interface DomainValues {
   capacityM3?: number | null;
   contractedKw?: number | null;
   scale?: Record<string, { min: number; max: number } | null>;
+  control?: ControlConfig | null;
 }
 
 const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
@@ -348,7 +370,41 @@ export function domainFormFrom(metadata: unknown): DomainForm {
       if (isObj(r) && isNum(r.min) && isNum(r.max)) out.scale[metric] = { min: String(r.min), max: String(r.max) };
     }
   }
+  const c = metadata.control;
+  if (isObj(c)) {
+    out.control = {
+      enabled: c.enabled === true,
+      minTarget: isNum(c.minTarget) ? String(c.minTarget) : '',
+      maxTarget: isNum(c.maxTarget) ? String(c.maxTarget) : '',
+      maxDurationMinutes: isNum(c.maxDurationMinutes) ? String(c.maxDurationMinutes) : '',
+    };
+  }
   return out;
+}
+
+/**
+ * Valida el formulario de control. `value`: la configuración lista para guardar; `null` si el control está apagado y sin
+ * valores (se quita la clave). Errores: `controlMin`, `controlMax`, `controlDuration`.
+ */
+export function validateControlForm(f: ControlForm): { errors: FieldErrors; value: ControlConfig | null } {
+  const errors: FieldErrors = {};
+  const min = parseNum(f.minTarget);
+  const max = parseNum(f.maxTarget);
+  const dur = parseNum(f.maxDurationMinutes);
+  const inRange = (n: number) => n >= CONTROL_LIMITS.targetMin && n <= CONTROL_LIMITS.targetMax;
+  if (min !== undefined && (!Number.isFinite(min) || !inRange(min))) errors.controlMin = `El objetivo mínimo tiene que estar entre ${CONTROL_LIMITS.targetMin} y ${CONTROL_LIMITS.targetMax} %.`;
+  if (max !== undefined && (!Number.isFinite(max) || !inRange(max))) errors.controlMax = `El objetivo máximo tiene que estar entre ${CONTROL_LIMITS.targetMin} y ${CONTROL_LIMITS.targetMax} %.`;
+  if (!errors.controlMin && !errors.controlMax && min !== undefined && max !== undefined && min >= max) errors.controlMax = 'El máximo tiene que ser mayor que el mínimo.';
+  if (dur !== undefined && (!Number.isFinite(dur) || !Number.isInteger(dur) || dur < 1 || dur > CONTROL_LIMITS.durationMax)) {
+    errors.controlDuration = `La duración máxima son minutos enteros, entre 1 y ${CONTROL_LIMITS.durationMax}.`;
+  }
+  if (Object.keys(errors).length > 0) return { errors, value: null };
+  if (!f.enabled && min === undefined && max === undefined && dur === undefined) return { errors, value: null };
+  const value: ControlConfig = { enabled: f.enabled };
+  if (min !== undefined) value.minTarget = min;
+  if (max !== undefined) value.maxTarget = max;
+  if (dur !== undefined) value.maxDurationMinutes = dur;
+  return { errors, value };
 }
 
 /** Contadores acumulados: no tienen barra de rango (siempre crecen). */
@@ -383,6 +439,11 @@ export function validateDomainForm(f: DomainForm, type: AssetType | ''): { error
     else scale[metric] = { min, max };
   }
   value.scale = scale;
+  if (supportsControl(type) && f.control) {
+    const c = validateControlForm(f.control);
+    Object.assign(errors, c.errors);
+    value.control = c.value;
+  }
   return { errors, value: hasErrors(errors) ? {} : value };
 }
 
@@ -405,6 +466,20 @@ export function validateMetadataDomain(metadata: unknown): string[] {
       }
     }
   }
+  const c = metadata.control;
+  if (c !== undefined) {
+    if (!isObj(c)) out.push('control debe ser un objeto {enabled, minTarget?, maxTarget?, maxDurationMinutes?}.');
+    else {
+      if (typeof c.enabled !== 'boolean') out.push('control.enabled debe ser verdadero o falso.');
+      for (const key of ['minTarget', 'maxTarget'] as const) {
+        const v = c[key];
+        if (v !== undefined && (!isNum(v) || v < CONTROL_LIMITS.targetMin || v > CONTROL_LIMITS.targetMax)) out.push(`control.${key} tiene que estar entre ${CONTROL_LIMITS.targetMin} y ${CONTROL_LIMITS.targetMax}.`);
+      }
+      if (isNum(c.minTarget) && isNum(c.maxTarget) && c.minTarget >= c.maxTarget) out.push('control.minTarget tiene que ser menor que control.maxTarget.');
+      const d = c.maxDurationMinutes;
+      if (d !== undefined && (!isNum(d) || !Number.isInteger(d) || d < 1 || d > CONTROL_LIMITS.durationMax)) out.push('control.maxDurationMinutes tiene que ser un número entero de minutos.');
+    }
+  }
   return out;
 }
 
@@ -424,6 +499,8 @@ export function mergeDomainIntoMetadata(meta: Record<string, unknown>, values: D
     if (Object.keys(scale).length === 0) delete out.scale;
     else out.scale = scale;
   }
+  if (values.control === null) delete out.control;
+  else if (values.control) out.control = values.control;
   return out;
 }
 
@@ -465,7 +542,14 @@ export function metricLabel(metric: string): string {
  */
 export function validateAssetForm(
   v: AssetForm,
-  opts: { editing?: boolean; keepRef?: string | null; modules?: readonly ModuleId[]; originalType?: AssetType } = {},
+  opts: {
+    editing?: boolean;
+    keepRef?: string | null;
+    modules?: readonly ModuleId[];
+    originalType?: AssetType;
+    /** Los demás activos de la planta, para detectar un tag repetido. */
+    others?: readonly Pick<AssetDef, 'id' | 'tag'>[];
+  } = {},
 ): { errors: FieldErrors; value?: AssetInput } {
   const errors: FieldErrors = {};
   const id = v.id.trim();
@@ -476,6 +560,10 @@ export function validateAssetForm(
   const name = v.name.trim();
   if (!name) errors.name = 'El nombre es obligatorio.';
   else if (name.length > 100) errors.name = 'Máximo 100 caracteres.';
+  if (v.tag !== undefined) {
+    const tagErr = validateTag(v.tag, opts.others ?? [], opts.editing ? id : undefined);
+    if (tagErr) errors.tag = tagErr;
+  }
   if (!ASSET_TYPES.includes(v.type as AssetType)) errors.type = 'Elegí un tipo.';
   else if (opts.modules && v.type !== opts.originalType && !isTypeAllowed(v.type as AssetType, opts.modules)) errors.type = MODULE_DISABLED_TEXT;
   const ref = v.model3dRef.trim();
@@ -495,7 +583,9 @@ export function validateAssetForm(
   if (hasErrors(errors) || !meta.ok || layout.value === undefined) return { errors };
   let metadata = mergeLayoutIntoMetadata(meta.value, layout.value, v.connectsTo);
   if (domain) metadata = mergeDomainIntoMetadata(metadata, domain.value);
-  return { errors, value: { id, name, type: v.type as AssetType, model3dRef: ref || null, metadata } };
+  const value: AssetInput = { id, name, type: v.type as AssetType, model3dRef: ref || null, metadata };
+  if (v.tag !== undefined) value.tag = v.tag.trim() === '' ? null : v.tag.trim().toUpperCase();
+  return { errors, value };
 }
 
 /** ¿El cliente puede crear activos de este tipo? Los genéricos (sin módulo) siempre. */

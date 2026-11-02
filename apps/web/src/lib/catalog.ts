@@ -50,7 +50,7 @@ export function sameCatalog(a: Record<string, AssetDef>, b: Record<string, Asset
   return ka.every((k) => {
     const x = a[k];
     const y = b[k];
-    return !!x && !!y && x.name === y.name && x.type === y.type && x.model3dRef === y.model3dRef && JSON.stringify(x.metadata) === JSON.stringify(y.metadata);
+    return !!x && !!y && x.name === y.name && x.type === y.type && (x.tag ?? null) === (y.tag ?? null) && x.model3dRef === y.model3dRef && JSON.stringify(x.metadata) === JSON.stringify(y.metadata);
   });
 }
 
@@ -69,6 +69,8 @@ export interface SceneEntry {
   id: string;
   type: AssetType;
   name: string;
+  /** Tag estándar (§14.1), para rótulos en la escena. */
+  tag?: string | null;
   model3dRef: string | null;
   layout?: AssetLayout;
   connectsTo: string[];
@@ -79,6 +81,7 @@ export function entryOf(def: AssetDef): SceneEntry {
     id: def.id,
     type: def.type,
     name: def.name,
+    tag: def.tag ?? null,
     model3dRef: def.model3dRef,
     layout: parseLayout(def.metadata),
     connectsTo: parseConnectsTo(def.metadata),

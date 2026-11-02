@@ -1,4 +1,4 @@
-import type { AlarmEvent, AlarmKind, AlarmLifecycle, AlarmRationale, AssetState, Quality, ServerMessage } from '@campo/shared';
+import type { AlarmEvent, AlarmKind, AlarmLifecycle, AlarmRationale, AssetState, Order, OrderCommand, OrderStatus, Quality, ServerMessage } from '@campo/shared';
 
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const isStr = (v: unknown): v is string => typeof v === 'string' && v.length > 0;
@@ -21,6 +21,35 @@ function rationale(v: unknown): AlarmRationale | undefined {
     if (typeof x === 'string' && x.trim()) out[k] = x.trim().slice(0, 400);
   }
   return Object.keys(out).length ? out : undefined;
+}
+
+export const ORDER_COMMANDS: ReadonlySet<string> = new Set<OrderCommand>(['fill', 'drain', 'stop', 'start', 'open', 'close', 'set_position']);
+export const ORDER_STATUSES: ReadonlySet<string> = new Set<OrderStatus>(['pending', 'accepted', 'running', 'done', 'failed', 'rejected', 'timeout', 'cancelled']);
+
+/** Valida/sanea una orden (evento WS `order` o fila de `GET .../orders`). `null` si no es utilizable. */
+export function parseOrder(raw: unknown, now = Date.now()): Order | null {
+  if (!isObj(raw)) return null;
+  if (!isStr(raw.id) || !isStr(raw.asset)) return null;
+  if (typeof raw.command !== 'string' || !ORDER_COMMANDS.has(raw.command)) return null;
+  if (typeof raw.status !== 'string' || !ORDER_STATUSES.has(raw.status)) return null;
+  const by = isObj(raw.requestedBy) ? raw.requestedBy : {};
+  const requestedAt = isNum(raw.requestedAt) ? raw.requestedAt : now;
+  const order: Order = {
+    id: raw.id,
+    plant: isStr(raw.plant) ? raw.plant : '',
+    asset: raw.asset,
+    command: raw.command as OrderCommand,
+    status: raw.status as OrderStatus,
+    requestedBy: { id: typeof by.id === 'string' ? by.id : '', email: typeof by.email === 'string' ? by.email : '' },
+    requestedAt,
+    updatedAt: isNum(raw.updatedAt) ? raw.updatedAt : requestedAt,
+  };
+  if (typeof raw.tag === 'string' && raw.tag) order.tag = raw.tag;
+  else if (raw.tag === null) order.tag = null;
+  if (isNum(raw.target)) order.target = raw.target;
+  if (isNum(raw.completedAt)) order.completedAt = raw.completedAt;
+  if (typeof raw.reason === 'string' && raw.reason.trim()) order.reason = raw.reason.trim().slice(0, 400);
+  return order;
 }
 
 const quality = (q: unknown): Quality => (q === 'uncertain' || q === 'bad' ? q : 'good');
@@ -55,7 +84,9 @@ export function parseServerMessage(raw: unknown, now = Date.now()): ServerMessag
     case 'telemetry': {
       if (!isStr(data.plant) || !isStr(data.asset)) return null;
       const st = assetState(data, now);
-      return st ? { type: 'telemetry', plant: data.plant, asset: data.asset, ...st } : null;
+      if (!st) return null;
+      // `ingestTs` (§13): reloj de la ingesta al recibir la muestra; base de la latencia extremo a extremo
+      return { type: 'telemetry', plant: data.plant, asset: data.asset, ...st, ...(isNum(data.ingestTs) && data.ingestTs > 0 ? { ingestTs: data.ingestTs } : {}) };
     }
     case 'alarm': {
       if (!isStr(data.id) || !isStr(data.plant) || !isStr(data.asset) || !isStr(data.metric)) return null;
@@ -88,6 +119,13 @@ export function parseServerMessage(raw: unknown, now = Date.now()): ServerMessag
     }
     case 'catalog':
       return isStr(data.plant) ? { type: 'catalog', plant: data.plant } : null;
+    case 'order': {
+      const order = parseOrder(data.order, now);
+      return order ? { type: 'order', order } : null;
+    }
+    case 'time':
+      // sincronización de reloj (§13): `{type:"time", t0, t1}`
+      return isNum(data.t0) ? { type: 'time', t0: data.t0, ...(isNum(data.t1) ? { t1: data.t1 } : {}) } : null;
     default:
       return null;
   }

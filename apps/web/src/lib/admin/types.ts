@@ -74,6 +74,8 @@ export interface AssetInput {
   type: AssetType;
   model3dRef?: string | null;
   metadata?: Record<string, unknown>;
+  /** Tag estándar (§14.1); `null` lo quita. Opcional: si no se envía, no cambia. */
+  tag?: string | null;
 }
 /** El id no se cambia. */
 export type AssetPatch = Partial<Omit<AssetInput, 'id'>>;

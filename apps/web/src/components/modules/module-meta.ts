@@ -1,5 +1,5 @@
 import type { ModuleId } from '@campo/shared';
-import { IconBolt, IconCube, IconFlame, IconGauge, IconGear, IconTank, IconThermo } from '../icons';
+import { IconBolt, IconControl, IconCube, IconFlame, IconGauge, IconGear, IconTank, IconThermo } from '../icons';
 
 export const MODULE_ICON: Record<ModuleId, (p: React.SVGProps<SVGSVGElement>) => React.JSX.Element> = {
   tanks: IconTank,
@@ -9,6 +9,7 @@ export const MODULE_ICON: Record<ModuleId, (p: React.SVGProps<SVGSVGElement>) =>
   machines: IconGear,
   flow: IconGauge,
   view3d: IconCube,
+  control: IconControl,
 };
 
 /** Nombre corto para la barra inferior móvil. */
@@ -20,4 +21,5 @@ export const MODULE_SHORT: Record<ModuleId, string> = {
   machines: 'Máquinas',
   flow: 'Presión',
   view3d: 'Vista 3D',
+  control: 'Control',
 };

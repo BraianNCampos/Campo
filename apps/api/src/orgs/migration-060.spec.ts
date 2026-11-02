@@ -19,18 +19,24 @@ const code = sql
 
 const quoted = (list: readonly string[]) => list.map((x) => `'${x}'`).join(', ');
 
+/** 060 es historia: fija los 7 módulos y los 10 tipos de entonces; `control` y silo/conveyor/structure llegan en 080. */
+const MODULES_060 = MODULE_IDS.filter((m) => m !== 'control');
+const TYPES_060 = Object.keys(ASSET_KINDS).filter(
+  (t) => !['silo', 'conveyor', 'structure'].includes(t),
+);
+
 describe('060_orgs.sql: coherencia con el código', () => {
-  it('los módulos del CHECK de organizations son exactamente MODULE_IDS', () => {
-    expect(code).toContain(`ARRAY[${quoted(MODULE_IDS)}]`);
+  it('los módulos del CHECK de organizations son los 7 de la fase 6 (MODULE_IDS sin `control`, que añade 080)', () => {
+    expect(code).toContain(`ARRAY[${quoted(MODULES_060)}]`);
     // campos-demo: todos los módulos
     expect(code).toMatch(
-      new RegExp(`'campos-demo',\\s+'Agroindustria Ejemplo',\\s+ARRAY\\[${quoted(MODULE_IDS)}\\]`),
+      new RegExp(`'campos-demo',\\s+'Agroindustria Ejemplo',\\s+ARRAY\\[${quoted(MODULES_060)}\\]`),
     );
     expect(code).toMatch(/'cliente-tanques',\s+'Cliente Solo Tanques',\s+ARRAY\['tanks'\]/);
   });
 
-  it('el CHECK de assets.type lista los 10 tipos de ASSET_KINDS', () => {
-    expect(code).toContain(`CHECK (type IN\n            (${quoted(Object.keys(ASSET_KINDS))}))`);
+  it('el CHECK de assets.type lista los 10 tipos de la fase 6 (ASSET_KINDS sin silo/conveyor/structure, que añade 080)', () => {
+    expect(code).toContain(`CHECK (type IN\n            (${quoted(TYPES_060)}))`);
   });
 
   it('el CHECK de users.role lista los roles de ROLES (incluido platform_admin)', () => {

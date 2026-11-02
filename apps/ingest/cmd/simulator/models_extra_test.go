@@ -289,8 +289,8 @@ func equalSeries(a, b []float64) bool {
 // ---- Perfiles por planta ----
 
 var wantMetrics = map[string][]string{
-	"tk-01": {"level", "temp"}, "tk-02": {"level", "temp"}, "tk-03": {"level", "temp"}, "tk-04": {"level", "temp"},
-	"pump-01": {"current", "rpm"}, "pump-02": {"current", "rpm"},
+	"tk-01": tankMetrics, "tk-02": tankMetrics, "tk-03": tankMetrics, "tk-04": tankMetrics,
+	"pump-01": {"current", "rpm", "sts"}, "pump-02": {"current", "rpm", "sts"},
 	"valve-01": {"position"}, "valve-02": {"position"},
 	"clima-01": {"humidity", "temp"}, "clima-02": {"humidity", "temp"},
 	"en-linea1": {"kw", "kwh", "pf"}, "en-compresores": {"kw", "kwh", "pf"}, "en-clima": {"kw", "kwh", "pf"}, "en-calderas": {"kw", "kwh", "pf"},
@@ -298,13 +298,20 @@ var wantMetrics = map[string][]string{
 	"maq-01": {"state"}, "maq-02": {"state"}, "maq-03": {"state"},
 	"pres-01": {"pressure"},
 	"cau-01":  {"flow"},
-	"tk-a":    {"level", "temp"}, "tk-b": {"level", "temp"},
+	"tk-a":    tankMetrics, "tk-b": tankMetrics,
+	"silo-01": tankMetrics, "silo-02": tankMetrics,
+	"conv-01": conveyorMetrics, "conv-02": conveyorMetrics,
 }
+
+var (
+	tankMetrics     = []string{"level", "level_sp", "mode", "sts", "temp"}
+	conveyorMetrics = []string{"current", "rpm", "state", "sts"}
+)
 
 var wantAssets = map[string][]string{
 	"demo": {"tk-01", "tk-02", "tk-03", "tk-04", "pump-01", "pump-02", "valve-01", "valve-02",
 		"clima-01", "clima-02", "en-linea1", "en-compresores", "en-clima", "en-calderas",
-		"gas-01", "maq-01", "maq-02", "maq-03", "pres-01", "cau-01"},
+		"gas-01", "maq-01", "maq-02", "maq-03", "pres-01", "cau-01", "silo-01", "silo-02", "conv-01", "conv-02"},
 	"tanques": {"tk-a", "tk-b"},
 }
 
@@ -334,8 +341,8 @@ func TestAssetIDsPerPlant(t *testing.T) {
 	// La carga escala sólo los heredados de demo.
 	p := testProfile(300)
 	p.tanks, p.pumps, p.valves = 10, 0, 0
-	if n := len(buildAssets("demo", p)); n != 10+12 {
-		t.Errorf("demo escalada: %d activos, se esperaban 22", n)
+	if n := len(buildAssets("demo", p)); n != 10+16 {
+		t.Errorf("demo escalada: %d activos, se esperaban 26", n)
 	}
 	if n := len(buildAssets("tanques", p)); n != 2 {
 		t.Errorf("tanques no debe escalar con -tanks: %d", n)
@@ -359,6 +366,7 @@ func TestEveryAssetMetricsAndRanges(t *testing.T) {
 	ranges := map[string]bounds{
 		"level": {0, 100}, "position": {0, 100}, "rpm": {0, 3000}, "current": {0, 40}, "temp": {0, 80},
 		"humidity": {35, 80}, "kw": {50, 180}, "pf": {0.88, 0.98}, "flow": {0, 40}, "state": {0, 1}, "pressure": {4, 9.5},
+		"level_sp": {0, 100}, "mode": {0, 1}, "sts": {0, 4},
 	}
 	for plant := range wantAssets {
 		for _, a := range buildAssets(plant, testProfile(120)) {

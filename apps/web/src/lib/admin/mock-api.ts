@@ -1,4 +1,4 @@
-import { ID_PATTERN, MODEL_REF_PATTERN, MODULE_IDS, moduleForAssetType } from '@campo/shared';
+import { ID_PATTERN, MODEL_REF_PATTERN, MODULE_IDS, TAG_PATTERN, moduleForAssetType } from '@campo/shared';
 import type { AssetDef, Limit, ManagedUser, Me, ModelInfo, ModuleId, Org, OrgSummary, Plant, Role } from '@campo/shared';
 import { getDemoOrgId, DEMO_ORGS, DEMO_PLANT_OF } from '@/lib/demo-org';
 import { DEMO_ASSETS } from '@/lib/demo-seed';
@@ -222,6 +222,23 @@ export class MockAdminApi implements AdminApi {
       }
     }
     return { errors, warnings, metadata };
+  }
+
+  /** Tag normalizado (mayúsculas) o `null`; un formato inválido suma un error 400. */
+  private checkTag(_plant: string, raw: unknown, errs: string[]): string | null {
+    if (raw === undefined || raw === null || raw === '') return null;
+    if (typeof raw !== 'string' || !TAG_PATTERN.test(raw.trim().toUpperCase())) {
+      errs.push(`tag must match ${TAG_PATTERN} regular expression`);
+      return null;
+    }
+    return raw.trim().toUpperCase();
+  }
+
+  /** Único por planta sin distinguir mayúsculas (409). */
+  private checkTagFree(plant: string, tag: string | null, selfId: string) {
+    if (tag && this.assets.some((a) => a.plant === plant && a.id !== selfId && a.tag?.toUpperCase() === tag)) {
+      this.fail(409, `El tag ${tag} ya lo usa otro activo de la planta`);
+    }
   }
 
   private seed() {
@@ -532,12 +549,15 @@ export class MockAdminApi implements AdminApi {
       }
       const body = this.checkAssetBody(plant, input.id, input.model3dRef, input.metadata);
       errs.push(...body.errors);
+      const tag = this.checkTag(plant, input.tag, errs);
       if (errs.length) this.fail(400, errs);
       this.checkModule(plant, input.type);
       if (this.assets.some((a) => a.plant === plant && a.id === input.id)) this.fail(409, 'El activo ya existe en esta planta');
+      this.checkTagFree(plant, tag, input.id);
       const asset: AssetDef = {
         plant, id: input.id, name: input.name.trim(), type: input.type,
         model3dRef: input.model3dRef ?? null, metadata: (body.metadata as Record<string, unknown> | undefined) ?? {},
+        ...(tag ? { tag } : {}),
       };
       this.assets.push(asset);
       this.record('asset.create', `asset:${plant}/${asset.id}`, { name: asset.name, type: asset.type }, this.now(), this.meUser, this.orgOfPlant(plant));
@@ -557,8 +577,10 @@ export class MockAdminApi implements AdminApi {
       if (patch.type !== undefined && !ASSET_TYPES.includes(patch.type)) errs.push(`type must be one of the following values: ${ASSET_TYPES.join(', ')}`);
       const body = this.checkAssetBody(plant, id, patch.model3dRef, patch.metadata, a.model3dRef);
       errs.push(...body.errors);
+      const tag = this.checkTag(plant, patch.tag, errs);
       if (errs.length) this.fail(400, errs);
       if (patch.type !== undefined && patch.type !== a.type) this.checkModule(plant, patch.type);
+      if (patch.tag !== undefined) this.checkTagFree(plant, tag, id);
       const changed = Object.keys(patch).filter((k) => patch[k as keyof AssetPatch] !== undefined);
       Object.assign(a, {
         ...(patch.name !== undefined && { name: patch.name.trim() }),
@@ -566,6 +588,10 @@ export class MockAdminApi implements AdminApi {
         ...(patch.model3dRef !== undefined && { model3dRef: patch.model3dRef }),
         ...(patch.metadata !== undefined && { metadata: body.metadata as Record<string, unknown> }),
       });
+      if (patch.tag !== undefined) {
+        if (tag) a.tag = tag;
+        else delete a.tag;
+      }
       this.record('asset.update', `asset:${plant}/${id}`, { changed }, this.now(), this.meUser, this.orgOfPlant(plant));
       this.changed(plant);
       return { ...a, ...(body.warnings.length > 0 && { warnings: body.warnings }) } as AssetResult;

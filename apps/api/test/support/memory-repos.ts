@@ -35,7 +35,12 @@ import { AlarmRulesRepository } from '../../src/alarms/alarm-rules.repository';
 import { AlarmsRepository, ListAlarmsFilter } from '../../src/alarms/alarms.repository';
 import { AuditRepository, AuditQuery, NewAuditEntry } from '../../src/audit/audit.repository';
 import { ModelsRepository, NewModel } from '../../src/models/models.repository';
-import { Asset, AssetPatch, AssetsRepository } from '../../src/plants/assets.repository';
+import {
+  Asset,
+  AssetPatch,
+  AssetTagTakenError,
+  AssetsRepository,
+} from '../../src/plants/assets.repository';
 import { PlantFilter, PlantsRepository, RemoveResult } from '../../src/plants/plants.repository';
 import {
   NewUser,
@@ -204,8 +209,18 @@ export class MemoryAssetsRepository extends AssetsRepository {
     return Promise.resolve(this.assets.find((a) => a.plant === plant && a.id === id) ?? null);
   }
 
+  findByTag(plant: string, tag: string): Promise<Asset | null> {
+    return Promise.resolve(
+      this.assets.find((a) => a.plant === plant && a.tag?.toLowerCase() === tag.toLowerCase()) ??
+        null,
+    );
+  }
+
   async create(asset: Asset): Promise<Asset | null> {
     if (await this.get(asset.plant, asset.id)) return null;
+    if (asset.tag && (await this.findByTag(asset.plant, asset.tag))) {
+      throw new AssetTagTakenError(asset.tag);
+    }
     this.assets.push({ ...asset });
     return { ...asset };
   }
@@ -213,6 +228,10 @@ export class MemoryAssetsRepository extends AssetsRepository {
   async update(plant: string, id: string, patch: AssetPatch): Promise<Asset | null> {
     const cur = this.assets.find((a) => a.plant === plant && a.id === id);
     if (!cur) return null;
+    if (patch.tag) {
+      const other = await this.findByTag(plant, patch.tag);
+      if (other && other.id !== id) throw new AssetTagTakenError(patch.tag);
+    }
     const defined = Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined));
     Object.assign(cur, defined);
     return Promise.resolve({ ...cur });

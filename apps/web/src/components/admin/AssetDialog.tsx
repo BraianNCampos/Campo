@@ -10,12 +10,14 @@ import { formatBytes } from '@/lib/admin/models';
 import type { AssetResult } from '@/lib/admin/types';
 import {
   domainFormFrom,
+  emptyControlForm,
   domainFromMetadataText,
   fieldsFromMetadataText,
   isTypeAllowed,
   layoutFormFrom,
   parseMetadata,
   scaleMetricsFor,
+  supportsControl,
   syncDomainIntoText,
   syncMetadataText,
   validateAssetForm,
@@ -27,6 +29,7 @@ import {
   type LayoutForm,
 } from '@/lib/admin/validation';
 import { parseConnectsTo } from '@/lib/catalog';
+import { nextFreeTag, TAG_HELP } from '@/lib/tags';
 import { toast } from '@/store/toast-store';
 import { CheckField, SelectField, TextAreaField, TextField } from './fields';
 import { useSubmit } from './hooks';
@@ -39,13 +42,16 @@ export const typeLabel = (t: AssetType) => ASSET_KINDS[t]?.label ?? t;
 
 const UPLOAD = '__upload__';
 /** Tamaño sugerido (m) del GLB normalizado a 1 unidad, según el tipo. */
-const SCALE_HINT: Record<AssetType, string> = { tank: '3,5', pump: '2,5', valve: '1,2', sensor: '0,6', climate: '0,6', energy: '1,2', gas: '1,5', machine: '2,5', pressure: '0,6', flow: '0,8' };
+const SCALE_HINT: Record<AssetType, string> = {
+  tank: '3,5', silo: '6', conveyor: '8', structure: '14', pump: '2,5', valve: '1,2', sensor: '0,6', climate: '0,6', energy: '1,2', gas: '1,5', machine: '2,5', pressure: '0,6', flow: '0,8',
+};
 
-function initialForm(asset?: AssetDef): AssetForm {
+function initialForm(asset: AssetDef | undefined, taken: readonly (string | null | undefined)[]): AssetForm {
   const meta = asset?.metadata ?? {};
   return {
     id: asset?.id ?? '',
     name: asset?.name ?? '',
+    tag: asset ? (asset.tag ?? '') : nextFreeTag('tank', taken),
     type: asset?.type ?? 'tank',
     model3dRef: asset?.model3dRef ?? '',
     layout: layoutFormFrom(meta),
@@ -86,13 +92,17 @@ export function AssetDialog({
   onModelUploaded: (m: ModelInfo) => void;
 }) {
   const editing = !!asset;
-  const [form, setForm] = useState<AssetForm>(() => initialForm(asset));
+  const takenTags = useMemo(() => assets.map((a) => a.tag), [assets]);
+  const [form, setForm] = useState<AssetForm>(() => initialForm(asset, assets.map((a) => a.tag)));
+  const [tagTouched, setTagTouched] = useState(false);
   const [errors, setErrors] = useState<FieldErrors>({});
   const [metaTouched, setMetaTouched] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [uploadMode, setUploadMode] = useState(false);
   const { busy, error, run, clearError } = useSubmit();
   const set = <K extends keyof AssetForm>(k: K, v: AssetForm[K]) => setForm((f) => ({ ...f, [k]: v }));
+  const suggestedTag = nextFreeTag((form.type || 'tank') as AssetType, takenTags);
+  const controlContracted = !modules || modules.includes('control');
 
   const liveMeta = parseMetadata(form.metadataText);
   const jsonOk = liveMeta.ok;
@@ -143,7 +153,7 @@ export function AssetDialog({
 
   async function submit(e: FormEvent) {
     e.preventDefault();
-    const { errors: errs, value } = validateAssetForm(form, { editing, keepRef: asset?.model3dRef, modules, originalType: asset?.type });
+    const { errors: errs, value } = validateAssetForm(form, { editing, keepRef: asset?.model3dRef, modules, originalType: asset?.type, others: assets });
     setErrors(errs);
     setSubmitted(true);
     setMetaTouched(true);
@@ -153,6 +163,7 @@ export function AssetDialog({
       asset
         ? api.updateAsset(plant, asset.id, {
             name: value.name,
+            ...(value.tag !== (asset.tag ?? null) && { tag: value.tag }),
             ...(value.type !== asset.type && { type: value.type }),
             metadata: value.metadata,
             // el valor antiguo (texto libre) sólo se reenvía si se cambia; si no, se omite
@@ -185,6 +196,35 @@ export function AssetDialog({
           />
           <TextField label="Nombre" value={form.name} onChange={(e) => set('name', e.target.value)} error={errors.name} autoComplete="off" data-autofocus={editing ? '' : undefined} />
         </div>
+        <div className="grid items-start gap-4 sm:grid-cols-2">
+          <TextField
+            label="Tag"
+            value={form.tag ?? ''}
+            onChange={(e) => {
+              setTagTouched(true);
+              set('tag', e.target.value.toUpperCase());
+            }}
+            error={errors.tag}
+            autoComplete="off"
+            autoCapitalize="characters"
+            spellCheck={false}
+            placeholder={suggestedTag}
+            data-testid="asset-tag"
+            hint={`${TAG_HELP} Opcional; se muestra junto al nombre en toda la interfaz.`}
+          />
+          {(form.tag ?? '') !== suggestedTag && (
+            <div className="flex items-end sm:pt-6">
+              <Button
+                onClick={() => {
+                  setTagTouched(true);
+                  set('tag', suggestedTag);
+                }}
+              >
+                Usar el siguiente libre: <span className="font-mono">{suggestedTag}</span>
+              </Button>
+            </div>
+          )}
+        </div>
         <div className="grid gap-4 sm:grid-cols-2">
           <SelectField
             label="Tipo"
@@ -192,7 +232,8 @@ export function AssetDialog({
             onChange={(e) => {
               clearError();
               setErrors((x) => ({ ...x, type: '' }));
-              setForm((f) => ({ ...f, type: e.target.value as AssetType }));
+              const type = e.target.value as AssetType;
+              setForm((f) => ({ ...f, type, ...(!editing && !tagTouched && { tag: nextFreeTag(type, takenTags) }) }));
             }}
             error={errors.type || moduleError}
             hint={blocked.length > 0 ? 'Los tipos marcados como «no contratado» necesitan un módulo que no está contratado. Para sumarlo, contactá a Campos Ingeniería.' : undefined}
@@ -269,11 +310,11 @@ export function AssetDialog({
           {!jsonOk && <p className="mt-2 text-xs text-warn">Corregí el JSON de metadatos para editar estos campos.</p>}
         </fieldset>
 
-        {form.domain && (form.type === 'tank' || form.type === 'energy' || scaleMetricsFor(form.type).length > 0) && (
+        {form.domain && (form.type === 'tank' || form.type === 'silo' || form.type === 'energy' || supportsControl(form.type) || scaleMetricsFor(form.type).length > 0) && (
           <fieldset className="rounded-xl border border-line p-3" disabled={!jsonOk} data-testid="domain-fields">
             <legend className="px-1 text-sm font-semibold">Datos del equipo (opcionales)</legend>
             <div className="grid gap-3 sm:grid-cols-2">
-              {form.type === 'tank' && (
+              {(form.type === 'tank' || form.type === 'silo') && (
                 <TextField
                   label="Capacidad (m³)"
                   inputMode="decimal"
@@ -298,6 +339,53 @@ export function AssetDialog({
                 />
               )}
             </div>
+            {supportsControl(form.type) && (
+              <fieldset className="mt-3 rounded-lg border border-line p-3" data-testid="control-fields">
+                <legend className="px-1 text-sm font-semibold">Control de llenado</legend>
+                <CheckField
+                  label="Habilitar órdenes de llenado, vaciado y detención"
+                  checked={form.domain.control?.enabled ?? false}
+                  disabled={!controlContracted}
+                  data-testid="control-enabled"
+                  onChange={(e) => setDomain((d) => ({ ...d, control: { ...(d.control ?? emptyControlForm()), enabled: e.target.checked } }))}
+                />
+                {!controlContracted && (
+                  <p className="mt-1 text-xs text-muted">El módulo «Control de llenado» no está contratado. Para sumarlo, contactá a Campos Ingeniería.</p>
+                )}
+                <div className="mt-3 grid gap-3 sm:grid-cols-3">
+                  <TextField
+                    label="Objetivo mínimo (%)"
+                    inputMode="decimal"
+                    autoComplete="off"
+                    value={form.domain.control?.minTarget ?? ''}
+                    onChange={(e) => setDomain((d) => ({ ...d, control: { ...(d.control ?? emptyControlForm()), minTarget: e.target.value } }))}
+                    error={domainErrors.controlMin}
+                    placeholder="5"
+                  />
+                  <TextField
+                    label="Objetivo máximo (%)"
+                    inputMode="decimal"
+                    autoComplete="off"
+                    value={form.domain.control?.maxTarget ?? ''}
+                    onChange={(e) => setDomain((d) => ({ ...d, control: { ...(d.control ?? emptyControlForm()), maxTarget: e.target.value } }))}
+                    error={domainErrors.controlMax}
+                    placeholder="95"
+                  />
+                  <TextField
+                    label="Duración máxima (min)"
+                    inputMode="numeric"
+                    autoComplete="off"
+                    value={form.domain.control?.maxDurationMinutes ?? ''}
+                    onChange={(e) => setDomain((d) => ({ ...d, control: { ...(d.control ?? emptyControlForm()), maxDurationMinutes: e.target.value } }))}
+                    error={domainErrors.controlDuration}
+                    placeholder="120"
+                  />
+                </div>
+                <p className="mt-2 text-xs text-muted">
+                  Una orden no puede llevar el nivel fuera de este rango, y se corta sola si supera la duración máxima. Sólo ingenieros y administradores pueden cambiarlo.
+                </p>
+              </fieldset>
+            )}
             {scaleMetricsFor(form.type).length > 0 && (
               <div className="mt-3 flex flex-col gap-3">
                 <p className="text-xs text-muted">Rango de las barras. Si lo dejás vacío se usa el habitual de cada medida.</p>
@@ -347,7 +435,7 @@ export function AssetDialog({
           error={metaError}
           spellCheck={false}
           placeholder='{"capacityM3": 60}'
-          hint="Objeto JSON con datos libres del equipo. Incluye layout, connectsTo, capacityM3, contractedKw y scale, que se mantienen sincronizados con los campos de arriba."
+          hint="Objeto JSON con datos libres del equipo. Incluye layout, connectsTo, capacityM3, contractedKw, scale y control, que se mantienen sincronizados con los campos de arriba."
 
         />
         {!moduleError && <ApiErrorAlert error={error} />}

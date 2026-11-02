@@ -23,7 +23,7 @@ import (
 func quietLogger() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)) }
 
 // authHook replica la política de §8.2: usuarios con contraseña; `ingest` sólo lee y cada
-// planta (usuario = id de planta) sólo publica en campo/v1/{usuario}/+/telemetry.
+// planta (usuario = id de planta) sólo publica en campo/v1/{usuario}/+/telemetry (y cmd/ack, y lee cmd).
 // Anota qué usuarios se autenticaron.
 type authHook struct {
 	mochi.HookBase
@@ -51,11 +51,24 @@ func (h *authHook) OnConnectAuthenticate(cl *mochi.Client, pk packets.Packet) bo
 
 func (h *authHook) OnACLCheck(cl *mochi.Client, topic string, write bool) bool {
 	user := string(cl.Properties.Username)
-	if user == "ingest" {
+	n := strings.Count(topic, "/")
+	switch user {
+	case "ingest":
 		return !write
+	case "api": // §14.4: escribe campo/v1/+/+/cmd, lee campo/v1/+/+/cmd/ack
+		if write {
+			return n == 4 && strings.HasSuffix(topic, "/cmd")
+		}
+		return n == 5 && strings.HasSuffix(topic, "/cmd/ack")
 	}
-	return write && strings.HasPrefix(topic, "campo/v1/"+user+"/") && strings.HasSuffix(topic, "/telemetry") &&
-		strings.Count(topic, "/") == 4
+	if !strings.HasPrefix(topic, "campo/v1/"+user+"/") {
+		return false
+	}
+	// Planta: escribe telemetry y cmd/ack propios, lee cmd propios.
+	if write {
+		return (n == 4 && strings.HasSuffix(topic, "/telemetry")) || (n == 5 && strings.HasSuffix(topic, "/cmd/ack"))
+	}
+	return n == 4 && strings.HasSuffix(topic, "/cmd")
 }
 
 func (h *authHook) authenticated() []string {
@@ -103,11 +116,12 @@ type collector struct {
 	last     map[string]parser.Reading // "planta/activo" -> última lectura válida
 	dropped  []parser.Reason
 	badTopic int
+	watch    map[string][]parser.Reading // "planta/activo" -> historial completo (sólo los pedidos con track)
 }
 
 func subscribe(t *testing.T, broker, user, pass string) *collector {
 	t.Helper()
-	c := &collector{last: map[string]parser.Reading{}}
+	c := &collector{last: map[string]parser.Reading{}, watch: map[string][]parser.Reading{}}
 	opts := mqtt.NewClientOptions().AddBroker(broker).SetClientID("collector-" + t.Name()).SetCleanSession(true)
 	if user != "" {
 		opts.SetUsername(user).SetPassword(pass)
@@ -134,6 +148,26 @@ func subscribe(t *testing.T, broker, user, pass string) *collector {
 		t.Fatalf("suscripción: %v", tok.Error())
 	}
 	return c
+}
+
+// track empieza a guardar todas las lecturas de un activo ("planta/activo").
+func (c *collector) track(key string) {
+	c.mu.Lock()
+	c.watch[key] = nil
+	c.mu.Unlock()
+}
+
+func (c *collector) history(key string) []parser.Reading {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]parser.Reading(nil), c.watch[key]...)
+}
+
+func (c *collector) lastOf(key string) (parser.Reading, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	r, ok := c.last[key]
+	return r, ok
 }
 
 func (c *collector) keys() []string {

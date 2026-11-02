@@ -232,3 +232,35 @@ func (f *flowMeter) step(dt float64) map[string]float64 {
 	v := 22 + 10*math.Sin(2*math.Pi*f.t/900+f.phase) + f.slow.next(f.rng, dt, 120, 2) + noise(f.rng, 0.8)
 	return map[string]float64{"flow": round2(clamp(v, 5, 40))}
 }
+
+// ---- Cinta transportadora: marcha/paro, rpm con inercia y corriente proporcional ----
+//
+// No admite órdenes (§14.3 sólo define tanque/silo, bomba y válvula). `state` es la marcha lógica 0/1
+// (cambia cada varios minutos, como una máquina) y `sts` el estado §14.1 (3 en marcha, 0 inactivo).
+
+const conveyorNominalRPM = 1450.0
+
+type conveyor struct {
+	rng *rand.Rand
+	m   *machine
+	rpm float64
+}
+
+func newConveyor(rng *rand.Rand, onProb, meanOn, meanOff float64) *conveyor {
+	c := &conveyor{rng: rng, m: newMachine(rng, onProb, meanOn, meanOff)}
+	if c.m.on {
+		c.rpm = conveyorNominalRPM
+	}
+	return c
+}
+
+func (c *conveyor) step(dt float64) map[string]float64 {
+	state := c.m.step(dt)["state"]
+	c.rpm = lag(c.rpm, conveyorNominalRPM*state, 0.4, dt)
+	rpm := math.Max(0, c.rpm+noise(c.rng, 2))
+	current := math.Max(0, 8*(c.rpm/conveyorNominalRPM)+noise(c.rng, 0.1))
+	if state == 0 && c.rpm < 5 {
+		rpm, current = 0, 0
+	}
+	return map[string]float64{"state": state, "rpm": round2(rpm), "current": round2(current), "sts": state * 3}
+}

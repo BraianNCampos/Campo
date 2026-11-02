@@ -4,10 +4,20 @@ import type { AssetState, AssetType } from '@campo/shared';
 export type AssetKind = AssetType | 'other';
 
 const KIND_ORDER: Record<AssetKind, number> = {
-  tank: 0, pump: 1, valve: 2, climate: 3, energy: 4, gas: 5, machine: 6, pressure: 7, flow: 8, sensor: 9, other: 10,
+  tank: 0, silo: 1, pump: 2, valve: 3, climate: 4, energy: 5, gas: 6, machine: 7, conveyor: 8, pressure: 9, flow: 10, sensor: 11, structure: 12, other: 13,
 };
 
+/** Tanques y silos se tratan igual: nivel, capacidad, llenado (docs §13-14). */
+export const isTankLike = (k: AssetKind | undefined): k is 'tank' | 'silo' => k === 'tank' || k === 'silo';
+/** Máquinas y cintas transportadoras: estado en marcha / detenida. */
+export const isMachineLike = (k: AssetKind | undefined): k is 'machine' | 'conveyor' => k === 'machine' || k === 'conveyor';
+/** Las estructuras son decorativas: sin telemetría ni métrica. */
+export const isStructure = (k: AssetKind | undefined): boolean => k === 'structure';
+
 export function assetKind(id: string, values?: Record<string, number>): AssetKind {
+  if (/^(silo)/i.test(id)) return 'silo';
+  if (/^(conv|cinta)/i.test(id)) return 'conveyor';
+  if (/^(nave|struct|estructura)/i.test(id)) return 'structure';
   if (/^(tk|tank|tanque)/i.test(id)) return 'tank';
   if (/^(pump|pmp|bomba)/i.test(id)) return 'pump';
   if (/^(valve|vlv|valvula)/i.test(id)) return 'valve';
@@ -21,6 +31,9 @@ export function assetKind(id: string, values?: Record<string, number>): AssetKin
 
 const KIND_LABEL: Record<AssetKind, string> = {
   tank: 'Tanque',
+  silo: 'Silo',
+  conveyor: 'Cinta transportadora',
+  structure: 'Estructura',
   pump: 'Bomba',
   valve: 'Válvula',
   sensor: 'Sensor',
@@ -34,6 +47,9 @@ const KIND_LABEL: Record<AssetKind, string> = {
 };
 const KIND_PLURAL: Record<AssetKind, string> = {
   tank: 'Tanques',
+  silo: 'Silos',
+  conveyor: 'Cintas transportadoras',
+  structure: 'Estructuras',
   pump: 'Bombas',
   valve: 'Válvulas',
   sensor: 'Sensores',

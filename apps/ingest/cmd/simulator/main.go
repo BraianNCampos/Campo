@@ -56,6 +56,7 @@ type options struct {
 	excursion  time.Duration
 	seed       uint64
 	statsEvery time.Duration
+	cmdSpeed   float64 // multiplicador de la velocidad de llenado/vaciado por orden (1 = normal; 0 se toma como 1)
 }
 
 func envOr[T any](key string, def T, parse func(string) (T, error)) T {
@@ -88,6 +89,7 @@ func main() {
 	flag.DurationVar(&o.duration, "duration", envOr("SIM_DURATION", 0, time.ParseDuration), "duración; 0 = hasta SIGINT (env SIM_DURATION)")
 	flag.DurationVar(&o.excursion, "excursion-every", envOr("SIM_EXCURSION_EVERY", 5*time.Minute, time.ParseDuration), "media entre excursiones por activo; 0 las desactiva (env SIM_EXCURSION_EVERY)")
 	flag.Uint64Var(&o.seed, "seed", uint64(time.Now().UnixNano()), "semilla del generador aleatorio")
+	flag.Float64Var(&o.cmdSpeed, "cmd-speed", envOr("SIM_CMD_SPEED", 1.0, func(s string) (float64, error) { return strconv.ParseFloat(s, 64) }), "multiplicador de la velocidad de llenado/vaciado de las órdenes de control; 1 = normal (env SIM_CMD_SPEED)")
 	flag.DurationVar(&o.statsEvery, "stats", 5*time.Second, "intervalo del resumen de throughput")
 	flag.Parse()
 
@@ -113,8 +115,8 @@ func main() {
 // resolve completa y valida las opciones tras flag.Parse: plantas, credenciales por planta
 // y coherencia general. getenv se inyecta para poder probarlo.
 func (o *options) resolve(plantsFlag, plantFlag string, getenv func(string) string) error {
-	if o.rate <= 0 || o.conns < 1 || o.qos < 0 || o.qos > 2 || o.tanks < 0 || o.pumps < 0 || o.valves < 0 {
-		return errors.New("rate>0, conns>=1, qos 0..2 y cantidades >= 0")
+	if o.rate <= 0 || o.conns < 1 || o.qos < 0 || o.qos > 2 || o.tanks < 0 || o.pumps < 0 || o.valves < 0 || o.cmdSpeed < 0 || o.cmdSpeed > 1000 {
+		return errors.New("rate>0, conns>=1, qos 0..2, cantidades >= 0 y cmd-speed en 0..1000")
 	}
 	plants, err := parsePlants(pickPlants(plantsFlag, plantFlag, getenv("SIM_PLANTS"), getenv("SIM_PLANT")))
 	if err != nil {
@@ -147,7 +149,7 @@ func (o *options) resolve(plantsFlag, plantFlag string, getenv func(string) stri
 }
 
 func (o options) profile(start time.Time) profile {
-	return profile{seed: o.seed, meanExc: o.excursion.Seconds(), start: start, tanks: o.tanks, pumps: o.pumps, valves: o.valves}
+	return profile{seed: o.seed, meanExc: o.excursion.Seconds(), start: start, tanks: o.tanks, pumps: o.pumps, valves: o.valves, cmdSpeed: o.cmdSpeed}
 }
 
 type payload struct {
@@ -180,6 +182,40 @@ type publisher struct {
 	plant  string
 	asset  asset
 	client mqtt.Client
+	cmds   chan command // órdenes de control para este activo (ver control.go)
+}
+
+// subscribeCommands suscribe una conexión de la planta a sus órdenes (campo/v1/{planta}/+/cmd, §14.4)
+// cada vez que (re)conecta. Las credenciales son las de la planta: el ACL le permite leer cmd y escribir cmd/ack.
+func subscribeCommands(opts *mqtt.ClientOptions, plant string, router *commandRouter, log *slog.Logger) {
+	filter := fmt.Sprintf("campo/v1/%s/+/cmd", plant)
+	opts.SetOnConnectHandler(func(c mqtt.Client) {
+		tok := c.Subscribe(filter, 1, func(_ mqtt.Client, m mqtt.Message) {
+			cmd, ok := router.dispatch(m.Topic(), m.Payload())
+			if !ok {
+				log.Debug("orden descartada", "topic", m.Topic(), "id", cmd.ID)
+			}
+		})
+		go func() {
+			if tok.Wait(); tok.Error() != nil {
+				log.Warn("no se pudo suscribir a las órdenes", "topic", filter, "err", tok.Error())
+			}
+		}()
+	})
+}
+
+// publishAcks publica los acks de un activo en orden, en campo/v1/{planta}/{activo}/cmd/ack (QoS 1).
+func publishAcks(p publisher, acks []ack, log *slog.Logger) {
+	topic := fmt.Sprintf("campo/v1/%s/%s/cmd/ack", p.plant, p.asset.id)
+	for _, a := range acks {
+		body, _ := json.Marshal(a.payload(time.Now()))
+		tok := p.client.Publish(topic, 1, false, body)
+		if !tok.WaitTimeout(5*time.Second) || tok.Error() != nil {
+			log.Warn("no se pudo publicar el ack", "topic", topic, "id", a.ID, "status", a.Status)
+			continue
+		}
+		log.Info("ack", "plant", p.plant, "asset", p.asset.id, "id", a.ID, "status", a.Status, "reason", a.Reason)
+	}
 }
 
 // run conecta una o varias conexiones por planta (cada una con SUS credenciales), publica
@@ -188,6 +224,7 @@ func run(ctx context.Context, o options, log *slog.Logger) error {
 	start := time.Now()
 	var clients []mqtt.Client
 	var pubs []publisher
+	router := newCommandRouter()
 	for _, plant := range o.plants {
 		cred, ok := o.creds[plant]
 		if !ok { // resolve() lo garantiza; esto evita publicar nunca con credenciales ajenas
@@ -202,12 +239,20 @@ func run(ctx context.Context, o options, log *slog.Logger) error {
 			if err != nil {
 				return fmt.Errorf("configuración TLS inválida: %w", err)
 			}
+			if i == 0 { // una conexión por planta recibe las órdenes
+				subscribeCommands(opts, plant, router, log)
+			}
 			pc[i] = mqtt.NewClient(opts)
-			pc[i].Connect()
 		}
 		clients = append(clients, pc...)
+		// Las rutas de órdenes se registran antes de conectar: un mensaje temprano ya tiene destino.
 		for i, a := range buildAssets(plant, o.profile(start)) {
-			pubs = append(pubs, publisher{plant: plant, asset: a, client: pc[i%len(pc)]})
+			ch := make(chan command, 16)
+			router.register(plant, a.id, ch)
+			pubs = append(pubs, publisher{plant: plant, asset: a, client: pc[i%len(pc)], cmds: ch})
+		}
+		for _, c := range pc {
+			c.Connect()
 		}
 	}
 	defer func() {
@@ -280,10 +325,21 @@ func run(ctx context.Context, o options, log *slog.Logger) error {
 					sent.Add(1)
 				}
 
-				select {
-				case <-ctx.Done():
-					return
-				case <-tick.C:
+				publishAcks(p, pendingAcks(p.asset.model), log)
+
+				// Espera al próximo tick atendiendo órdenes: se responden al instante y mutan el
+				// modelo en esta misma goroutine (sin locks).
+			wait:
+				for {
+					select {
+					case <-ctx.Done():
+						return
+					case <-tick.C:
+						break wait
+					case c := <-p.cmds:
+						log.Info("orden", "plant", p.plant, "asset", p.asset.id, "id", c.ID, "command", c.Command, "by", c.By)
+						publishAcks(p, handleCommand(p.asset.model, c, time.Now()), log)
+					}
 				}
 			}
 		}()

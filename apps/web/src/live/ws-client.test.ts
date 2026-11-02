@@ -12,11 +12,15 @@ class FakeWs implements WsLike {
   constructor(readonly url: string) {
     FakeWs.all.push(this);
   }
+  sent: unknown[] = [];
   close() {
     this.closed = true;
   }
+  send(data: string) {
+    this.sent.push(JSON.parse(data));
+  }
   open() { this.onopen?.({}); }
-  send(obj: unknown) { this.onmessage?.({ data: JSON.stringify(obj) }); }
+  serve(obj: unknown) { this.onmessage?.({ data: JSON.stringify(obj) }); }
   drop(code = 1006) { this.onclose?.({ code }); }
 }
 
@@ -50,9 +54,9 @@ describe('LiveClient', () => {
     const ws = FakeWs.all[0]!;
     expect(ws.url).toContain('token=t');
     ws.open();
-    ws.send(snapshot);
+    ws.serve(snapshot);
     ws.onmessage?.({ data: 'no-json' });
-    ws.send({ type: 'desconocido' });
+    ws.serve({ type: 'desconocido' });
     expect(messages).toHaveLength(1);
     expect(statuses.map((s) => s[0])).toEqual(['connecting', 'open']);
   });
@@ -74,7 +78,7 @@ describe('LiveClient', () => {
     expect(FakeWs.all).toHaveLength(3); // 2º tras 2000 ms
 
     FakeWs.all[2]!.open();
-    FakeWs.all[2]!.send(snapshot); // conexión sana → attempt=0
+    FakeWs.all[2]!.serve(snapshot); // conexión sana → attempt=0
     FakeWs.all[2]!.drop();
     vi.advanceTimersByTime(1000);
     expect(FakeWs.all).toHaveLength(4); // vuelve a 1000 ms
@@ -130,5 +134,72 @@ describe('LiveClient', () => {
     FakeWs.all[0]!.drop();
     client.retryNow();
     expect(FakeWs.all).toHaveLength(2);
+  });
+
+  describe('sincronización de reloj (§13)', () => {
+    const sink = () => {
+      const calls = { sync: [] as number[][], ingest: [] as [string, number][], resets: 0 };
+      return {
+        calls,
+        latency: {
+          addSync: (a: number, b: number, c: number) => calls.sync.push([a, b, c]),
+          noteIngest: (asset: string, ts: number) => calls.ingest.push([asset, ts]),
+          reset: () => calls.resets++,
+        },
+      };
+    };
+
+    it('envía {type:time,t0} al conectar y cada 10 s', () => {
+      const { latency } = sink();
+      let clock = 1000;
+      const { client } = make({ latency, now: () => clock });
+      client.start();
+      const ws = FakeWs.all[0]!;
+      ws.open();
+      expect(ws.sent).toEqual([{ type: 'time', t0: 1000 }]);
+      clock = 11_000;
+      vi.advanceTimersByTime(10_000);
+      expect(ws.sent).toEqual([{ type: 'time', t0: 1000 }, { type: 'time', t0: 11_000 }]);
+      client.stop();
+      vi.advanceTimersByTime(30_000);
+      expect(ws.sent).toHaveLength(2); // parado: no sigue enviando
+    });
+
+    it('la respuesta se procesa internamente (no llega a onMessage) con t2 = reloj local', () => {
+      const { latency, calls } = sink();
+      let clock = 1000;
+      const { client, messages } = make({ latency, now: () => clock });
+      client.start();
+      const ws = FakeWs.all[0]!;
+      ws.open();
+      clock = 1100;
+      ws.serve({ type: 'time', t0: 1000, t1: 5050 });
+      expect(messages).toHaveLength(0);
+      expect(calls.sync).toEqual([[1000, 5050, 1100]]);
+    });
+
+    it('anota el ingestTs de la telemetría pero la entrega sin modificar', () => {
+      const { latency, calls } = sink();
+      const { client, messages } = make({ latency });
+      client.start();
+      const ws = FakeWs.all[0]!;
+      ws.open();
+      ws.serve({ type: 'telemetry', plant: 'demo', asset: 'tk-01', ts: 5, quality: 'good', values: { level: 50 }, ingestTs: 1234 });
+      ws.serve({ type: 'telemetry', plant: 'demo', asset: 'tk-02', ts: 6, quality: 'good', values: { level: 40 } });
+      expect(messages).toHaveLength(2);
+      expect(calls.ingest).toEqual([['tk-01', 1234]]);
+    });
+
+    it('ignora respuestas de tiempo mal formadas', () => {
+      const { latency, calls } = sink();
+      const { client, messages } = make({ latency });
+      client.start();
+      const ws = FakeWs.all[0]!;
+      ws.open();
+      ws.serve({ type: 'time', t0: 'x' });
+      ws.serve({ type: 'time', t0: 1 });
+      expect(calls.sync).toHaveLength(0);
+      expect(messages).toHaveLength(0);
+    });
   });
 });
