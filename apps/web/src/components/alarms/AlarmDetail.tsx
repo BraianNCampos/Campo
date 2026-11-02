@@ -12,6 +12,7 @@ import { useLiveStore } from '@/store/live-store';
 import { useLoad } from '../admin/hooks';
 import { focusableIn, nextFocusTarget } from '../admin/focus';
 import { ApiErrorAlert, LoadingBlock } from '../admin/ui';
+import { AssetTag } from '../AssetTag';
 import { IconCheck, IconClose, IconPause, IconRules } from '../icons';
 import { KindBadge, LifecycleBadge, PriorityBadge } from './badges';
 import { alarmTitle, effectiveKind, limitText, remainingText, trendHref, unitOf, valueText } from './model';
@@ -131,7 +132,7 @@ export function AlarmDetail(p: DetailProps) {
         <div className="flex items-start justify-between gap-3 border-b border-line px-5 pt-4 pb-3">
           <div className="min-w-0">
             <h2 id="alarm-detail-title" className="text-lg font-bold">{p.name}</h2>
-            <p className="font-mono text-xs text-muted">{a.asset} · {m?.label ?? a.metric}</p>
+            <p className="font-mono text-xs text-muted"><AssetTag id={a.asset} className="text-xs" /> · {m?.label ?? a.metric}</p>
             <div className="mt-2 flex flex-wrap gap-1.5">
               <PriorityBadge severity={a.severity} />
               <KindBadge kind={effectiveKind(a)} />

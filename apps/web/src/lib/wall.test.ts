@@ -37,7 +37,7 @@ describe('modo pared: rotación', () => {
   it('rotan los módulos activos con tarjetas (sin Vista 3D) y respetan el cliente', () => {
     expect(wallModules(MODULE_IDS).map((m) => m.id)).toEqual(['tanks', 'climate', 'energy', 'gas', 'machines', 'flow']);
     expect(wallModules(['tanks']).map((m) => m.id)).toEqual(['tanks']);
-    expect(wallModules(['view3d'])).toEqual([]);
+    expect(wallModules(['view3d', 'control'])).toEqual([]);
   });
 });
 

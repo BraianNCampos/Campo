@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo } from 'react';
-import { kindLabel, kindPlural, primaryMetric, resolveKind, type AssetKind } from '@/lib/assets';
+import { isStructure, kindLabel, kindPlural, primaryMetric, resolveKind, type AssetKind } from '@/lib/assets';
 import { formatMetric } from '@/lib/metrics';
 import { STATUS_META } from '@/lib/status';
 import { useLiveStore } from '@/store/live-store';
@@ -12,7 +12,7 @@ import { UncatalogedTag } from './StatusBadge';
 import { useAsset } from './useAsset';
 
 function Row({ id }: { id: string }) {
-  const { state, kind, status, name, uncataloged } = useAsset(id);
+  const { state, kind, status, name, tag, uncataloged } = useAsset(id);
   const selected = useUiStore((s) => s.selectedId === id);
   const select = useUiStore((s) => s.select);
   const KIcon = KIND_ICON[kind];
@@ -32,16 +32,18 @@ function Row({ id }: { id: string }) {
       >
         <KIcon className="shrink-0 text-xl text-muted" />
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm font-semibold">{name}</span>
-          <span className={`flex flex-wrap items-center gap-x-1.5 text-xs font-medium ${m.text}`}>
+          <span className="block truncate text-sm font-semibold">
+            {name} <span className="font-mono text-[11px] font-medium text-muted" data-testid={`row-tag-${id}`}>{tag}</span>
+          </span>
+          <span className={`flex flex-wrap items-center gap-x-1.5 text-xs font-medium ${isStructure(kind) ? 'text-muted' : m.text}`}>
             <span className="flex items-center gap-1" data-testid={`row-status-${id}`}>
-              <SIcon className="text-sm" />
-              {m.label}
+              {!isStructure(kind) && <SIcon className="text-sm" />}
+              {isStructure(kind) ? 'Decorativa' : m.label}
             </span>
             {uncataloged && <UncatalogedTag />}
           </span>
         </span>
-        {status !== 'nodata' && (
+        {status !== 'nodata' && !isStructure(kind) && (
           <span data-testid={`row-value-${id}`} className="font-mono text-sm font-semibold tabular-nums">
             {formatMetric(metric, state?.values[metric])}
           </span>

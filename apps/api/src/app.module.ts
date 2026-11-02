@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { AlarmsModule } from './alarms/alarms.module';
 import { AuditModule } from './audit/audit.module';
 import { AuthModule } from './auth/auth.module';
+import { ControlModule } from './control/control.module';
 import { AppConfigModule } from './config/config.module';
 import { DatabaseModule } from './database/database.module';
 import { HealthModule } from './health/health.module';
@@ -26,6 +27,7 @@ import { UsersModule } from './users/users.module';
     PlantsModule,
     HistoryModule,
     AlarmsModule,
+    ControlModule,
     RealtimeModule,
     HealthModule,
   ],

@@ -191,7 +191,7 @@ try {
     await page.getByRole('link', { name: 'Plantas', exact: true }).click();
     await page.getByRole('link', { name: 'Activos de Planta demo' }).click();
     await page.locator('[data-testid="assets-table"]').waitFor();
-    check((await page.locator('[data-testid^="asset-row-"]').count()) === 20, 'activos: 20 activos de la planta demo');
+    check((await page.locator('[data-testid^="asset-row-"]').count()) === 25, 'activos: 25 activos de la planta demo');
     await audit(page, 'activos (escritorio)');
     await shot(page, 'assets-desktop');
     await page.getByRole('button', { name: 'Nuevo activo' }).click();

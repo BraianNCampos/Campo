@@ -248,7 +248,7 @@ try {
     await page.locator('[aria-label="Activos"]').first().waitFor();
     await page.locator('[data-testid="asset-row-tk-nuevo"]').waitFor({ timeout: 30_000 });
     await page.locator('[data-testid="asset-row-tk-01"]').waitFor();
-    check((await page.locator('[data-testid^="asset-row-"]').count()) === 22, 'lista: 20 activos de demo + 2 nuevos');
+    check((await page.locator('[data-testid^="asset-row-"]').count()) === 27, 'lista: 25 activos de demo + 2 nuevos');
     const st = (id) => page.locator(`[data-testid="row-status-${id}"]`).textContent();
     check((await st('tk-nuevo')) === 'Sin datos' && (await st('sen-1')) === 'Sin datos', 'lista escritorio: los activos nuevos sin telemetría salen como «Sin datos»');
     check((await page.locator('[data-testid="row-value-tk-nuevo"]').count()) === 0, 'lista escritorio: «Sin datos» no muestra valor');
@@ -324,7 +324,7 @@ try {
     const card = page.locator('[data-testid="asset-card-sen-m"]');
     await card.waitFor({ timeout: 30_000 });
     check(/Sin datos/.test((await card.textContent()) ?? ''), 'móvil: la tarjeta del activo nuevo dice «Sin datos»');
-    check((await page.locator('[data-testid^="asset-card-"]').count()) === 21, 'móvil: 20 de demo + 1 nueva');
+    check((await page.locator('[data-testid^="asset-card-"]').count()) === 26, 'móvil: 25 de demo + 1 nueva');
     check((await page.locator('canvas').count()) === 0, 'móvil: el dashboard sigue sin canvas por defecto');
     await card.scrollIntoViewIfNeeded();
     await audit(page, 'móvil dashboard', '#main');

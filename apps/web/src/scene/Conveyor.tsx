@@ -42,6 +42,12 @@ export function conveyorLabel(values: Record<string, number> | undefined): strin
   return '—';
 }
 
+/** Desplaza la textura de la banda: la superior avanza y el retorno va en sentido contrario. */
+function scrollBelt(belt: { tex: THREE.Texture | null; ret: THREE.Texture | null }, v: number, dt: number): void {
+  if (belt.tex) belt.tex.offset.x = (belt.tex.offset.x - (v * dt) / TILE) % 1;
+  if (belt.ret) belt.ret.offset.x = (belt.ret.offset.x + (v * dt) / TILE) % 1;
+}
+
 /** Bastidor, rodillos, tambores, tolva, motorreductor y protecciones (estático, fusionado por material). */
 export function buildConveyorGeometry(detail: number): Record<string, THREE.BufferGeometry> {
   const b = new GeoBuilder();
@@ -145,8 +151,7 @@ export function Conveyor({ id, name, placement }: AssetNodeProps) {
     speed.current = damp(speed.current, conveyorSpeed(values), 2.5, dt);
     const v = speed.current;
     phase.current = (phase.current + v * dt) % CONV_L;
-    if (belt.tex) belt.tex.offset.x = (belt.tex.offset.x - (v * dt) / TILE) % 1;
-    if (belt.ret) belt.ret.offset.x = (belt.ret.offset.x + (v * dt) / TILE) % 1;
+    scrollBelt(belt, v, dt);
     const im = cargo.current;
     if (im) {
       const run = v > 0.03;

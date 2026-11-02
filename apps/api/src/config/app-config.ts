@@ -35,6 +35,12 @@ export interface AppConfig {
   historyMaxRangeDays: number;
   alarmEngineEnabled: boolean;
   alarmRulesRefreshMs: number;
+  /** Broker MQTT para enviar órdenes de control (§14.4). Sin `MQTT_URL` el control responde 503 `control_unavailable`. */
+  mqttUrl?: string;
+  mqttUsername?: string;
+  mqttPassword?: string;
+  /** Ruta de la CA que firma el certificado del broker (mqtts://). */
+  mqttCaFile?: string;
 }
 
 type Env = Record<string, string | undefined>;
@@ -105,6 +111,11 @@ export function parseEnv(env: Env): AppConfig {
     throw new Error('CORS_ORIGINS no puede ser "*" en producción');
   }
 
+  const mqttUrl = env['MQTT_URL']?.trim() || undefined;
+  if (mqttUrl && !/^(mqtt|mqtts|ws|wss|tcp|tls):\/\/[^\s]+$/i.test(mqttUrl)) {
+    throw new Error('MQTT_URL debe ser una URL mqtt://, mqtts://, ws:// o wss://');
+  }
+
   const authCacheTtlMs = int(env, 'AUTH_CACHE_TTL_MS', 30_000, 0, 30_000);
 
   return {
@@ -140,5 +151,9 @@ export function parseEnv(env: Env): AppConfig {
     historyMaxRangeDays: int(env, 'HISTORY_MAX_RANGE_DAYS', 366, 1, 3650),
     alarmEngineEnabled: bool(env, 'ALARM_ENGINE_ENABLED', true),
     alarmRulesRefreshMs: int(env, 'ALARM_RULES_REFRESH_MS', 60_000, 1000, 3_600_000),
+    mqttUrl,
+    mqttUsername: env['MQTT_USERNAME']?.trim() || undefined,
+    mqttPassword: env['MQTT_PASSWORD'] || undefined,
+    mqttCaFile: env['MQTT_CA_FILE']?.trim() || undefined,
   };
 }

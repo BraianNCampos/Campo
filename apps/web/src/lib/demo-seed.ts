@@ -68,3 +68,14 @@ export const DEMO_LIMITS: Record<string, Limit[]> = {
   ],
   tanques: ['tk-a', 'tk-b'].flatMap((id) => [lim(id, 'level', 'gt', 90, 'critical'), lim(id, 'level', 'lt', 10, 'warning')]),
 };
+
+/**
+ * Cañerías de la planta demo (los pares «de → a» que dibuja la escena a mano y que mueve `PlantSimulator`): sirven para
+ * mostrar las válvulas y bombas asociadas a un tanque en el detalle de la unidad cuando el catálogo no trae `connectsTo`.
+ */
+export const DEMO_LINKS: Record<string, readonly (readonly [string, string])[]> = {
+  demo: [
+    ['tk-01', 'valve-01'], ['valve-01', 'pump-01'], ['pump-01', 'tk-03'],
+    ['tk-02', 'valve-02'], ['valve-02', 'pump-02'], ['pump-02', 'tk-04'],
+  ],
+};

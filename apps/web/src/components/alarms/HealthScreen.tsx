@@ -11,6 +11,7 @@ import { useSessionStore } from '@/store/session-store';
 import { ToastRegion } from '../admin/ToastRegion';
 import { useLoad } from '../admin/hooks';
 import { ErrorState, LoadingBlock } from '../admin/ui';
+import { AssetTag } from '../AssetTag';
 import { IconBack, IconCheck, IconCritical, IconEdit, IconWarning } from '../icons';
 import { KindBadge } from './badges';
 import { STATE_EXPLAIN, STATE_LABEL, WINDOW_LABEL, WINDOW_SHORT, formatPerDay, meterPositions, meterState, priorityShare, ratioText, sinceText, type HealthState } from './health-model';
@@ -152,7 +153,7 @@ function Report({ k, plant, now }: { k: AlarmKpis; plant: string; now: number })
               <li key={t.ruleId} data-testid="top-row" className="grid grid-cols-[1.5rem_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1">
                 <span className="font-mono text-sm text-muted">{i + 1}</span>
                 <div className="min-w-0">
-                  <p className="flex flex-wrap items-center gap-2 text-sm font-semibold"><span className="truncate">{name(t.asset)}</span><span className="font-normal text-muted">{metric(t.metric)}</span><KindBadge kind={t.kind} /></p>
+                  <p className="flex flex-wrap items-center gap-2 text-sm font-semibold"><span className="truncate">{name(t.asset)}</span><AssetTag id={t.asset} className="text-xs font-normal" /><span className="font-normal text-muted">{metric(t.metric)}</span><KindBadge kind={t.kind} /></p>
                   <div className="mt-1 h-1.5 rounded-full bg-surface-2" aria-hidden><div className="h-full rounded-full bg-fg/50" style={{ width: `${(t.count / topMax) * 100}%` }} /></div>
                 </div>
                 <span className="font-mono text-sm font-bold tabular-nums">{t.count}<span className="sr-only"> veces</span></span>
@@ -170,7 +171,7 @@ function Report({ k, plant, now }: { k: AlarmKpis; plant: string; now: number })
             <ul className="flex flex-col gap-2">
               {k.chattering.map((c) => (
                 <li key={c.ruleId} data-testid="chatter-row" className="flex items-center justify-between gap-3 text-sm">
-                  <span className="min-w-0 truncate font-semibold">{name(c.asset)} <span className="font-normal text-muted">{metric(c.metric)}</span></span>
+                  <span className="min-w-0 truncate font-semibold">{name(c.asset)} <AssetTag id={c.asset} className="text-xs font-normal" /> <span className="font-normal text-muted">{metric(c.metric)}</span></span>
                   <span className="shrink-0 font-mono text-warn">{c.activations10min} en 10 min</span>
                 </li>
               ))}
@@ -184,7 +185,7 @@ function Report({ k, plant, now }: { k: AlarmKpis; plant: string; now: number })
             <ul className="flex flex-col gap-2">
               {k.stale.map((s) => (
                 <li key={s.id} data-testid="stale-row" className="flex items-center justify-between gap-3 text-sm">
-                  <span className="min-w-0 truncate font-semibold">{name(s.asset)} <span className="font-normal text-muted">{metric(s.metric)}</span></span>
+                  <span className="min-w-0 truncate font-semibold">{name(s.asset)} <AssetTag id={s.asset} className="text-xs font-normal" /> <span className="font-normal text-muted">{metric(s.metric)}</span></span>
                   <span className="shrink-0 font-mono text-warn">hace {sinceText(now - s.since)}</span>
                 </li>
               ))}

@@ -75,4 +75,32 @@ describe('alarmas ISA-18.2 en el parser', () => {
     expect(m).not.toHaveProperty('rationale');
     expect(m).not.toHaveProperty('shelvedUntil');
   });
+  it('telemetry conserva ingestTs (sello de ingesta, §13) sólo si es válido', () => {
+    const t = parseServerMessage({ type: 'telemetry', plant: 'p', asset: 'a', ts: 5, values: { v: 1 }, ingestTs: 1730000000000 });
+    expect(t).toMatchObject({ ingestTs: 1730000000000 });
+    expect(parseServerMessage({ type: 'telemetry', plant: 'p', asset: 'a', ts: 5, values: { v: 1 }, ingestTs: 'x' })).not.toHaveProperty('ingestTs');
+    expect(parseServerMessage({ type: 'telemetry', plant: 'p', asset: 'a', ts: 5, values: { v: 1 } })).not.toHaveProperty('ingestTs');
+  });
+  it('order (registro de órdenes en vivo, §14.3)', () => {
+    const raw = {
+      id: 'o1', plant: 'demo', asset: 'tk-01', tag: 'TNK-101', command: 'fill', target: 80, status: 'running',
+      requestedBy: { id: 'u1', email: 'op@campo.demo' }, requestedAt: 100, updatedAt: 150, extra: 1,
+    };
+    expect(parseServerMessage({ type: 'order', order: raw })).toEqual({
+      type: 'order',
+      order: { id: 'o1', plant: 'demo', asset: 'tk-01', tag: 'TNK-101', command: 'fill', target: 80, status: 'running', requestedBy: { id: 'u1', email: 'op@campo.demo' }, requestedAt: 100, updatedAt: 150 },
+    });
+    const done = parseServerMessage({ type: 'order', order: { ...raw, status: 'done', completedAt: 200, reason: ' listo ' } });
+    expect(done).toMatchObject({ order: { status: 'done', completedAt: 200, reason: 'listo' } });
+    // inválidas: estado o comando desconocido, sin id, sin orden
+    expect(parseServerMessage({ type: 'order', order: { ...raw, status: 'volando' } })).toBeNull();
+    expect(parseServerMessage({ type: 'order', order: { ...raw, command: 'explotar' } })).toBeNull();
+    expect(parseServerMessage({ type: 'order', order: { ...raw, id: '' } })).toBeNull();
+    expect(parseServerMessage({ type: 'order' })).toBeNull();
+  });
+  it('time (sincronización de reloj, §13)', () => {
+    expect(parseServerMessage({ type: 'time', t0: 5, t1: 9 })).toEqual({ type: 'time', t0: 5, t1: 9 });
+    expect(parseServerMessage({ type: 'time', t0: 5 })).toEqual({ type: 'time', t0: 5 });
+    expect(parseServerMessage({ type: 'time' })).toBeNull();
+  });
 });

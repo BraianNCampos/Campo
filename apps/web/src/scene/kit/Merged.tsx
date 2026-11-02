@@ -8,7 +8,7 @@ import { useQuality } from '../quality';
 
 /** Construye (una vez por cambio de dependencias) las geometrías fusionadas de un activo y las libera al desmontar. */
 export function useBuilt(build: () => Record<string, THREE.BufferGeometry>, deps: readonly unknown[]): Record<string, THREE.BufferGeometry> {
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  // eslint-disable-next-line react-hooks/exhaustive-deps, react-hooks/use-memo
   const geo = useMemo(build, deps);
   useEffect(() => () => disposeAll(geo), [geo]);
   return geo;
@@ -23,7 +23,9 @@ export function Merged({ geo, shadows = true }: { geo: Record<string, THREE.Buff
     <>
       {Object.entries(geo).map(([key, g]) => {
         const mat = mats[key as keyof KitMaterials];
-        return mat ? <mesh key={key} geometry={g} material={mat} castShadow={shadows && !mat.transparent} receiveShadow={shadows} /> : null;
+        // hormigón (bancadas, cubetos): sin contorno de anomalía; los cascos translúcidos tampoco (el casco invertido se vería por dentro)
+        const userData = key.startsWith('concrete') ? { noOutline: true } : undefined;
+        return mat ? <mesh key={key} geometry={g} material={mat} castShadow={shadows && !mat.transparent} receiveShadow={shadows} userData={userData} /> : null;
       })}
     </>
   );

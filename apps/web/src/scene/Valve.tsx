@@ -10,10 +10,10 @@ import { Equipment, type AssetNodeProps } from './Equipment';
 import { PIPE_Y } from './layout';
 import { useAssetTarget } from './useAssetTarget';
 
-const steel = { color: '#8fa3b8', metalness: 0.15, roughness: 0.38 } as const;
+const steel = { color: '#aab4be', metalness: 0.8, roughness: 0.36 } as const;
 
 /** Válvula de bola: la palanca gira de 90° (cerrada, transversal) a 0° (abierta, alineada con la tubería). */
-export function Valve({ id, name, placement }: AssetNodeProps) {
+export function Valve({ id, name, tag, placement }: AssetNodeProps) {
   const target = useAssetTarget(id);
   const lever = useRef<THREE.Group>(null);
   const leverMat = useRef<THREE.MeshStandardMaterial>(null);
@@ -33,7 +33,7 @@ export function Valve({ id, name, placement }: AssetNodeProps) {
     leverMat.current?.color.copy(closed).lerp(open, frac);
     if (bodyMat.current) {
       const status = assetStatus(state, severity);
-      tmp.set(status === 'ok' ? '#64748b' : STATUS_META[status].hex);
+      tmp.set(status === 'nodata' || status === 'bad' ? STATUS_META[status].hex : '#64748b');
       bodyMat.current.color.lerp(tmp, 1 - Math.exp(-6 * dt));
     }
     const el = valueEl.current;
@@ -44,14 +44,14 @@ export function Valve({ id, name, placement }: AssetNodeProps) {
   });
 
   return (
-    <Equipment id={id} name={name} type="valve" placement={placement} ringRadius={0.95} labelPos={[0, 2.0, 0]} valueRef={valueEl}>
+    <Equipment id={id} name={name} tag={tag} type="valve" placement={placement} ringRadius={0.95} labelPos={[0, 2.0, 0]} valueRef={valueEl}>
       <mesh position-y={0.35}>
         <boxGeometry args={[0.5, 0.7, 0.5]} />
         <meshStandardMaterial color="#334155" roughness={0.8} />
       </mesh>
       <mesh position-y={PIPE_Y}>
         <sphereGeometry args={[0.36, 24, 18]} />
-        <meshStandardMaterial ref={bodyMat} color="#64748b" metalness={0.12} roughness={0.4} />
+        <meshStandardMaterial ref={bodyMat} color="#64748b" metalness={0.5} roughness={0.4} />
       </mesh>
       {[-1, 1].map((s) => (
         <group key={s}>

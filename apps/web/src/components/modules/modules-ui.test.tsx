@@ -237,13 +237,13 @@ describe('navegación', () => {
     expect(host.querySelector('[data-testid="module-badge-tanks"]')?.getAttribute('data-tone')).toBe('crit');
     vi.useRealTimers();
   });
-  it('barra inferior móvil: con 7 módulos, 3 destinos + «Más»; con un módulo no hay barra', () => {
+  it('barra inferior móvil: con todos los módulos, 3 destinos + «Más»; con un módulo no hay barra', () => {
     login([...MODULE_IDS]);
     render(<BottomBar moduleIds={[...MODULE_IDS]} />);
     expect(host.querySelectorAll('[data-testid="bottom-bar"] > a')).toHaveLength(3);
     expect(host.querySelector('[data-testid="nav-more"]')).not.toBeNull();
     act(() => host.querySelector<HTMLElement>('[data-testid="nav-more"]')!.click());
-    expect(host.querySelectorAll('[data-testid="more-sheet"] [data-testid^="module-nav-"]')).toHaveLength(4);
+    expect(host.querySelectorAll('[data-testid="more-sheet"] [data-testid^="module-nav-"]')).toHaveLength(5);
     render(<BottomBar moduleIds={['tanks']} />);
     expect(host.querySelector('[data-testid="bottom-bar"]')).toBeNull();
   });

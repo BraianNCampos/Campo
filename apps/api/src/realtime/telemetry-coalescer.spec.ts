@@ -66,4 +66,20 @@ describe('TelemetryCoalescer', () => {
     jest.advanceTimersByTime(500);
     expect(onFlush).not.toHaveBeenCalled();
   });
+
+  it('conserva ingestTs (§13): el del último valor del activo, también al fusionar métricas', () => {
+    const out: TelemetryEvent[][] = [];
+    const c = new TelemetryCoalescer(100, (_p, events) => out.push(events));
+    c.push({ ...tel('tk-01', { level: 10, temp: 20 }, 1), ingestTs: 1000 });
+    c.push({ ...tel('tk-01', { level: 11 }, 2), ingestTs: 1010 });
+    c.push({ ...tel('tk-02', { level: 5 }, 3), ingestTs: 2000 });
+    c.push(tel('tk-03', { level: 7 }, 4)); // sin ingestTs (demo): no se inventa
+    jest.advanceTimersByTime(100);
+    expect(out[0].find((e) => e.asset === 'tk-01')).toMatchObject({
+      ingestTs: 1010,
+      values: { level: 11, temp: 20 },
+    });
+    expect(out[0].find((e) => e.asset === 'tk-02')?.ingestTs).toBe(2000);
+    expect(out[0].find((e) => e.asset === 'tk-03')).not.toHaveProperty('ingestTs');
+  });
 });

@@ -16,9 +16,9 @@ describe('SeedSimulator (clientes demo)', () => {
   it('genera telemetría para TODOS los activos sembrados de demo (salvo los que mueve PlantSimulator) con las métricas de su tipo', () => {
     const sim = new SeedSimulator('demo', 1, { skip: (d) => isCore(d) });
     const snap = sim.snapshot(1).assets;
-    const expected = DEMO_ASSETS.demo!.filter((d) => !isCore(d));
+    const expected = DEMO_ASSETS.demo!.filter((d) => !isCore(d) && d.type !== 'structure'); // la nave es decorativa: sin telemetría
     expect(Object.keys(snap).sort()).toEqual(expected.map((d) => d.id).sort());
-    const need: Record<string, string[]> = { climate: ['temp', 'humidity'], energy: ['kw', 'kwh', 'pf'], gas: ['flow', 'total'], machine: ['state'], pressure: ['pressure'], flow: ['flow'] };
+    const need: Record<string, string[]> = { climate: ['temp', 'humidity'], energy: ['kw', 'kwh', 'pf'], gas: ['flow', 'total'], machine: ['state'], silo: ['level', 'temp'], conveyor: ['state', 'rpm'], pressure: ['pressure'], flow: ['flow'] };
     for (const d of expected) for (const m of need[d.type]!) expect(snap[d.id]?.values[m], `${d.id}.${m}`).toBeTypeOf('number');
   });
   it('la planta tanques simula sus dos tanques completos', () => {

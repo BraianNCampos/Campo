@@ -50,6 +50,48 @@ describe('RealtimeBus', () => {
     expect(got).toHaveLength(0);
   });
 
+  it('la telemetría conserva ingestTs tal cual (§13)', () => {
+    const bus = new RealtimeBus({} as Redis);
+    const got: BusMessage[] = [];
+    bus.messages$.subscribe((m) => got.push(m));
+    bus.handle(
+      'campo:events:demo',
+      JSON.stringify({ type: 'telemetry', asset: 'a', ts: 1, values: { x: 1 }, ingestTs: 1234 }),
+    );
+    expect(got[0]).toMatchObject({ kind: 'telemetry', event: { ingestTs: 1234 } });
+  });
+
+  describe('órdenes (campo:orders:{planta})', () => {
+    const ev = (plant: string) =>
+      JSON.stringify({ type: 'order', order: { id: 'o1', plant, status: 'pending' } });
+
+    it('reparte {kind:"order"} y la planta del canal manda sobre la del cuerpo', () => {
+      const bus = new RealtimeBus({} as Redis);
+      const got: BusMessage[] = [];
+      bus.messages$.subscribe((m) => got.push(m));
+      bus.handle('campo:orders:demo', ev('otra'));
+      expect(got).toEqual([
+        {
+          kind: 'order',
+          plant: 'demo',
+          event: { type: 'order', order: expect.objectContaining({ id: 'o1', plant: 'demo' }) },
+        },
+      ]);
+    });
+
+    it('descarta JSON inválido, otros tipos, órdenes sin id y plantas inválidas', () => {
+      const bus = new RealtimeBus({} as Redis);
+      const got: BusMessage[] = [];
+      bus.messages$.subscribe((m) => got.push(m));
+      bus.handle('campo:orders:demo', 'no-json');
+      bus.handle('campo:orders:demo', JSON.stringify({ type: 'alarm' }));
+      bus.handle('campo:orders:demo', JSON.stringify({ type: 'order' }));
+      bus.handle('campo:orders:demo', JSON.stringify({ type: 'order', order: { status: 'x' } }));
+      bus.handle('campo:orders:BAD PLANT', ev('demo'));
+      expect(got).toHaveLength(0);
+    });
+  });
+
   describe('catálogo (campo:catalog:changed)', () => {
     it('reparte {kind:"catalog", plant} una sola vez por publicación', async () => {
       const { redis, sub } = createRedisMocks();
@@ -113,6 +155,7 @@ describe('RealtimeBus', () => {
       expect(calls.find((c) => c.fn === 'punsubscribe')?.args).toEqual([
         'campo:events:*',
         'campo:alarms:*',
+        'campo:orders:*',
       ]);
       expect(calls.find((c) => c.fn === 'unsubscribe')?.args).toEqual(['campo:catalog:changed']);
     });

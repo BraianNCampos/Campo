@@ -2,12 +2,22 @@
 
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import * as THREE from 'three';
-import { Canvas, useThree } from '@react-three/fiber';
+import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { ContactShadows, OrbitControls, PerformanceMonitor } from '@react-three/drei';
 import { labelPortal } from './label-portal';
 import { fitView, type Bounds } from './layout';
-import { detectQuality } from './quality';
+import { useLatencyStore } from '@/store/latency-store';
+import { AnomalyLights } from './AnomalyLights';
+import { Floor } from './Floor';
+import { Lighting } from './Lighting';
+import { forcedQuality, isSoftwareRenderer, QUALITY_PROFILE, QualityContext, stepDown, stepUp, type Quality } from './quality';
 import { SceneDataContext, type SceneData } from './scene-data';
+
+/** Registra en la insignia de latencia el instante de pintado de cada frame (§13): un pendiente por activo, sin renders de React. */
+function LatencyPaint() {
+  useFrame(() => useLatencyStore.getState().paint('scene'));
+  return null;
+}
 
 /** Render limitado: invalida el frame a `fps` mientras la pestaña está visible (frameloop="demand"). */
 function FrameLimiter({ fps }: { fps: number }) {
@@ -47,26 +57,6 @@ function FitCamera({ bounds }: { bounds: Bounds }) {
   return null;
 }
 
-function Ground({ bounds }: { bounds: Bounds }) {
-  const w = Math.max(12, bounds.halfX * 2 + 2);
-  const d = Math.max(8, bounds.halfZ * 2 + 2);
-  const grid = Math.min(400, Math.max(48, Math.ceil(Math.max(w, d) * 1.6 / 2) * 2));
-  return (
-    <>
-      <mesh rotation-x={-Math.PI / 2} position-y={-0.02}>
-        <circleGeometry args={[Math.max(90, Math.max(w, d) * 3), 48]} />
-        <meshLambertMaterial color="#0f1823" />
-      </mesh>
-      <mesh position={[bounds.cx, 0, bounds.cz]}>
-        <boxGeometry args={[w, 0.04, d]} />
-        <meshLambertMaterial color="#1a2535" />
-      </mesh>
-      {/* rejilla de líneas (barata); la de drei <Grid> es un shader a pantalla completa */}
-      <gridHelper args={[grid, grid, '#26384f', '#172336']} position={[Math.round(bounds.cx), 0.03, Math.round(bounds.cz)]} />
-    </>
-  );
-}
-
 /** Lienzo 3D común (escritorio, móvil bajo demanda y vista previa de administración). */
 export function SceneCanvas({
   bounds,
@@ -86,9 +76,15 @@ export function SceneCanvas({
   onMissed?: () => void;
   children: ReactNode;
 }) {
-  const [quality] = useState(detectQuality);
-  const low = quality === 'low';
-  const [dpr, setDpr] = useState(low ? 1 : 1.5);
+  // nivel inicial (§13): `?quality=` lo fuerza (sin ajuste automático); render por software → bajo y fijo; si no, alto con
+  // ajuste automático según los fps reales (PerformanceMonitor)
+  const [init] = useState(() => {
+    const forced = forcedQuality();
+    const software = forced ? false : isSoftwareRenderer();
+    return { start: forced ?? (software ? 'low' : 'high'), auto: !forced && !software } as { start: Quality; auto: boolean };
+  });
+  const [quality, setQuality] = useState<Quality>(init.start);
+  const profile = QUALITY_PROFILE[quality];
   const rootRef = useRef<HTMLDivElement>(null);
   // destino estable de las etiquetas HTML (ver label-portal.ts); se fija antes de que R3F renderice la escena
   useLayoutEffect(() => {
@@ -104,31 +100,32 @@ export function SceneCanvas({
     <div ref={rootRef} data-testid={testId} data-quality={quality} role="img" aria-label={label} className="scene-root absolute inset-0">
       <Canvas
         frameloop="demand"
-        dpr={dpr}
+        dpr={profile.dpr}
+        shadows={profile.shadowMap > 0 ? 'percentage' : false}
         camera={{ position: [15, 10.5, 17], fov: 38, near: 0.1, far }}
-        gl={{ antialias: !low, powerPreference: 'high-performance' }}
+        gl={{ antialias: QUALITY_PROFILE[init.start].msaa, powerPreference: 'high-performance' }}
         onPointerMissed={onMissed}
       >
-        <SceneDataContext.Provider value={data}>
-          <color attach="background" args={['#0d141d']} />
-          <fog attach="fog" args={['#0d141d', fit.distance * 1.6 + 20, fit.distance * 1.6 + 80 + span * 2]} />
-          <hemisphereLight args={['#bcd4ff', '#243044', 1.15]} />
-          <directionalLight position={[10, 16, 8]} intensity={2.4} />
-          <directionalLight position={[-12, 6, -10]} intensity={0.8} color="#7aa7ff" />
-          <Ground bounds={bounds} />
-          {!low && (
-            <ContactShadows
-              key={shadowKey}
-              position={[bounds.cx, 0.05, bounds.cz]}
-              opacity={0.55}
-              width={bounds.halfX * 2 + 6}
-              height={bounds.halfZ * 2 + 6}
-              blur={2.4}
-              far={5}
-              frames={1}
-              resolution={512}
-            />
-          )}
+        <QualityContext.Provider value={quality}>
+          <SceneDataContext.Provider value={data}>
+            <color attach="background" args={['#0d141d']} />
+            <fog attach="fog" args={['#0d141d', fit.distance * 1.6 + 20, fit.distance * 1.6 + 80 + span * 2]} />
+            <Lighting bounds={bounds} profile={profile} shadowKey={shadowKey} />
+            <Floor bounds={bounds} />
+            <AnomalyLights pool={QUALITY_PROFILE.high.maxAnomalyLights} active={profile.maxAnomalyLights} />
+            {profile.contactShadows && (
+              <ContactShadows
+                key={shadowKey}
+                position={[bounds.cx, 0.07, bounds.cz]}
+                opacity={0.55}
+                width={bounds.halfX * 2 + 6}
+                height={bounds.halfZ * 2 + 6}
+                blur={2.4}
+                far={5}
+                frames={1}
+                resolution={512}
+              />
+            )}
           {children}
           <OrbitControls
             makeDefault
@@ -141,10 +138,19 @@ export function SceneCanvas({
             enablePan
             screenSpacePanning={false}
           />
-          <PerformanceMonitor bounds={() => [18, 40]} onDecline={() => setDpr(1)} onIncline={() => setDpr(1.5)} flipflops={3} />
+          {init.auto && (
+            <PerformanceMonitor
+              bounds={() => [Math.round(profile.fps * 0.6), Math.round(profile.fps * 0.9)]}
+              onDecline={() => setQuality(stepDown)}
+              onIncline={() => setQuality((q) => stepUp(q, init.start))}
+              flipflops={4}
+            />
+          )}
           <FitCamera bounds={bounds} />
-          <FrameLimiter fps={30} />
+          <FrameLimiter fps={profile.fps} />
+          <LatencyPaint />
         </SceneDataContext.Provider>
+        </QualityContext.Provider>
       </Canvas>
     </div>
   );

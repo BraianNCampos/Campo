@@ -1,19 +1,20 @@
 'use client';
 
-import { useEffect, useRef, type ReactNode, type RefObject } from 'react';
-import { useFrame } from '@react-three/fiber';
+import { useEffect, useLayoutEffect, useRef, type ReactNode, type RefObject } from 'react';
 import { Html } from '@react-three/drei';
 import type * as THREE from 'three';
 import type { AssetType } from '@campo/shared';
 import { useUiStore } from '@/store/ui-store';
+import { AnomalyFx } from './AnomalyFx';
 import { labelPortalRef } from './label-portal';
-import { useAssetTarget } from './useAssetTarget';
 import type { Placement, Vec3 } from './layout';
 
 /** Props comunes de los componentes de activo (procedurales y GLB). */
 export interface AssetNodeProps {
   id: string;
   name: string;
+  /** Tag estándar (§14.1): se muestra en monoespaciado junto al nombre */
+  tag?: string | null;
   placement: Placement;
 }
 
@@ -34,63 +35,23 @@ function SelectionRing({ id, radius }: { id: string; radius: number }) {
   );
 }
 
-const ALARM_HEX = { critical: '#ff4d4d', warning: '#fbbf24' } as const;
-
-/**
- * Aviso de alarma sobre el equipo, sin postprocesado: anillo de suelo resaltado que late sutilmente (quieto con
- * `prefers-reduced-motion`) y la etiqueta pasa a rojo/ámbar con la palabra «Alarma» (color + texto). Lee el store de forma
- * transitoria (sin re-render de React).
- */
-function AlarmHalo({ id, radius, labelRef }: { id: string; radius: number; labelRef: RefObject<HTMLDivElement | null> }) {
-  const target = useAssetTarget(id);
-  const ring = useRef<THREE.Mesh>(null);
-  const mat = useRef<THREE.MeshBasicMaterial>(null);
-  const shown = useRef<string | undefined>(undefined);
-  const still = useRef(false);
-  useEffect(() => {
-    still.current = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  }, []);
-  useFrame(({ clock }) => {
-    const sev = target.current.severity;
-    if (ring.current) {
-      ring.current.visible = !!sev;
-      if (sev) {
-        const k = still.current ? 1 : 1 + 0.045 * Math.sin(clock.elapsedTime * 4.5);
-        ring.current.scale.set(k, k, 1);
-        mat.current?.color.set(ALARM_HEX[sev]);
-      }
-    }
-    if (shown.current !== sev) {
-      shown.current = sev;
-      const el = labelRef.current;
-      if (el) {
-        if (sev) el.dataset.alarm = sev;
-        else delete el.dataset.alarm;
-      }
-    }
-  });
-  return (
-    <mesh ref={ring} rotation-x={-Math.PI / 2} position-y={0.06} visible={false} data-testid={`alarm-halo-${id}`}>
-      <ringGeometry args={[radius + 0.25, radius + 0.55, 56]} />
-      <meshBasicMaterial ref={mat} color={ALARM_HEX.critical} toneMapped={false} transparent opacity={0.95} />
-    </mesh>
-  );
-}
-
 /** Contenedor común: posición, clic de selección, anillo de selección y etiqueta HTML ligera. */
 export function Equipment({
   id,
   name,
+  tag,
   type,
   placement,
   ringRadius,
   labelPos,
   valueRef,
   glb,
+  decorative,
   children,
 }: {
   id: string;
   name: string;
+  tag?: string | null;
   type: AssetType;
   placement: Placement;
   ringRadius: number;
@@ -98,35 +59,63 @@ export function Equipment({
   valueRef: RefObject<HTMLElement | null>;
   /** dibujado con un modelo GLB (marca la etiqueta con `data-model`, útil en pruebas) */
   glb?: boolean;
+  /** decorativo (estructuras): sin selección, sin aviso de alarma y sin valor en la etiqueta */
+  decorative?: boolean;
   children: ReactNode;
 }) {
   const labelRef = useRef<HTMLDivElement>(null);
+  const noteRef = useRef<HTMLElement>(null);
+  const holoRef = useRef<HTMLElement>(null);
+  const groupRef = useRef<THREE.Group>(null);
+  // sombras en todas las mallas opacas del activo (procedural o GLB); sólo cuestan si la luz principal las proyecta
+  useLayoutEffect(() => {
+    groupRef.current?.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (!m.isMesh || o.userData.noOutline) return;
+      const mat = m.material as THREE.Material;
+      m.receiveShadow = true;
+      m.castShadow = !mat.transparent;
+    });
+  }, []);
   return (
     <group
+      ref={groupRef}
       position={placement.position}
       rotation-y={placement.rotY}
       scale={placement.scale}
-      onClick={(e) => {
-        e.stopPropagation();
-        const ui = useUiStore.getState();
-        ui.select(ui.selectedId === id ? null : id);
-      }}
-      onPointerOver={(e) => {
-        e.stopPropagation();
-        document.body.style.cursor = 'pointer';
-      }}
-      onPointerOut={() => {
+      onClick={
+        decorative
+          ? undefined
+          : (e) => {
+              e.stopPropagation();
+              const ui = useUiStore.getState();
+              ui.select(ui.selectedId === id ? null : id);
+            }
+      }
+      onPointerOver={
+        decorative
+          ? undefined
+          : (e) => {
+              e.stopPropagation();
+              document.body.style.cursor = 'pointer';
+            }
+      }
+      onPointerOut={decorative ? undefined : () => {
         document.body.style.cursor = '';
       }}
     >
       {children}
-      <SelectionRing id={id} radius={ringRadius} />
-      <AlarmHalo id={id} radius={ringRadius} labelRef={labelRef} />
+      {!decorative && <SelectionRing id={id} radius={ringRadius} />}
+      {!decorative && (
+        <AnomalyFx id={id} name={name} tag={tag} radius={ringRadius} labelPos={labelPos} groupRef={groupRef} labelRef={labelRef} noteRef={noteRef} holoRef={holoRef} />
+      )}
       <Html position={labelPos} center zIndexRange={[20, 0]} portal={labelPortalRef} style={{ pointerEvents: 'none' }}>
-        <div ref={labelRef} className="scene-label" data-minor={type === 'tank' ? undefined : ''} data-model={glb ? 'glb' : undefined}>
-          <i className="scene-alarm">Alarma</i>
+        <div ref={labelRef} className="scene-label" data-minor={type === 'tank' || type === 'silo' ? undefined : ''} data-model={glb ? 'glb' : undefined}>
+          <i ref={noteRef} className="scene-alarm" />
+          {tag && <code className="mr-1 font-mono text-[10px] font-semibold text-[#a6b5c7]">{tag}</code>}
           {name}
-          <b ref={valueRef as RefObject<HTMLElement>}>—</b>
+          {!decorative && <b ref={valueRef as RefObject<HTMLElement>}>—</b>}
+          {!decorative && <span ref={holoRef} className="scene-holo" />}
         </div>
       </Html>
     </group>

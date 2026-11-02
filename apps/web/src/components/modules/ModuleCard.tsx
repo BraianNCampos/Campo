@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { memo, useMemo } from 'react';
 import { ASSET_KINDS, type AssetDef } from '@campo/shared';
 import { metricMeta } from '@/lib/metrics';
@@ -8,7 +9,9 @@ import { computeTrend, trendText, type Trend } from '@/lib/modules/trend';
 import { fmtNum } from '@/lib/modules/kpis';
 import { readSeries } from '@/store/history';
 import { useNow, useHistoryVersion } from '../hooks';
-import { IconCritical, IconPause, IconPower, IconWarning, KIND_ICON } from '../icons';
+import { IconChevron, IconCritical, IconPause, IconPower, IconWarning, KIND_ICON } from '../icons';
+import { unitModule } from '@/lib/modules/unit';
+import { assetHref } from '@/lib/tags';
 import { Sparkline } from '../Sparkline';
 import { deviationModel } from '@/lib/modules/deviation';
 import { LIFECYCLE_LABEL } from '@/lib/alarm-lifecycle';
@@ -113,7 +116,7 @@ function ModuleCardBase({ id }: { id: string }) {
               <span className="truncate">{d.name}</span>
             </button>
           </h3>
-          <p className="-mt-2 truncate pl-7 font-mono text-[11px] text-muted">{id}</p>
+          <p className="-mt-2 truncate pl-7 font-mono text-[11px] text-muted" data-testid={`tag-${id}`}>{d.tag}</p>
         </div>
         <StatusChip status={d.status} severity={d.severity} data={`status-${id}`} />
       </header>
@@ -158,6 +161,17 @@ function ModuleCardBase({ id }: { id: string }) {
           {d.notice && <AlarmNotice id={id} notice={d.notice} />}
           <Footer id={id} def={d.def} values={d.state?.values} />
         </>
+      )}
+      {d.def && unitModule(d.def) && (
+        <Link
+          prefetch={false}
+          href={assetHref(unitModule(d.def)!, d.def)}
+          data-testid={`unit-link-${id}`}
+          aria-label={`Ver el detalle de ${d.name} (${d.tag})`}
+          className="relative z-10 mt-3 -mb-1 inline-flex min-h-11 items-center gap-1 self-start rounded-md text-[13px] font-semibold text-muted hover:text-fg"
+        >
+          Ver detalle de la unidad <IconChevron className="text-sm" />
+        </Link>
       )}
     </article>
   );

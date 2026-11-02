@@ -13,9 +13,10 @@ import { useAssetTarget } from './useAssetTarget';
 
 /** Factor visual: 1450 rpm → ~1 vuelta/s en pantalla (proporcional a rpm). */
 export const VISUAL_RPM_FACTOR = 0.04;
-const steel = { color: '#8fa3b8', metalness: 0.15, roughness: 0.38 } as const;
+const MOTOR = '#1d6f8f';
+const steel = { color: '#aab4be', metalness: 0.8, roughness: 0.36 } as const;
 
-export function Pump({ id, name, placement }: AssetNodeProps) {
+export function Pump({ id, name, tag, placement }: AssetNodeProps) {
   const target = useAssetTarget(id);
   const fan = useRef<THREE.Group>(null);
   const motorMat = useRef<THREE.MeshStandardMaterial>(null);
@@ -33,7 +34,9 @@ export function Pump({ id, name, placement }: AssetNodeProps) {
     const running = rpm.current > RUNNING_RPM;
     const status = assetStatus(state, severity);
     if (motorMat.current) {
-      tmp.set(STATUS_META[status].hex).lerp(dark, status === 'ok' ? 0.45 : 0.15);
+      // sólo se apaga sin señal; las anomalías se señalan con contorno y marcador, no tiñendo el modelo
+      if (status === 'nodata' || status === 'bad') tmp.set(STATUS_META[status].hex).lerp(dark, 0.15);
+      else tmp.set(MOTOR).lerp(dark, 0.45);
       motorMat.current.color.lerp(tmp, 1 - Math.exp(-6 * dt));
     }
     lampMat.current?.color.set(running ? '#4ade80' : '#475569');
@@ -45,7 +48,7 @@ export function Pump({ id, name, placement }: AssetNodeProps) {
   });
 
   return (
-    <Equipment id={id} name={name} type="pump" placement={placement} ringRadius={1.5} labelPos={[0, 3.6, 0]} valueRef={valueEl}>
+    <Equipment id={id} name={name} tag={tag} type="pump" placement={placement} ringRadius={1.5} labelPos={[0, 3.6, 0]} valueRef={valueEl}>
       {/* bancada */}
       <mesh position-y={0.07}>
         <boxGeometry args={[2.6, 0.14, 1.3]} />
@@ -77,7 +80,7 @@ export function Pump({ id, name, placement }: AssetNodeProps) {
       {/* motor vertical */}
       <mesh position-y={1.75}>
         <cylinderGeometry args={[0.42, 0.42, 1.1, 28]} />
-        <meshStandardMaterial ref={motorMat} color="#1d6f8f" metalness={0.12} roughness={0.5} />
+        <meshStandardMaterial ref={motorMat} color="#1d6f8f" metalness={0.35} roughness={0.45} />
       </mesh>
       {[1.35, 1.55, 1.75, 1.95, 2.15].map((y) => (
         <mesh key={y} position-y={y}>

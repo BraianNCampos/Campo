@@ -9,8 +9,8 @@ const { state, check } = createChecker();
 const { base: BASE, server } = await startApp(PORT);
 const browser = await launchBrowser();
 const shot = (page, name) => page.screenshot({ path: path.join(shots, `modules-${name}.png`), timeout: 120_000 }); // WebGL por software: con la máquina cargada tarda
-const MODULES = ['tanks', 'climate', 'energy', 'gas', 'machines', 'flow', 'view3d'];
-const LABEL = { tanks: 'Tanques y llenado', climate: 'Temperatura y humedad', energy: 'Energía', gas: 'Consumo de gases', machines: 'Estado de máquinas', flow: 'Presión y caudal', view3d: 'Vista 3D' };
+const MODULES = ['tanks', 'climate', 'energy', 'gas', 'machines', 'flow', 'view3d', 'control'];
+const LABEL = { tanks: 'Tanques y llenado', climate: 'Temperatura y humedad', energy: 'Energía', gas: 'Consumo de gases', machines: 'Estado de máquinas', flow: 'Presión y caudal', view3d: 'Vista 3D', control: 'Control de llenado' };
 
 function watchErrors(page) {
   const errors = [];
@@ -79,7 +79,7 @@ try {
     const landed = await page.locator('[data-testid="plant-overview"]').waitFor({ timeout: 30_000 }).then(() => true, () => false);
     check(landed && new URL(page.url()).pathname === '/', `escritorio: «/» muestra la vista general de la planta (${new URL(page.url()).pathname})`);
     await page.locator('[data-testid="sidebar"]').waitFor({ timeout: 20_000 });
-    check((await count(page, '[data-testid="sidebar"] [data-testid^="module-nav-"]')) === 7, 'escritorio: la barra lateral tiene 7 módulos');
+    check((await count(page, '[data-testid="sidebar"] [data-testid^="module-nav-"]')) === 8, 'escritorio: la barra lateral tiene 8 módulos');
     const sidebarLabels = await page.locator('[data-testid="sidebar"] [data-testid^="module-nav-"]').allTextContents();
     check(MODULES.every((m) => sidebarLabels.some((t) => t.includes(LABEL[m]))), 'escritorio: cada módulo con su nombre');
     check((await count(page, '[data-testid="sidebar"] a[href="/alarmas"]')) === 1 && (await count(page, '[data-testid="sidebar"] a[href="/pared"]')) === 1, 'escritorio: Alarmas y Modo pared en la barra lateral');
@@ -91,7 +91,11 @@ try {
       if (id === 'view3d') {
         await page.locator('[data-testid="scene"] canvas').first().waitFor({ state: 'visible', timeout: 30_000 });
         await page.locator('[data-testid="asset-row-tk-01"]').waitFor({ timeout: 15_000 });
-        check((await count(page, '[data-testid^="asset-row-"]')) === 20, 'escritorio view3d: lista con los 20 activos de la planta');
+        check((await count(page, '[data-testid^="asset-row-"]')) === 25, 'escritorio view3d: lista con los 25 activos de la planta');
+      } else if (id === 'control') {
+        await page.locator('[data-testid^="control-card-"]').first().waitFor({ timeout: 20_000 });
+        check((await count(page, '[data-testid^="control-card-"]')) === 4, 'escritorio control: 4 tanques habilitados (tk-01…tk-04)');
+        check((await count(page, '[data-testid="order-log"]')) === 1, 'escritorio control: registro de órdenes');
       } else {
         await page.locator('[data-testid^="asset-card-"]').first().waitFor({ timeout: 20_000 });
         await page.locator('[data-testid^="kpi-"]').first().waitFor({ timeout: 10_000 });
@@ -106,9 +110,9 @@ try {
     // Tanques en detalle
     await openModule(page, 'tanks');
     await page.locator('[data-testid^="asset-card-"]').first().waitFor();
-    check((await count(page, '[data-testid^="asset-card-"]')) === 8, 'tanques: 8 tarjetas (4 tanques, 2 bombas, 2 válvulas)');
+    check((await count(page, '[data-testid^="asset-card-"]')) === 10, 'tanques: 10 tarjetas (4 tanques, 2 silos, 2 bombas, 2 válvulas)');
     const kt = await page.locator('[data-testid="kpi-strip"]').textContent();
-    check(/Capacidad total/.test(kt) && /240/.test(kt) && /Nivel más bajo/.test(kt), `tanques: capacidad total 240 m³ y nivel más bajo (${kt.replace(/\s+/g, ' ').slice(0, 110)})`);
+    check(/Capacidad total/.test(kt) && /480/.test(kt) && /Nivel más bajo/.test(kt), `tanques: capacidad total 480 m³ y nivel más bajo (${kt.replace(/\s+/g, ' ').slice(0, 110)})`);
     const v1 = await page.locator('[data-testid="value-tk-01"]').textContent();
     const changed = await pollUntil(async () => (await page.locator('[data-testid="value-tk-01"]').textContent()) !== v1, 8000);
     check(!!changed, 'tanques: el valor de tk-01 cambia en vivo');
@@ -118,7 +122,7 @@ try {
     await page.locator('[data-testid="filter-attention"]').click();
     const nAtt = await count(page, '[data-testid^="asset-card-"]');
     const lbl = await page.locator('[data-testid="filter-attention"]').textContent();
-    check(nAtt >= 1 && nAtt < 8 && lbl.includes(`(${nAtt})`), `tanques: filtro «Requieren atención» muestra ${nAtt} (${lbl.trim()})`);
+    check(nAtt >= 1 && nAtt < 10 && lbl.includes(`(${nAtt})`), `tanques: filtro «Requieren atención» muestra ${nAtt} (${lbl.trim()})`);
     await shot(page, 'tanks-attention-desktop');
     await page.locator('[data-testid="filter-all"]').click();
     const badge = await page.locator('[data-testid="module-badge-tanks"]').textContent({ timeout: 5000 }).catch(() => null);
@@ -255,8 +259,8 @@ try {
     const groups = await page.locator('[data-testid="plant-select"]:visible optgroup').evaluateAll((g) => g.map((x) => x.label));
     check(groups.length === 2 && groups.includes('Agroindustria Ejemplo') && groups.includes('Cliente Solo Tanques'), `plataforma: plantas agrupadas por cliente (${groups.join(' | ')})`);
     await page.locator('[data-testid="plant-select"]:visible').selectOption('demo');
-    const all = await pollUntil(async () => (await count(page, '[data-testid="sidebar"] [data-testid^="module-nav-"]')) === 7, 20_000);
-    check(!!all, 'plataforma: en la planta del cliente completo ve los 7 módulos');
+    const all = await pollUntil(async () => (await count(page, '[data-testid="sidebar"] [data-testid^="module-nav-"]')) === 8, 20_000);
+    check(!!all, 'plataforma: en la planta del cliente completo ve los 8 módulos');
     await shot(page, 'platform-desktop');
     await page.locator('[data-testid="plant-select"]:visible').selectOption('tanques');
     const one = await pollUntil(async () => (await count(page, '[data-testid="sidebar"]')) === 0, 20_000);
@@ -287,7 +291,8 @@ try {
         await page.locator('[data-testid="tab-3d"]').tap();
         await page.getByRole('button', { name: 'Ver 3D' }).tap();
         check(!!(await pollUntil(async () => (await count(page, 'canvas')) > 0, 25_000)), 'móvil view3d: «Ver 3D» carga el canvas');
-      } else await page.locator('[data-testid^="asset-card-"]').first().waitFor({ timeout: 20_000 });
+      } else if (id === 'control') await page.locator('[data-testid^="control-card-"]').first().waitFor({ timeout: 20_000 });
+      else await page.locator('[data-testid^="asset-card-"]').first().waitFor({ timeout: 20_000 });
       await sleep(id === 'view3d' ? 3000 : 3500);
       await shot(page, `${id}-mobile`);
       await audit(page, `móvil ${id}`);

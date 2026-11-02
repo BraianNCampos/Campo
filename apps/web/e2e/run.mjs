@@ -188,7 +188,7 @@ try {
     await page.goto(`${BASE}/m/tanks`, { waitUntil: 'load' });
     await page.locator('[data-testid^="asset-card-"]').first().waitFor({ timeout: 15_000 });
     const cards = await page.locator('[data-testid^="asset-card-"]').count();
-    check(cards === 8, `móvil: ${cards} tarjetas de activo`);
+    check(cards === 10, `móvil: ${cards} tarjetas de activo (4 tanques, 2 silos, 2 bombas, 2 válvulas)`);
     check((await page.locator('canvas').count()) === 0, 'móvil: NO hay <canvas> (3D no montado por defecto)');
 
     const m1 = await textOf(page, 'value-tk-01');

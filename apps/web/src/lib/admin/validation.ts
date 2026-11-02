@@ -424,7 +424,7 @@ export function validateDomainForm(f: DomainForm, type: AssetType | ''): { error
     else if (!Number.isFinite(n) || n <= 0) errors[key] = `${label}: ingresá un número mayor que 0.`;
     else value[key] = n;
   };
-  if (type === 'tank') positive('capacityM3', 'Capacidad');
+  if (type === 'tank' || type === 'silo') positive('capacityM3', 'Capacidad');
   if (type === 'energy') positive('contractedKw', 'Potencia contratada');
   const scale: NonNullable<DomainValues['scale']> = {};
   for (const metric of scaleMetricsFor(type)) {

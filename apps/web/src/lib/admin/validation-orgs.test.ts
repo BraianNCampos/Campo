@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { MODULE_DISABLED_TEXT } from './errors';
 import {
   domainFormFrom,
+  emptyControlForm,
   emptyDomainForm,
   emptyLayoutForm,
   isTypeAllowed,
@@ -98,7 +99,7 @@ describe('campos de dominio: capacityM3, contractedKw, scale', () => {
   });
   it('lee los campos del metadata (sólo números)', () => {
     const f = domainFormFrom({ capacityM3: 60, contractedKw: 'x', scale: { level: { min: 0, max: 100 }, malo: { min: 'a', max: 1 } } });
-    expect(f).toEqual({ capacityM3: '60', contractedKw: '', scale: { level: { min: '0', max: '100' } } });
+    expect(f).toEqual({ capacityM3: '60', contractedKw: '', scale: { level: { min: '0', max: '100' } }, control: emptyControlForm() });
     expect(domainFormFrom(null)).toEqual(emptyDomainForm());
   });
   it('validateMetadataDomain señala lo escrito a mano en el JSON', () => {

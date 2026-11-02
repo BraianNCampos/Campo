@@ -13,6 +13,9 @@ import { AuthService } from '../../src/auth/auth.service';
 import { PlantCatalog } from '../../src/auth/plant-catalog';
 import { UsersRepository } from '../../src/auth/users.repository';
 import { APP_CONFIG, AppConfig, parseEnv } from '../../src/config/app-config';
+import { CommandBus } from '../../src/control/command-bus';
+import { ControlClock } from '../../src/control/control-support';
+import { OrdersRepository } from '../../src/control/orders.repository';
 import { PG_POOL } from '../../src/database/tokens';
 import { HistoryRepository } from '../../src/history/history.repository';
 import { AuditRepository } from '../../src/audit/audit.repository';
@@ -35,6 +38,7 @@ import {
   MemoryPlantsRepository,
   MemoryUsersRepository,
 } from './memory-repos';
+import { FakeClock, FakeCommandBus, MemoryOrdersRepository } from './control';
 import { createRedisMocks } from './redis-mock';
 
 /** Cliente por defecto del mundo de pruebas: todos los módulos, con la planta `demo`. */
@@ -60,6 +64,10 @@ export interface TestApp {
   plants: MemoryPlantsRepository;
   orgs: MemoryOrgsRepository;
   audit: MemoryAuditRepository;
+  /** Control de llenado: órdenes en memoria, broker MQTT simulado y reloj controlable (§14). */
+  orders: MemoryOrdersRepository;
+  bus: FakeCommandBus;
+  clock: FakeClock;
   pool: { query: jest.Mock; end: jest.Mock; on: jest.Mock };
   /**
    * Crea (una vez por rol) un usuario `<rol>@campo.test` del cliente `campos-demo` y devuelve su JWT.
@@ -117,6 +125,9 @@ export async function createTestApp(overrides: Partial<AppConfig> = {}): Promise
   });
   plants.register('demo', DEMO_ORG);
   const audit = new MemoryAuditRepository();
+  const orders = new MemoryOrdersRepository();
+  const bus = new FakeCommandBus();
+  const clock = new FakeClock(Date.now());
   const pool = {
     query: jest.fn().mockResolvedValue({ rows: [{ '?column?': 1 }] }),
     end: jest.fn().mockResolvedValue(undefined),
@@ -156,6 +167,12 @@ export async function createTestApp(overrides: Partial<AppConfig> = {}): Promise
     .useValue(health)
     .overrideProvider(HistoryRepository)
     .useValue(history)
+    .overrideProvider(OrdersRepository)
+    .useValue(orders)
+    .overrideProvider(CommandBus)
+    .useValue(bus)
+    .overrideProvider(ControlClock)
+    .useValue(clock)
     .compile();
 
   const app = moduleRef.createNestApplication({ logger: false });
@@ -212,6 +229,9 @@ export async function createTestApp(overrides: Partial<AppConfig> = {}): Promise
     plants,
     orgs,
     audit,
+    orders,
+    bus,
+    clock,
     pool,
     tokenFor,
     makeUser,

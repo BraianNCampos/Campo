@@ -5,6 +5,7 @@ import { ASSET_KINDS, METRICS, type AssetDef, type AssetState, type Limit, type 
 import { resolveScale, type Scale } from '@/lib/modules/scale';
 import { cardStatus, setpointOf, type CardStatus } from '@/lib/modules/status';
 import { assetLabel } from '@/lib/assets';
+import { displayTag } from '@/lib/tags';
 import type { AssetAlarmNotice } from '@/lib/alarm-lifecycle';
 import { selectAssetNotices, useLiveStore } from '@/store/live-store';
 
@@ -14,6 +15,8 @@ export interface CardData {
   id: string;
   def: AssetDef | undefined;
   name: string;
+  /** tag estándar (§14.1); sin tag, el id técnico */
+  tag: string;
   state: AssetState | undefined;
   status: CardStatus;
   severity: Severity | undefined;
@@ -46,6 +49,7 @@ export function useCardData(id: string): CardData {
       id,
       def,
       name: def?.name ?? assetLabel(id),
+      tag: displayTag(id, def),
       state,
       severity,
       status: cardStatus({ def, catalogReady, state, alarmSeverity: severity, limits: all }),

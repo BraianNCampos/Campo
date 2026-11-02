@@ -17,7 +17,7 @@ describe('MockAdminApi: semilla de clientes', () => {
     const orgs = await platform().listOrgs();
     expect(orgs.map((o) => o.id).sort()).toEqual(['campos-demo', 'cliente-tanques']);
     const demo = orgs.find((o) => o.id === 'campos-demo')!;
-    expect(demo.modules).toHaveLength(7);
+    expect(demo.modules).toHaveLength(8);
     expect(demo).toMatchObject({ active: true, plants: 1, users: 4 });
     expect(orgs.find((o) => o.id === 'cliente-tanques')).toMatchObject({ modules: ['tanks'], plants: 1, users: 4 });
   });

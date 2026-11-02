@@ -63,12 +63,12 @@ type Builder = (items: readonly ModuleItem[]) => Kpi[];
 
 const BUILDERS: Partial<Record<ModuleId, Builder>> = {
   tanks: (all) => {
-    const items = all.filter((i) => i.def.type === 'tank');
+    const items = all.filter((i) => i.def.type === 'tank' || i.def.type === 'silo'); // los silos cuentan como tanques
     const total = sum(items.map((i) => capacity(i) ?? 0));
     const low = extreme(items, 'level', 'min');
     const c = countItems(all);
     return [
-      { key: 'tanks', label: 'Tanques', value: String(items.length), tone: 'neutral' },
+      { key: 'tanks', label: items.some((i) => i.def.type === 'silo') ? 'Tanques y silos' : 'Tanques', value: String(items.length), tone: 'neutral' },
       { key: 'capacity', label: 'Capacidad total', value: fmtInt(total), unit: 'm³', tone: 'neutral' },
       { key: 'alarm', label: 'En alarma', value: String(c.alarm), tone: c.alarm > 0 ? 'crit' : 'neutral' },
       { key: 'near', label: 'Fuera o cerca del límite', value: String(c.near), tone: c.near > 0 ? 'warn' : 'neutral' },

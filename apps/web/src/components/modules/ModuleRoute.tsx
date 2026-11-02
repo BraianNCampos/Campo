@@ -3,6 +3,7 @@
 import { MODULES } from '@campo/shared';
 import { isModuleId } from '@/lib/modules/nav';
 import { useActiveModuleIds } from './derived';
+import { ControlScreen } from '../control/ControlScreen';
 import { ModuleScreen } from './ModuleScreen';
 import { NotContracted } from './NoModules';
 import { View3dScreen } from './View3dScreen';
@@ -14,5 +15,6 @@ export function ModuleRoute({ module }: { module: string }) {
     return <NotContracted label={MODULES.find((m) => m.id === module)?.label} />;
   }
   if (module === 'view3d') return <View3dScreen />;
+  if (module === 'control') return <ControlScreen />;
   return <ModuleScreen module={MODULES.find((m) => m.id === module)!} />;
 }

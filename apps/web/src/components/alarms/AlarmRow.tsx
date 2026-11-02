@@ -2,6 +2,7 @@
 
 import { memo } from 'react';
 import { IconCheck, IconChevron, IconPause } from '../icons';
+import { AssetTag } from '../AssetTag';
 import { lifecycleOf, type LiveAlarm } from '@/lib/alarm-lifecycle';
 import { LifecycleBadge, KindBadge, PriorityBadge } from './badges';
 import { alarmTitle, effectiveKind, limitText, remainingText, timeText, valueText } from './model';
@@ -48,7 +49,7 @@ function RowImpl({ alarm: a, name, now, canAck, canShelve, history, selected, bu
       </div>
 
       <div className="mt-2 min-w-0 xl:mt-0">
-        <p className="truncate text-base font-bold" data-testid="alarm-asset">{name} <span className="font-mono text-xs font-normal text-muted">{a.asset}</span></p>
+        <p className="truncate text-base font-bold" data-testid="alarm-asset">{name} <AssetTag id={a.asset} className="text-xs font-normal" /></p>
         <p className="text-sm text-fg/90 xl:line-clamp-2" data-testid="alarm-title">{alarmTitle(a)}</p>
       </div>
 

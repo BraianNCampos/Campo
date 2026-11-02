@@ -94,28 +94,32 @@ function makeGen(def: AssetDef, rnd: () => number, index: number): Gen {
       // cinta: en marcha o detenida, con velocidad (rpm del rodillo) mientras corre
       let on = h % 4 !== 0;
       let next = 50 + (h % 70);
+      let hours = 800 + (h % 3000);
       return {
         def,
-        step: (t) => {
+        step: (t, dt) => {
+          if (on) hours += (dt / 3600) * 60;
           if (t >= next) {
             on = !on;
             next = t + (on ? 100 + rnd() * 150 : 20 + rnd() * 40);
           }
-          return { state: on ? 1 : 0, rpm: on ? round(42 + noise(1.2), 1) : 0 };
+          return { state: on ? 1 : 0, rpm: on ? round(42 + noise(1.2), 1) : 0, hours: round(hours, 1) };
         },
       };
     }
     case 'machine': {
       let on = h % 3 !== 0;
       let next = 40 + (h % 80);
+      let hours = 1500 + (h % 5000);
       return {
         def,
-        step: (t) => {
+        step: (t, dt) => {
+          if (on) hours += (dt / 3600) * 60;
           if (t >= next) {
             on = !on;
             next = t + (on ? 90 + rnd() * 150 : 25 + rnd() * 45);
           }
-          return { state: on ? 1 : 0 };
+          return { state: on ? 1 : 0, hours: round(hours, 1) };
         },
       };
     }

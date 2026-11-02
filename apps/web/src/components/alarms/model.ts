@@ -58,7 +58,7 @@ export const alarmTitle = (a: Pick<AlarmEvent, 'rationale' | 'message' | 'metric
 export function matchesQuery(a: AlarmEvent, query: string, ctx: FilterCtx): boolean {
   const q = norm(query.trim());
   if (!q) return true;
-  const hay = norm([a.asset, assetNameOf(a.asset, ctx.catalog), alarmTitle(a), METRICS[a.metric]?.label ?? a.metric].join(' '));
+  const hay = norm([a.asset, ctx.catalog[a.asset]?.tag ?? '', assetNameOf(a.asset, ctx.catalog), alarmTitle(a), METRICS[a.metric]?.label ?? a.metric].join(' '));
   return q.split(/\s+/).every((w) => hay.includes(w));
 }
 

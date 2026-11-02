@@ -8,11 +8,12 @@ import { fmtNum } from '@/lib/modules/kpis';
 import { metricMeta } from '@/lib/metrics';
 import { useLiveStore } from '@/store/live-store';
 import { IconCheck, IconChevron, IconCritical, IconPause, IconWarning } from '../icons';
-import { useAssetName } from '../useAsset';
+import { useAssetName, useAssetTag } from '../useAsset';
 import { LatencyBadge } from './LatencyBadge';
 
 function Entry({ a, first }: { a: LiveAlarm; first: boolean }) {
   const name = useAssetName(a.asset);
+  const tag = useAssetTag(a.asset);
   const m = metricMeta(a.metric);
   const crit = a.severity === 'critical';
   const rtn = lifecycleOf(a) === 'rtn_unacked';
@@ -29,7 +30,7 @@ function Entry({ a, first }: { a: LiveAlarm; first: boolean }) {
       <span className="flex min-w-0 flex-col leading-tight text-fg">
         <span className="flex min-w-0 items-baseline gap-1.5">
           <span className="truncate font-semibold">{name}</span>
-          <span className="shrink-0 font-mono text-[11px] text-muted">{a.asset}</span>
+          <span className="shrink-0 font-mono text-[11px] text-muted" data-testid="footer-alarm-tag">{tag}</span>
           {a.kind && <span className="shrink-0 font-mono text-[11px] font-bold">{a.kind}</span>}
         </span>
         <span className="truncate text-[12px]">

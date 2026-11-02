@@ -1,10 +1,14 @@
 'use client';
 
-import { pumpRunning } from '@/lib/assets';
+import { isStructure, isTankLike, pumpRunning } from '@/lib/assets';
 import { formatMetric, metricMeta } from '@/lib/metrics';
 import { STATUS_META } from '@/lib/status';
 import { useUiStore } from '@/store/ui-store';
-import { IconInfo, IconPause, IconPower, KIND_ICON } from './icons';
+import Link from 'next/link';
+import { IconChevron, IconInfo, IconPause, IconPower, KIND_ICON } from './icons';
+import { unitModule } from '@/lib/modules/unit';
+import { assetHref } from '@/lib/tags';
+import { useActiveModuleIds } from './modules/derived';
 import { LineChart } from './LineChart';
 import { useModelStatus } from '@/scene/models/model-status';
 import { StatusBadge, UncatalogedTag } from './StatusBadge';
@@ -12,12 +16,14 @@ import { useAsset } from './useAsset';
 
 /** Panel flotante del equipo seleccionado: valores en vivo + mini-curva. */
 export function AssetPanel({ id, className = '' }: { id: string; className?: string }) {
-  const { state, kind, status, name, uncataloged } = useAsset(id);
+  const { state, def, kind, status, name, tag, uncataloged } = useAsset(id);
+  const active = useActiveModuleIds();
+  const mod = def ? unitModule(def) : null;
   const modelProblem = useModelStatus((s) => s.failed[id]);
   const select = useUiStore((s) => s.select);
   const Icon = KIND_ICON[kind];
   const entries = Object.entries(state?.values ?? {});
-  const main = kind === 'tank' ? 'level' : kind === 'pump' ? 'rpm' : kind === 'valve' ? 'position' : (entries[0]?.[0] ?? 'value');
+  const main = isTankLike(kind) ? 'level' : kind === 'pump' ? 'rpm' : kind === 'valve' ? 'position' : (entries[0]?.[0] ?? 'value');
   const m = STATUS_META[status];
 
   return (
@@ -32,7 +38,7 @@ export function AssetPanel({ id, className = '' }: { id: string; className?: str
             <Icon className="text-xl text-muted" />
             {name}
           </h2>
-          <p className="font-mono text-xs text-muted">{id}</p>
+          <p className="font-mono text-xs text-muted" data-testid="panel-tag">{tag}</p>
         </div>
         <button
           type="button"
@@ -44,7 +50,7 @@ export function AssetPanel({ id, className = '' }: { id: string; className?: str
         </button>
       </header>
       <div className="mt-2 flex items-center gap-2">
-        <StatusBadge status={status} size="sm" />
+        {!isStructure(kind) && <StatusBadge status={status} size="sm" />}
         {uncataloged && <UncatalogedTag />}
         {kind === 'pump' && (
           <span className={`inline-flex items-center gap-1 text-xs font-semibold ${pumpRunning(state?.values) ? 'text-calm' : 'text-muted'}`}>
@@ -59,7 +65,11 @@ export function AssetPanel({ id, className = '' }: { id: string; className?: str
           Modelo no disponible: mostramos el modelo genérico.
         </p>
       )}
-      {status === 'nodata' && <p className="mt-3 text-sm text-muted">Todavía no llegaron datos de este activo.</p>}
+      {isStructure(kind) ? (
+        <p className="mt-3 text-sm text-muted">Estructura decorativa: se dibuja en la Vista 3D y no envía datos.</p>
+      ) : (
+        status === 'nodata' && <p className="mt-3 text-sm text-muted">Todavía no llegaron datos de este activo.</p>
+      )}
       <dl className="mt-3 grid grid-cols-2 gap-3">
         {entries.map(([k, v]) => (
           <div key={k}>
@@ -70,7 +80,17 @@ export function AssetPanel({ id, className = '' }: { id: string; className?: str
           </div>
         ))}
       </dl>
-      {status !== 'nodata' && (
+      {def && mod && active.includes(mod) && (
+        <Link
+          prefetch={false}
+          href={assetHref(mod, def)}
+          data-testid="panel-unit-link"
+          className="mt-3 inline-flex min-h-11 w-full items-center justify-center gap-1.5 rounded-lg border border-line bg-surface-2 px-3 text-sm font-semibold hover:bg-line"
+        >
+          Ver detalle de la unidad <IconChevron className="text-base" />
+        </Link>
+      )}
+      {status !== 'nodata' && !isStructure(kind) && (
         <>
           <div className="mt-3 rounded-lg border border-line bg-bg">
             <LineChart asset={id} metric={main} windowSec={60} height={70} compact />

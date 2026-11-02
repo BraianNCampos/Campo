@@ -123,6 +123,7 @@ function AssetsContent() {
               <caption className="sr-only">Activos de la planta {plantId}</caption>
               <thead className="border-b border-line">
                 <tr>
+                  <th scope="col" className={th}>Tag</th>
                   <th scope="col" className={th}>Id</th>
                   <th scope="col" className={th}>Nombre</th>
                   <th scope="col" className={th}>Tipo</th>
@@ -137,7 +138,8 @@ function AssetsContent() {
                   const Icon = KIND_ICON[a.type];
                   return (
                     <tr key={a.id} data-testid={`asset-row-${a.id}`}>
-                      <td className={`${td} font-mono`}>{a.id}</td>
+                      <td className={`${td} font-mono font-semibold`} data-testid={`asset-tag-${a.id}`}>{a.tag ?? '—'}</td>
+                      <td className={`${td} font-mono text-muted`}>{a.id}</td>
                       <td className={`${td} font-semibold`}>{a.name}</td>
                       <td className={td}>
                         <span className="inline-flex items-center gap-1.5">
@@ -167,7 +169,7 @@ function AssetsContent() {
                     <Icon className="text-xl text-muted" /> {a.name}
                   </p>
                   <p className="text-sm text-muted">
-                    <span className="font-mono">{a.id}</span> · {typeLabel(a.type)}
+                    {a.tag && <><span className="font-mono font-semibold">{a.tag}</span> · </>}<span className="font-mono">{a.id}</span> · {typeLabel(a.type)}
                   </p>
                   <p className="text-sm text-muted">
                     Modelo: {modelName(a.model3dRef)} · {placement(a)}

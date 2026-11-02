@@ -222,8 +222,8 @@ describe('startLive en modo demo', () => {
     const stopDemo = startLive('demo');
     await new Promise((r) => setTimeout(r, 400));
     const d = useLiveStore.getState();
-    expect(d.assetIds).toHaveLength(20); // los 20 activos sembrados de la planta demo, todos con telemetría
-    for (const id of d.assetIds) expect(Object.keys(d.assets[id]?.values ?? {}).length, id).toBeGreaterThan(0);
+    expect(d.assetIds).toHaveLength(25); // los 25 activos sembrados de la planta demo; todos con telemetría salvo la nave decorativa
+    for (const id of d.assetIds.filter((x) => x !== 'nave-01')) expect(Object.keys(d.assets[id]?.values ?? {}).length, id).toBeGreaterThan(0);
     expect(d.assets['clima-01']?.values.temp).toBeTypeOf('number');
     expect(d.assets['en-linea1']?.values.kwh).toBeTypeOf('number');
     expect([0, 1]).toContain(d.assets['maq-01']?.values.state);

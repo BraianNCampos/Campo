@@ -9,9 +9,9 @@ export const DEFAULT_WALL_INTERVAL: WallInterval = 20;
 /** Pulsación larga (ms) que sale del modo pared. */
 export const LONG_PRESS_MS = 700;
 
-/** Módulos que rotan en el modo pared: los activos con tarjetas (la Vista 3D no rota: es un lienzo, no un tablero). */
+/** Módulos que rotan en el modo pared: los activos con tarjetas (la Vista 3D y el Control de llenado no rotan: no son tableros de tarjetas). */
 export function wallModules(ids: readonly ModuleId[]): ModuleDef[] {
-  return activeModules(ids).filter((m) => m.id !== 'view3d');
+  return activeModules(ids).filter((m) => m.id !== 'view3d' && m.id !== 'control');
 }
 
 export interface RotationState {

@@ -54,4 +54,23 @@ describe('parseEnv', () => {
       ['https://a.com', 'https://b.com'],
     );
   });
+
+  it('MQTT (control, §14.4): opcional; sin MQTT_URL no hay control', () => {
+    const none = parseEnv({ ...base });
+    expect(none.mqttUrl).toBeUndefined();
+    const c = parseEnv({
+      ...base,
+      MQTT_URL: ' mqtts://mosquitto:8883 ',
+      MQTT_USERNAME: 'api',
+      MQTT_PASSWORD: 'secreta',
+      MQTT_CA_FILE: '/run/ca.crt',
+    });
+    expect(c).toMatchObject({
+      mqttUrl: 'mqtts://mosquitto:8883',
+      mqttUsername: 'api',
+      mqttPassword: 'secreta',
+      mqttCaFile: '/run/ca.crt',
+    });
+    expect(() => parseEnv({ ...base, MQTT_URL: 'http://x' })).toThrow('MQTT_URL');
+  });
 });

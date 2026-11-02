@@ -159,8 +159,7 @@ export class AssetsService {
       typeof prev === 'object' && prev !== null && !Array.isArray(prev)
         ? { ...(prev as Record<string, unknown>) }
         : {};
-    const previous =
-      typeof setpoints[metric] === 'number' ? (setpoints[metric]) : undefined;
+    const previous = typeof setpoints[metric] === 'number' ? setpoints[metric] : undefined;
     setpoints[metric] = value;
     const metadata = { ...current.metadata, setpoints };
     this.checkMetadata(metadata, id);

@@ -141,6 +141,7 @@ describe('Administración: plantas, activos, auditoría y revocación (e2e)', ()
         name: 'Tanque 1',
         type: 'tank',
         model3dRef: modelRef,
+        tag: null,
         metadata: { capacityL: 5000 },
       });
       // sin modelo ni metadata -> null / {}
@@ -183,7 +184,7 @@ describe('Administración: plantas, activos, auditoría y revocación (e2e)', ()
         .body as AssetDef[];
       expect(list.map((a) => a.id)).toEqual(['tk-01', 'pump-01', 'a2']);
       expect(Object.keys(list[0]).sort()).toEqual(
-        ['id', 'metadata', 'model3dRef', 'name', 'plant', 'type'].sort(),
+        ['id', 'metadata', 'model3dRef', 'name', 'plant', 'tag', 'type'].sort(),
       );
       await api.delete('/api/plants/norte/assets/a2', admin).expect(200);
     });

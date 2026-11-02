@@ -1,0 +1,34 @@
+/* (los selectores duplican [data-anomaly] para ganar a `.scene-label[data-alarm]` de globals.css, que se conserva por compatibilidad)
+   Marcador de anomalía en la etiqueta 3D (§13): color por nivel (ámbar / rojo / magenta) + texto, nunca sólo color. */
+.scene-label[data-anomaly][data-anomaly] {
+  border-color: var(--anomaly);
+  background: rgba(8, 14, 22, 0.94);
+  box-shadow: 0 0 0 1px var(--anomaly), 0 0 14px -2px var(--anomaly);
+  /* sube el rótulo para que el anillo holográfico quede entre el rótulo y el equipo */
+  transform: translateY(-44px);
+}
+.scene-label[data-anomaly][data-anomaly] .scene-alarm {
+  display: block;
+  font: normal 700 10px/1.2 var(--font-sans);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--anomaly);
+}
+.scene-label .scene-holo {
+  display: none;
+}
+.scene-label[data-anomaly] .scene-holo {
+  display: block;
+  margin-top: 2px;
+  padding-top: 2px;
+  border-top: 1px dashed var(--anomaly);
+  font: 600 10.5px/1.25 var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--color-fg);
+  white-space: pre-line;
+}
+@container (max-width: 560px) {
+  .scene-label[data-anomaly][data-minor] {
+    display: block; /* una anomalía siempre se ve, aunque sea una bomba o una válvula */
+  }
+}

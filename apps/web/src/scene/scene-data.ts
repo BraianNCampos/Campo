@@ -1,11 +1,17 @@
 import { createContext, useContext } from 'react';
-import type { AssetState, Severity } from '@campo/shared';
+import type { AssetDef, AssetState, Limit, Severity } from '@campo/shared';
+import type { LiveAlarm } from '@/lib/alarm-lifecycle';
 import { useLiveStore } from '@/store/live-store';
 
 /** Lo que el 3D lee de los datos en vivo. */
 export interface SceneSnapshot {
   assets: Record<string, AssetState>;
   alarmSeverityByAsset: Record<string, Severity>;
+  /** alarmas del store (para el contorno/marcador de anomalías); ausente en la vista previa de administración */
+  alarms?: Record<string, LiveAlarm>;
+  /** límites por activo («cerca del límite») */
+  limitsByAsset?: Record<string, Limit[]>;
+  catalog?: Record<string, AssetDef>;
 }
 
 /** Origen de datos de la escena: acceso transitorio (get/subscribe) para no re-renderizar React por mensaje. */

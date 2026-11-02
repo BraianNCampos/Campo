@@ -4,8 +4,11 @@ import {
   AlarmEvent,
   CatalogMessage,
   ID_PATTERN,
+  Order,
+  OrderEvent,
   ServerMessage,
   TelemetryEvent,
+  TimeSyncMessage,
 } from '@campo/shared';
 import type { IncomingMessage } from 'node:http';
 import { Subscription } from 'rxjs';
@@ -131,6 +134,8 @@ export class LiveGateway
       set.add(client);
       socket.on('pong', () => (client.alive = true));
       socket.on('error', () => socket.terminate());
+      // Único mensaje cliente → servidor: sincronización de reloj (§13). El resto se ignora sin romper la conexión.
+      socket.on('message', (data) => this.onClientMessage(client, data));
 
       // Registrado antes de pedir el snapshot: lo que llegue mientras tanto se descarta
       // para este cliente (client.ready=false) y el snapshot ya lo corrige.
@@ -231,7 +236,44 @@ export class LiveGateway
     if (!this.byPlant.has(m.plant)) return;
     if (m.kind === 'telemetry') this.coalescer.push(m.event);
     else if (m.kind === 'alarm') this.broadcastAlarm(m.plant, m.event);
+    else if (m.kind === 'order') this.broadcastOrder(m.plant, m.event.order);
     else this.catalogCoalescer.push(m.plant);
+  }
+
+  /**
+   * `{type:"time", t0}` -> `{type:"time", t0, t1: Date.now()}` (el cliente estima el desfase de reloj, §13).
+   * Cualquier otra cosa (no JSON, tipos desconocidos, `t0` no numérico) se descarta en silencio.
+   */
+  private onClientMessage(client: Client, data: unknown): void {
+    if (client.socket.readyState !== WebSocket.OPEN) return;
+    let msg: unknown;
+    try {
+      msg = JSON.parse(String(data));
+    } catch {
+      return;
+    }
+    if (typeof msg !== 'object' || msg === null) return;
+    const { type, t0 } = msg as { type?: unknown; t0?: unknown };
+    if (type !== 'time' || typeof t0 !== 'number' || !Number.isFinite(t0)) return;
+    const reply: TimeSyncMessage = { type: 'time', t0, t1: Date.now() };
+    this.send(client, reply);
+  }
+
+  /**
+   * `{type:"order", order}` sólo a los sockets de la planta de la orden (el acceso a cada planta se verificó al
+   * conectar y se revalida periódicamente). Como las alarmas, no se descarta salvo cliente atascado.
+   */
+  private broadcastOrder(plant: string, order: Order): void {
+    const ev: OrderEvent = { type: 'order', order };
+    const payload = JSON.stringify(ev);
+    for (const c of this.byPlant.get(plant) ?? []) {
+      if (!c.ready || c.socket.readyState !== WebSocket.OPEN) continue;
+      if (c.socket.bufferedAmount > this.cfg.wsMaxBufferedBytes * HARD_FACTOR) {
+        c.socket.terminate();
+        continue;
+      }
+      this.sendRaw(c, payload);
+    }
   }
 
   /** `{type:"catalog"}` sólo a los clientes de esa planta; el cliente vuelve a pedir el catálogo por HTTP. */

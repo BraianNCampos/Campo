@@ -23,6 +23,7 @@ export interface KitMaterials {
   glass: THREE.MeshStandardMaterial;
   shell: THREE.MeshStandardMaterial;
   panel: THREE.MeshStandardMaterial;
+  roofPanel: THREE.MeshStandardMaterial;
   pipe: THREE.MeshStandardMaterial;
 }
 
@@ -43,13 +44,14 @@ function make(profile: QualityProfile): KitMaterials {
     paintWhite: std({ color: '#e4e8ec', metalness: metal(0.2), roughness: 0.5 }),
     safety: std({ color: '#e3b218', metalness: metal(0.1), roughness: 0.55 }),
     rubber: std({ color: '#1d2024', metalness: 0, roughness: 0.92 }),
-    concrete: std({ color: '#7a7f85', metalness: 0, roughness: 0.96, map: conc }),
-    concreteLight: std({ color: '#9aa0a6', metalness: 0, roughness: 0.94, map: conc }),
+    concrete: std({ color: '#565d67', metalness: 0, roughness: 0.96, map: conc }),
+    concreteLight: std({ color: '#7a828c', metalness: 0, roughness: 0.94, map: conc }),
     cladding: std({ color: '#aeb7bf', metalness: metal(0.55), roughness: 0.5, bumpMap: wall, bumpScale: wall ? 0.8 : 0 }),
     roof: std({ color: '#8f9aa4', metalness: metal(0.6), roughness: 0.46, bumpMap: wall, bumpScale: wall ? 0.8 : 0 }),
     glass: std({ color: '#9bd3e6', metalness: 0.1, roughness: 0.15, transparent: true, opacity: 0.35, depthWrite: false }),
     shell: std({ color: '#9fb3c6', metalness: metal(0.6), roughness: 0.34, transparent: true, opacity: 0.3, side: THREE.DoubleSide, depthWrite: false }),
     panel: std({ color: '#b9c3cc', metalness: metal(0.4), roughness: 0.55, transparent: true, opacity: 0.3, side: THREE.DoubleSide, depthWrite: false }),
+    roofPanel: std({ color: '#98a3ad', metalness: metal(0.5), roughness: 0.5, transparent: true, opacity: 0.42, side: THREE.DoubleSide, depthWrite: false }),
     pipe: std({ color: '#a9bccf', metalness: metal(0.6), roughness: 0.32, transparent: true, opacity: 0.55, depthWrite: false }),
   };
 }

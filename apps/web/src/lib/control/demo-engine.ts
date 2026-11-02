@@ -1,7 +1,7 @@
 import type { AlarmEvent, AssetDef, AssetState, InterlockItem, Limit, Order, OrderCommand, OrderPreview, Role } from '@campo/shared';
 import { ControlApiError, controlErrorFromResponse } from './errors';
 import { COMMAND_LABEL, orderText } from './flow';
-import { controlConfigOf, evaluateInterlocks, canOrder, isControlEnabled, isControllableType, targetRange } from './interlocks';
+import { controlConfigOf, evaluateInterlocks, canOrder, isControlEnabled, isControllableType, maxAllowedTarget, targetRange } from './interlocks';
 import { CONFIRM_TTL_MS, CONTROL_DEFAULTS, isActiveOrder, type OrderQuery, type PreviewRequest } from './types';
 
 /**
@@ -68,6 +68,8 @@ export class DemoControlEngine {
   private active = new Map<string, Active>();
   /** diferencia (mostrado − natural) que se va diluyendo tras terminar una orden */
   private offset = new Map<string, number>();
+  /** último nivel «natural» (de la simulación) visto por activo */
+  private natural = new Map<string, number>();
   private stamps = new Map<string, number[]>();
   private seq = 0;
   private readonly rate: number;
@@ -118,11 +120,13 @@ export class DemoControlEngine {
   interlocksOf(user: DemoUser, asset: string): InterlockItem[] {
     const def = this.def(asset);
     if (!def) throw controlErrorFromResponse(404, {});
+    if (!isControllableType(def.type)) return []; // sin control de llenado no hay permisos que mostrar
     const range = targetRange(def);
-    const level = this.ctx.state(asset)?.values.level;
-    const mid = Math.round((range.min + range.max) / 2);
-    const command: OrderCommand = level !== undefined && level >= mid ? 'drain' : 'fill';
-    return this.interlocks(user, asset, command, mid).items;
+    const level = this.ctx.state(asset)?.values.level ?? (range.min + range.max) / 2;
+    // permisos para una orden típica: llenar 5 puntos, o vaciar 5 si ya no hay margen hacia arriba
+    const up = Math.round(level) + 5;
+    const fill = up <= Math.min(range.max, maxAllowedTarget(def, this.ctx.limits(asset)));
+    return this.interlocks(user, asset, fill ? 'fill' : 'drain', fill ? up : Math.max(range.min, Math.round(level) - 5)).items;
   }
 
   private fail(status: number, body: unknown): never {
@@ -243,6 +247,7 @@ export class DemoControlEngine {
     const a = this.active.get(asset);
     const natural = values.level;
     if (natural !== undefined) {
+      this.natural.set(asset, natural);
       if (a) {
         this.offset.set(asset, a.shown - natural);
         out.level = round2(clamp(a.shown, 0, 100));
@@ -275,7 +280,7 @@ export class DemoControlEngine {
         a.shown = a.target;
         const ord = this.orders.find((x) => x.id === a.orderId);
         if (ord && isActiveOrder(ord)) this.finish(ord, 'done', now, `Nivel objetivo alcanzado (${pct(a.target)}).`);
-        this.active.delete(asset);
+        this.release(asset);
       }
     }
     // la diferencia con la simulación natural se diluye cuando no hay orden
@@ -286,6 +291,14 @@ export class DemoControlEngine {
       if (Math.abs(next) < 0.02) this.offset.delete(asset);
       else this.offset.set(asset, next);
     }
+  }
+
+  /** Termina el seguimiento del objetivo: lo que se ve queda como diferencia que se irá diluyendo. */
+  private release(asset: string) {
+    const a = this.active.get(asset);
+    if (!a) return;
+    this.offset.set(asset, a.shown - (this.natural.get(asset) ?? a.shown));
+    this.active.delete(asset);
   }
 
   private set(o: Order, status: Order['status'], now: number, extra: Partial<Order> = {}) {
@@ -311,7 +324,7 @@ export class DemoControlEngine {
       // el equipo se detiene: la orden en curso del mismo equipo queda cancelada
       const cur = this.orders.find((x) => x.asset === o.asset && x.id !== o.id && isActiveOrder(x) && x.command !== 'stop');
       if (cur) {
-        this.active.delete(o.asset);
+        this.release(o.asset);
         this.finish(cur, 'cancelled', now, `Detenida por ${o.requestedBy.email || 'un usuario'}.`);
       }
       this.finish(o, 'done', now, o.reason ?? 'El equipo se detuvo.');
@@ -319,7 +332,7 @@ export class DemoControlEngine {
     }
     const max = (controlConfigOf(this.def(o.asset))?.maxDurationMinutes ?? CONTROL_DEFAULTS.maxDurationMinutes) * 60_000;
     if (now - o.requestedAt > max) {
-      this.active.delete(o.asset);
+      this.release(o.asset);
       this.finish(o, 'timeout', now, 'Superó la duración máxima y se cortó sola.');
     }
   }

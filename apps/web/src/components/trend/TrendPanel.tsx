@@ -12,6 +12,7 @@ import { metricMeta } from '@/lib/metrics';
 import { readSeries } from '@/store/history';
 import { useLiveStore } from '@/store/live-store';
 import { assetLabel } from '@/lib/assets';
+import { displayTag } from '@/lib/tags';
 import { GlassPanel } from '../GlassPanel';
 import { useNow } from '../hooks';
 import { IconClose, IconRefresh } from '../icons';
@@ -111,7 +112,7 @@ function Panel({ asset, metric }: { asset: string; metric: string }) {
         <div ref={ref} className="flex min-h-0 flex-1 flex-col gap-4 p-4 md:p-5">
           <header className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <p className="font-mono text-[11px] tracking-wider text-muted uppercase">{asset}</p>
+              <p className="font-mono text-[11px] tracking-wider text-muted uppercase" data-testid="trend-tag">{displayTag(asset, def)}</p>
               <h2 className="truncate text-xl leading-tight font-bold">{name}</h2>
               <p className="mt-0.5 text-sm text-muted">{meta.label}{def ? ` · ${ASSET_KINDS[def.type].label}` : ''}</p>
             </div>

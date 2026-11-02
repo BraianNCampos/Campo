@@ -1,20 +1,22 @@
 import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
-import { AlarmEvent, ID_PATTERN, TelemetryEvent } from '@campo/shared';
+import { AlarmEvent, ID_PATTERN, OrderEvent, TelemetryEvent } from '@campo/shared';
 import Redis from 'ioredis';
 import { Observable, Subject } from 'rxjs';
+import { ORDERS_CHANNEL_PREFIX } from '../control/control.types';
 import { CATALOG_CHANGED_CHANNEL } from './catalog-notifier';
 import { REDIS_SUB } from './tokens';
 
 export type BusMessage =
   | { kind: 'telemetry'; plant: string; event: TelemetryEvent }
   | { kind: 'alarm'; plant: string; event: AlarmEvent }
+  | { kind: 'order'; plant: string; event: OrderEvent }
   | { kind: 'catalog'; plant: string };
 
 const EVENTS_PREFIX = 'campo:events:';
 const ALARMS_PREFIX = 'campo:alarms:';
 
 /**
- * Único suscriptor Redis por proceso. Hace PSUBSCRIBE a `campo:events:*` y `campo:alarms:*`, SUBSCRIBE a
+ * Único suscriptor Redis por proceso. Hace PSUBSCRIBE a `campo:events:*`, `campo:alarms:*` y `campo:orders:*` (órdenes de control, §14), SUBSCRIBE a
  * `campo:catalog:changed` (el catálogo de una planta cambió) y reparte los mensajes ya parseados en memoria (motor de alarmas y gateway WS).
  * Nota: `campo:alarms:active:{plant}` es un hash, no un canal, así que no colisiona.
  */
@@ -32,7 +34,7 @@ export class RealtimeBus implements OnModuleInit, OnModuleDestroy {
     );
     // Los canales exactos llegan como 'message' (los patrones, como 'pmessage').
     this.sub.on('message', (channel: string, raw: string) => this.handle(channel, raw));
-    await this.sub.psubscribe('campo:events:*', 'campo:alarms:*');
+    await this.sub.psubscribe('campo:events:*', 'campo:alarms:*', 'campo:orders:*');
     await this.sub.subscribe(CATALOG_CHANGED_CHANNEL);
   }
 
@@ -45,7 +47,7 @@ export class RealtimeBus implements OnModuleInit, OnModuleDestroy {
     try {
       await Promise.race([
         Promise.all([
-          this.sub.punsubscribe('campo:events:*', 'campo:alarms:*'),
+          this.sub.punsubscribe('campo:events:*', 'campo:alarms:*', 'campo:orders:*'),
           this.sub.unsubscribe(CATALOG_CHANGED_CHANNEL),
         ]),
         new Promise<void>((resolve) => {
@@ -70,6 +72,9 @@ export class RealtimeBus implements OnModuleInit, OnModuleDestroy {
     } else if (channel.startsWith(ALARMS_PREFIX)) {
       kind = 'alarm';
       plant = channel.slice(ALARMS_PREFIX.length);
+    } else if (channel.startsWith(ORDERS_CHANNEL_PREFIX)) {
+      kind = 'order';
+      plant = channel.slice(ORDERS_CHANNEL_PREFIX.length);
     } else {
       return;
     }
@@ -90,6 +95,11 @@ export class RealtimeBus implements OnModuleInit, OnModuleDestroy {
       this.subject.next({ kind, plant, event: { ...ev, plant } });
     } else if (kind === 'alarm' && type === 'alarm') {
       this.subject.next({ kind, plant, event: { ...(data as AlarmEvent), plant } });
+    } else if (kind === 'order' && type === 'order') {
+      const order = (data as OrderEvent).order;
+      if (!order || typeof order !== 'object' || typeof order.id !== 'string') return;
+      // La planta del canal manda: un evento nunca se reparte a clientes de otra planta.
+      this.subject.next({ kind, plant, event: { type: 'order', order: { ...order, plant } } });
     }
   }
 

@@ -42,7 +42,7 @@ describe('landing y navegación', () => {
     expect(mobileNav(['tanks', 'climate', 'energy', 'gas']).more).toEqual([]);
     const n = mobileNav(ALL);
     expect(n.bar.map((m) => m.id)).toEqual(['tanks', 'climate', 'energy']);
-    expect(n.more.map((m) => m.id)).toEqual(['gas', 'machines', 'flow', 'view3d']);
+    expect(n.more.map((m) => m.id)).toEqual(['gas', 'machines', 'flow', 'view3d', 'control']);
     expect(n.bar.length + (n.more.length ? 1 : 0)).toBeLessThanOrEqual(4);
   });
 });

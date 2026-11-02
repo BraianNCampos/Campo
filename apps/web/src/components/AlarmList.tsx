@@ -8,6 +8,7 @@ import { acknowledgeAlarm } from '@/live/alarm-actions';
 import { selectAlarmList, useLiveStore } from '@/store/live-store';
 import { IconCheck, IconCritical, IconWarning } from './icons';
 import { AssetName } from './AssetName';
+import { AssetTag } from './AssetTag';
 import { useNow } from './hooks';
 
 /** Lista de alarmas activas con botón de reconocimiento (≥44 px de alto). */
@@ -68,7 +69,7 @@ export function AlarmList({
                     onClick={() => onSelect?.(a.asset)}
                     className="mt-0.5 block min-h-11 text-left text-base font-semibold hover:underline"
                   >
-                    <AssetName id={a.asset} />
+                    <AssetName id={a.asset} /> <AssetTag id={a.asset} className="text-xs" />
                   </button>
                   <p className="text-sm text-muted">{a.message || `${metricMeta(a.metric).label} fuera de límite`}</p>
                   <p className="mt-1 font-mono text-sm tabular-nums">

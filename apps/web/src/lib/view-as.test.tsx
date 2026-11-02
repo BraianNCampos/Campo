@@ -31,7 +31,7 @@ describe('selector «Ver como»', () => {
   it('la identidad demo sale del cliente elegido; plataforma es platform_admin sin cliente', () => {
     expect(withDemoOrg(me, 'cliente-tanques').org?.modules).toEqual(['tanks']);
     expect(withDemoOrg(me, 'cliente-tanques').role).toBe('operator'); // el rol demo sigue funcionando
-    expect(withDemoOrg(me, 'campos-demo').org?.modules).toHaveLength(7);
+    expect(withDemoOrg(me, 'campos-demo').org?.modules).toHaveLength(8);
     expect(withDemoOrg(me, null)).toMatchObject({ org: null, role: 'platform_admin' });
   });
   it('las plantas demo seleccionables salen del cliente (plataforma ve ambas)', () => {

@@ -28,6 +28,7 @@ export function WallCard({ id }: { id: string }) {
         <h3 className="flex min-w-0 items-center gap-[0.4em] text-[1.05em] leading-tight font-semibold">
           <Icon className="shrink-0 text-muted" />
           <span className="truncate">{d.name}</span>
+          <span className="shrink-0 font-mono text-[0.55em] font-medium text-muted">{d.tag}</span>
         </h3>
         <span className="text-[0.75em]"><StatusChip status={d.status} severity={d.severity} size="lg" /></span>
       </header>

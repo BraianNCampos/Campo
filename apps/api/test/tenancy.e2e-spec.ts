@@ -31,6 +31,8 @@ const ID = {
   modelB: U(6),
   shelvedA: U(7),
   shelvedB: U(8),
+  orderA: U(9),
+  orderB: U(10),
   sha: (c: string) => c.repeat(64),
 };
 
@@ -43,6 +45,9 @@ const ROLES_BY_LEVEL: Record<Level, Role[]> = {
   platform: [],
 };
 
+/** Cuerpo fijo o calculado (p. ej. un `confirmId` que sólo vale para quien lo pidió, sobre la ruta de la llamada). */
+type Body = object | ((token: string, path: string) => Promise<object>);
+
 interface Case {
   name: string;
   method: 'get' | 'post' | 'patch' | 'put' | 'delete';
@@ -51,9 +56,9 @@ interface Case {
   /** Ruta equivalente sobre un recurso de A (control). */
   own?: string;
   level: Level;
-  body?: object;
+  body?: Body;
   /** Cuerpo para el control sobre A (si difiere: apunta a un recurso de A). */
-  ownBody?: object;
+  ownBody?: Body;
   /** Estado que obtiene platform_admin sobre B (y el control sobre A). */
   ok: number;
   /** Listado: la respuesta no debe contener ningún dato de B. */
@@ -75,6 +80,20 @@ const rule = (plant: string) => ({
   threshold: 80,
   severity: 'warning',
 });
+
+/**
+ * Cuerpo de `POST .../commands`: pide antes una vista previa con el MISMO token sobre la MISMA ruta (el
+ * `confirmId` está atado a usuario y activo). Si la vista previa se rechaza (403), manda un UUID cualquiera.
+ */
+async function confirmBody(token: string, path: string): Promise<object> {
+  const r = await request(httpRef.current)
+    .post(`${path}/preview`)
+    .set(bearer(token))
+    .send({ command: 'stop' }); // el paro nunca se bloquea por la orden en curso del escenario
+  const id = (r.body as { confirmId?: string }).confirmId;
+  return { confirmId: r.status === 200 && id ? id : '00000000-0000-4000-8000-0000000000ff' };
+}
+const httpRef: { current: App } = { current: undefined as unknown as App };
 
 const CASES: Case[] = [
   // plantas
@@ -413,6 +432,58 @@ const CASES: Case[] = [
     ok: 200,
     list: true,
   },
+  // control de llenado (§14.3)
+  {
+    name: 'POST /plants/:plant/assets/:asset/commands/preview',
+    method: 'post',
+    foreign: '/api/plants/pb/assets/tk-b1/commands/preview',
+    own: '/api/plants/pa/assets/tk-a1/commands/preview',
+    body: { command: 'fill', target: 80 },
+    level: 'operator',
+    ok: 200,
+  },
+  {
+    name: 'POST /plants/:plant/assets/:asset/commands',
+    method: 'post',
+    foreign: '/api/plants/pb/assets/tk-b1/commands',
+    own: '/api/plants/pa/assets/tk-a1/commands',
+    body: confirmBody,
+    level: 'operator',
+    ok: 201,
+  },
+  {
+    name: 'GET /plants/:plant/orders',
+    method: 'get',
+    foreign: '/api/plants/pb/orders',
+    own: '/api/plants/pa/orders',
+    level: 'viewer',
+    ok: 200,
+  },
+  {
+    name: 'GET /plants/:plant/assets/:asset/interlocks',
+    method: 'get',
+    foreign: '/api/plants/pb/assets/tk-b1/interlocks',
+    own: '/api/plants/pa/assets/tk-a1/interlocks',
+    level: 'operator',
+    ok: 200,
+  },
+  {
+    name: 'PUT /plants/:plant/assets/:asset/setpoints/:metric',
+    method: 'put',
+    foreign: '/api/plants/pb/assets/tk-b1/setpoints/level',
+    own: '/api/plants/pa/assets/tk-a1/setpoints/level',
+    body: { value: 55 },
+    level: 'engineer',
+    ok: 200,
+  },
+  {
+    name: 'POST /orders/:id/cancel',
+    method: 'post',
+    foreign: `/api/orders/${ID.orderB}/cancel`,
+    own: `/api/orders/${ID.orderA}/cancel`,
+    level: 'operator',
+    ok: 200,
+  },
   // plataforma: ningún rol de cliente
   { name: 'GET /orgs', method: 'get', foreign: '/api/orgs', level: 'platform', ok: 200 },
   {
@@ -464,6 +535,7 @@ describe('Aislamiento entre clientes: matriz endpoint x rol (e2e)', () => {
     ID.alarmB,
     ID.shelvedB,
     ID.modelB,
+    ID.orderB,
     'org-b.test',
     'org-b',
   ];
@@ -472,6 +544,7 @@ describe('Aislamiento entre clientes: matriz endpoint x rol (e2e)', () => {
     t = await createTestApp({ authCacheTtlMs: 0, wsRevalidateMs: 100 });
     await t.app.listen(0, '127.0.0.1');
     http = t.app.getHttpServer() as App;
+    httpRef.current = http;
     wsBase = `ws://127.0.0.1:${(t.app.getHttpServer().address() as AddressInfo).port}/ws`;
     await t.makeOrg('org-a', [...MODULE_IDS], ['pa', 'pa2']);
     await t.makeOrg('org-b', [...MODULE_IDS], ['pb', 'pb2']);
@@ -512,7 +585,8 @@ describe('Aislamiento entre clientes: matriz endpoint x rol (e2e)', () => {
       name: id,
       type: 'tank' as const,
       model3dRef: null,
-      metadata: {},
+      tag: plant === 'pa' ? 'TNK-101' : 'TNK-201',
+      metadata: { control: { enabled: true, minTarget: 10, maxTarget: 90 } },
     });
     t.assets.assets.splice(0, t.assets.assets.length, asset('pa', 'tk-a1'), asset('pb', 'tk-b1'));
     t.plants.names.clear();
@@ -596,6 +670,39 @@ describe('Aislamiento entre clientes: matriz endpoint x rol (e2e)', () => {
         createdBy: null,
       });
     }
+    // control: telemetría fresca (nivel 40 %), una orden en curso por planta y los contadores de frecuencia a cero
+    t.orders.orders.clear();
+    t.bus.published.length = 0;
+    for (const key of await t.redis.keys('campo:control:*')) await t.redis.del(key);
+    for (const [plantId, assetId] of [
+      ['pa', 'tk-a1'],
+      ['pb', 'tk-b1'],
+    ] as const) {
+      await t.redis.hset(
+        redisKeys.state(plantId),
+        assetId,
+        JSON.stringify({ ts: Date.now(), values: { level: 40 }, quality: 'good' }),
+      );
+    }
+    for (const [org, plantId, assetId, orderId] of [
+      ['org-a', 'pa', 'tk-a1', ID.orderA],
+      ['org-b', 'pb', 'tk-b1', ID.orderB],
+    ] as const) {
+      t.orders.orders.set(orderId, {
+        id: orderId,
+        orgId: org,
+        plant: plantId,
+        asset: assetId,
+        tag: null,
+        command: 'fill',
+        target: 80,
+        status: 'running',
+        requestedBy: { id: U(99), email: `op@${org}.test` },
+        requestedAt: Date.now() - 1000,
+        updatedAt: Date.now() - 1000,
+        maxDurationMinutes: 120,
+      });
+    }
     t.audit.entries.splice(0, t.audit.entries.length);
     t.audit.orgOfEntry.clear();
     for (const [org, plantId] of [
@@ -623,10 +730,12 @@ describe('Aislamiento entre clientes: matriz endpoint x rol (e2e)', () => {
       .replace('/UA', `/${userIds.get('org-a:viewer')}`)
       .replace(org === 'org-a' ? 'unused' : 'unused', '');
 
-  const call = (c: Case, path: string, token: string, own = false) => {
-    const r = request(http)[c.method](fill(path, 'org-b')).set(bearer(token));
+  const call = async (c: Case, path: string, token: string, own = false) => {
+    const url = fill(path, 'org-b');
+    const r = request(http)[c.method](url).set(bearer(token));
     if (c.upload) return r.set('Content-Type', 'model/gltf-binary').send(triangleGlb());
-    const body = own ? (c.ownBody ?? c.body) : c.body;
+    const spec = own ? (c.ownBody ?? c.body) : c.body;
+    const body = typeof spec === 'function' ? await spec(token, url) : spec;
     return body ? r.send(body) : r;
   };
   const leaks = (body: unknown) => {
@@ -735,6 +844,33 @@ describe('Aislamiento entre clientes: matriz endpoint x rol (e2e)', () => {
     });
   });
 
+  it('una orden de B responde igual que una inexistente (mismo 403, sin pistas)', async () => {
+    const token = tokens.get('org-a:operator') as string;
+    const real = await request(http).post(`/api/orders/${ID.orderB}/cancel`).set(bearer(token));
+    const fake = await request(http)
+      .post('/api/orders/00000000-0000-4000-8000-0000000000fe/cancel')
+      .set(bearer(token));
+    expect([real.status, real.body]).toEqual([fake.status, fake.body]);
+    expect(real.status).toBe(403);
+    expect(t.bus.published).toEqual([]); // y no se envió nada al equipo
+    expect(t.orders.orders.get(ID.orderB)?.status).toBe('running');
+  });
+
+  it('A no ordena sobre un activo de B ni con un confirmId propio (atado a su planta y activo)', async () => {
+    const token = tokens.get('org-a:operator') as string;
+    const ok = await request(http)
+      .post('/api/plants/pa/assets/tk-a1/commands/preview')
+      .set(bearer(token))
+      .send({ command: 'stop' })
+      .expect(200);
+    const res = await request(http)
+      .post('/api/plants/pb/assets/tk-b1/commands')
+      .set(bearer(token))
+      .send({ confirmId: (ok.body as { confirmId: string }).confirmId });
+    expect(res.status).toBe(403);
+    expect(t.bus.published).toEqual([]);
+  });
+
   describe('un admin de A no puede escalar privilegios', () => {
     const admin = () => tokens.get('org-a:admin') as string;
     const send = (method: 'post' | 'patch' | 'put', path: string, body: object, token = admin()) =>
@@ -839,6 +975,19 @@ describe('Aislamiento entre clientes: matriz endpoint x rol (e2e)', () => {
   });
 
   describe('WebSocket', () => {
+    const order = (plant: string, id: string) => ({
+      type: 'order',
+      order: {
+        id,
+        plant,
+        asset: 'x',
+        command: 'stop',
+        status: 'pending',
+        requestedBy: { id: 'u', email: 'u@x' },
+        requestedAt: 1,
+        updatedAt: 1,
+      },
+    });
     const open = (plant: string, token: string) =>
       new Promise<{ closed: Promise<number>; messages: { type: string; plant?: string }[] }>(
         (resolve, reject) => {
@@ -881,6 +1030,21 @@ describe('Aislamiento entre clientes: matriz endpoint x rol (e2e)', () => {
       await sleep(250);
       expect(a.messages.every((m) => m.plant === 'pa')).toBe(true);
       expect(b.messages.some((m) => m.type === 'telemetry')).toBe(true);
+    });
+
+    it('los eventos de órdenes sólo llegan a los sockets de la planta de la orden', async () => {
+      const a = await open('pa', tokens.get('org-a:viewer') as string);
+      const b = await open('pb', tokens.get('org-b:viewer') as string);
+      await sleep(100);
+      await t.redis.publish(`campo:orders:pb`, JSON.stringify(order('pb', ID.orderB)));
+      await sleep(150);
+      expect(a.messages.map((m) => m.type)).toEqual(['snapshot']);
+      expect(b.messages.map((m) => m.type)).toEqual(['snapshot', 'order']);
+      // y un evento que se anuncia de otra planta no se cuela: manda la planta del canal
+      await t.redis.publish(`campo:orders:pa`, JSON.stringify(order('pb', ID.orderB)));
+      await sleep(150);
+      expect(b.messages.map((m) => m.type)).toEqual(['snapshot', 'order']);
+      expect(a.messages.at(-1)).toMatchObject({ type: 'order', order: { plant: 'pa' } });
     });
   });
 });

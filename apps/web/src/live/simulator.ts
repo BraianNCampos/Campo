@@ -36,6 +36,8 @@ interface PumpSim {
   valve: string;
   on: boolean;
   rpm: number;
+  /** horas de marcha acumuladas (horas del equipo, no del reloj de la demo) */
+  hours: number;
 }
 interface ValveSim {
   id: string;
@@ -77,8 +79,8 @@ export class PlantSimulator {
     { id: 'tk-04', level: 87, role: 'sink', phase: 4.1, tempBase: 21, tempAmp: 4 },
   ];
   private pumps: PumpSim[] = [
-    { id: 'pump-01', from: 'tk-01', to: 'tk-03', valve: 'valve-01', on: true, rpm: 1450 },
-    { id: 'pump-02', from: 'tk-02', to: 'tk-04', valve: 'valve-02', on: true, rpm: 1450 },
+    { id: 'pump-01', from: 'tk-01', to: 'tk-03', valve: 'valve-01', on: true, rpm: 1450, hours: 3412.4 },
+    { id: 'pump-02', from: 'tk-02', to: 'tk-04', valve: 'valve-02', on: true, rpm: 1450, hours: 2876.1 },
   ];
   private valves: ValveSim[] = [
     { id: 'valve-01', position: 100, openTo: 100 },
@@ -132,7 +134,7 @@ export class PlantSimulator {
     for (const tk of this.tanks)
       out[tk.id] = { ts: now, quality: 'good', values: { level: round(tk.level, 2), temp: round(this.temps.get(tk.id) ?? 0, 2) } };
     for (const p of this.pumps)
-      out[p.id] = { ts: now, quality: 'good', values: { rpm: round(p.rpm, 0), current: round(this.pumpCurrent.get(p.id) ?? 0, 2) } };
+      out[p.id] = { ts: now, quality: 'good', values: { rpm: round(p.rpm, 0), current: round(this.pumpCurrent.get(p.id) ?? 0, 2), hours: round(p.hours, 1) } };
     for (const v of this.valves) out[v.id] = { ts: now, quality: 'good', values: { position: round(v.position, 1) } };
     return out;
   }
@@ -154,6 +156,7 @@ export class PlantSimulator {
       if (p.on && (src < 5 || dst > 97)) p.on = false;
       else if (!p.on && src > 25 && dst < 75) p.on = true;
       p.rpm = approach(p.rpm, p.on ? 1450 : 0, 600, dt);
+      if (p.rpm > 50) p.hours += (dt / 3600) * 60; // el tiempo de la demo va acelerado: 1 s ≈ 1 min de marcha
       const jitter = p.rpm > 50 ? this.noise(6) : 0;
       p.rpm = Math.max(0, p.rpm + jitter * dt * 4);
       this.pumpCurrent.set(p.id, Math.max(0, (p.rpm / 1450) * 11.2 + (p.rpm > 50 ? this.noise(0.25) : 0)));

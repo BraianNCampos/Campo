@@ -1,4 +1,4 @@
-import type { Role } from '@campo/shared';
+import type { Order, Role } from '@campo/shared';
 import { getDemoIdentity } from '@/lib/admin';
 import { clearToken, getToken } from '@/lib/auth';
 import { withBase } from '@/lib/base-path';
@@ -42,27 +42,32 @@ function liveContext(): EngineContext {
   };
 }
 
-const engines = new Map<string, { engine: DemoControlEngine; emit: (o: import('@campo/shared').Order) => void }>();
+interface Slot {
+  engine: DemoControlEngine;
+  /** destino de los eventos de órdenes (se reasigna con `attachDemoControl`) */
+  sink: (o: Order) => void;
+}
+const engines = new Map<string, Slot>();
 
 /** Servidor de control simulado de una planta (uno por planta y por pestaña). */
 export function getDemoControl(plant: string): DemoControlEngine {
-  let e = engines.get(plant);
-  if (!e) {
-    const holder = { emit: (_o: import('@campo/shared').Order) => {} };
-    e = { engine: new DemoControlEngine({ plant, ctx: liveContext(), emit: (o) => holder.emit(o) }), emit: holder.emit };
-    // `emit` se reasigna desde `attachDemoControl`; el cierre de arriba lee siempre el valor vigente
-    engines.set(plant, Object.assign(e, { holder }) as never);
+  let slot = engines.get(plant);
+  if (!slot) {
+    const created: Slot = { sink: () => {}, engine: undefined as unknown as DemoControlEngine };
+    created.engine = new DemoControlEngine({ plant, ctx: liveContext(), emit: (o) => created.sink(o) });
+    engines.set(plant, created);
+    slot = created;
   }
-  return e.engine;
+  return slot.engine;
 }
 
 /** Conecta los eventos de órdenes de la planta con el flujo de mensajes (como el WebSocket real). Devuelve la desconexión. */
-export function attachDemoControl(plant: string, emit: (o: import('@campo/shared').Order) => void): () => void {
+export function attachDemoControl(plant: string, emit: (o: Order) => void): () => void {
   getDemoControl(plant);
-  const rec = engines.get(plant) as unknown as { holder: { emit: typeof emit } };
-  rec.holder.emit = emit;
+  const slot = engines.get(plant)!;
+  slot.sink = emit;
   return () => {
-    if (rec.holder.emit === emit) rec.holder.emit = () => {};
+    if (slot.sink === emit) slot.sink = () => {};
   };
 }
 

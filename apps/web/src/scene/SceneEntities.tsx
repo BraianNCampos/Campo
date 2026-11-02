@@ -2,20 +2,29 @@
 
 import { useMemo, type ReactNode } from 'react';
 import { modelIdOf, type SceneEntry } from '@/lib/catalog';
+import { Conveyor } from './Conveyor';
 import { Pump } from './Pump';
+import { Silo } from './Silo';
+import { Structure } from './Structure';
 import { Sensor } from './Sensor';
 import { Tank } from './Tank';
 import { Valve } from './Valve';
 import { ModelAsset } from './ModelAsset';
 import { Pipes } from './Pipes';
-import { pipeSetFor, resolvePlacements, sceneBounds, type Bounds, type Placement } from './layout';
+import { pipeSetFor, resolvePlacements, sceneBounds, structureSpec, type Bounds, type Placement } from './layout';
 
 /** Modelo procedural de cada tipo. */
 function Procedural({ entry, placement }: { entry: SceneEntry; placement: Placement }): ReactNode {
-  const props = { id: entry.id, name: entry.name, placement };
+  const props = { id: entry.id, name: entry.name, tag: entry.tag, placement };
   switch (entry.type) {
     case 'tank':
       return <Tank {...props} />;
+    case 'silo':
+      return <Silo {...props} />;
+    case 'conveyor':
+      return <Conveyor {...props} />;
+    case 'structure':
+      return <Structure {...props} spec={structureSpec(entry)} />;
     case 'pump':
       return <Pump {...props} />;
     case 'valve':
@@ -27,8 +36,8 @@ function Procedural({ entry, placement }: { entry: SceneEntry; placement: Placem
 
 function AssetNode({ entry, placement }: { entry: SceneEntry; placement: Placement }) {
   const procedural = <Procedural entry={entry} placement={placement} />;
-  if (!modelIdOf(entry.model3dRef)) return procedural;
-  return <ModelAsset id={entry.id} name={entry.name} type={entry.type} placement={placement} modelRef={entry.model3dRef} fallback={procedural} />;
+  if (entry.type === 'structure' || !modelIdOf(entry.model3dRef)) return procedural;
+  return <ModelAsset id={entry.id} name={entry.name} tag={entry.tag} type={entry.type} placement={placement} modelRef={entry.model3dRef} fallback={procedural} />;
 }
 
 /** Posiciones, límites y tuberías de una lista de activos (derivados una vez por cambio de catálogo). */

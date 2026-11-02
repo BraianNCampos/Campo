@@ -1,6 +1,6 @@
 'use client';
 
-import { pumpRunning } from '@/lib/assets';
+import { isStructure, isTankLike, pumpRunning } from '@/lib/assets';
 import { formatMetric, metricMeta } from '@/lib/metrics';
 import { STATUS_META } from '@/lib/status';
 import { formatNumber } from '@/lib/math';
@@ -24,11 +24,11 @@ function BigValue({ id, metric, value }: { id: string; metric: string; value: nu
 
 /** Tarjeta de activo para móvil: valor principal grande, barra, estado y sparkline. */
 export function AssetCard({ id }: { id: string }) {
-  const { state, kind, status, name, uncataloged } = useAsset(id);
+  const { state, kind, status, name, tag, uncataloged } = useAsset(id);
   const Icon = KIND_ICON[kind];
   const meta = STATUS_META[status];
   const v = state?.values ?? {};
-  const main = kind === 'tank' ? 'level' : kind === 'pump' ? 'rpm' : kind === 'valve' ? 'position' : (Object.keys(v)[0] ?? 'value');
+  const main = isTankLike(kind) ? 'level' : kind === 'pump' ? 'rpm' : kind === 'valve' ? 'position' : (Object.keys(v)[0] ?? 'value');
   const color = status === 'ok' ? 'var(--color-calm-bar)' : `var(--color-${status === 'critical' ? 'crit' : status === 'bad' ? 'bad' : 'warn'})`;
   const running = pumpRunning(v);
 
@@ -44,15 +44,19 @@ export function AssetCard({ id }: { id: string }) {
         <h3 className="flex items-center gap-2 text-base font-semibold">
           <Icon className="text-xl text-muted" />
           {name}
-          <span className="font-mono text-xs font-normal text-muted">{id}</span>
+          <span className="font-mono text-xs font-normal text-muted" data-testid={`tag-${id}`}>{tag}</span>
         </h3>
         <span className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
           {uncataloged && <UncatalogedTag />}
-          <StatusBadge status={status} size="sm" />
+          {!isStructure(kind) && <StatusBadge status={status} size="sm" />}
         </span>
       </header>
 
-      {status === 'nodata' ? (
+      {isStructure(kind) ? (
+        <p data-testid={`decor-${id}`} className="mt-3 text-sm text-muted">
+          Estructura decorativa: se dibuja en la Vista 3D y no envía datos.
+        </p>
+      ) : status === 'nodata' ? (
         <p data-testid={`nodata-${id}`} className="mt-3 text-sm text-muted">
           Todavía no llegaron datos de este activo.
         </p>
@@ -68,7 +72,7 @@ export function AssetCard({ id }: { id: string }) {
             </div>
           </div>
 
-          {kind === 'tank' && (
+          {isTankLike(kind) && (
             <div className="mt-2.5">
               <LevelBar value={v.level} color={color} thresholds={metricMeta('level').thresholds} label={`Nivel de ${name}`} height={16} />
               <p className="mt-1.5 text-sm text-muted">
